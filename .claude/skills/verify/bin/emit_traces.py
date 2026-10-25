@@ -54,9 +54,34 @@ except RuntimeError:
     pass
 scenario("root_error", root.trace_id)
 
+# 5. Prompt-cache tokens are priced on top of input tokens: claude-opus-5-5 at $4 in, $20 out,
+#    $0.20 cache read, $5 cache write (5 min): 0.004 + 0.01 + 0.02 + 0.05 = $0.084.
+with span("verify.cached", "agent") as root, span("llm-call", "llm") as llm:
+    llm.set_llm(
+        "claude-opus-5-5",
+        input_tokens=1000,
+        output_tokens=500,
+        cache_read_tokens=100_000,
+        cache_write_5m_tokens=10_000,
+    )
+scenario("cached", root.trace_id)
+
+# 6. A span over the 4 MB request budget is sent truncated and marked, not dropped.
+with span("verify.oversized", "agent", input={"image": "A" * 6_000_000}) as s:
+    s.set_output("ok")
+scenario("oversized", s.trace_id)
+
+# 7. A burst bigger than one request (99 LLM spans with 60 KB conversations, about 6 MB) is
+#    split by bytes, so every span arrives.
+with span("verify.burst", "agent") as root:
+    for _ in range(99):
+        with span("anthropic.messages.create", "llm", input={"messages": "m" * 60_000}):
+            pass
+scenario("burst", root.trace_id)
+
 agenttrace.flush()
 
-# 5. The same span sent three times (in one batch and in a later batch) is stored once (ADR-0014).
+# 8. The same span sent three times (in one batch and in a later batch) is stored once (ADR-0014).
 exporter = get_exporter()
 assert exporter is not None, "AGENTTRACE_API_KEY must be set"
 now = datetime.now(UTC)
@@ -75,7 +100,7 @@ exporter.export(dup)
 exporter.flush()
 scenario("duplicate", dup.trace_id)
 
-# 6. A crashed agent: child spans arrive, the root never does. The trace shows `running`, then
+# 9. A crashed agent: child spans arrive, the root never does. The trace shows `running`, then
 #    `error` once the quiet period passes (ADR-0004, ADR-0013).
 crashed = new_trace_id()
 exporter.export(

@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+import pytest
+
 from agenttrace import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
 from agenttrace_worker.pipeline import (
     COLUMNS,
@@ -96,3 +98,38 @@ def test_row_matches_columns_and_carries_trace_metadata():
 def test_llm_row_is_priced():
     row = dict(zip(COLUMNS, to_row(llm(), PROJECT, 30, PRICES, lambda k, d: ""), strict=True))
     assert row["cost_usd"] == 3.0
+
+
+CACHED = PriceTable(
+    {
+        "m": [Price(datetime(2026, 1, 1, tzinfo=UTC), 4.0, 20.0, 0.20, 5.0, 8.0)],
+        "old": [PRICES.by_model["m"][0]],
+    }
+)
+
+
+def test_cache_reads_and_writes_are_priced_on_top_of_input():
+    span = llm(
+        input_tokens=1_000,
+        output_tokens=1_000,
+        cache_read_tokens=1_000_000,
+        cache_write_5m_tokens=1_000_000,
+        cache_write_1h_tokens=1_000_000,
+    )
+    # 0.004 input + 0.02 output + 0.20 read + 5.00 write (5m) + 8.00 write (1h)
+    assert CACHED.cost(span) == pytest.approx(13.224)
+
+
+def test_cache_tokens_without_a_cache_price_make_cost_null_not_low():
+    assert CACHED.cost(llm(model="old", cache_read_tokens=10)) is None
+    assert CACHED.cost(llm(model="old", cache_read_tokens=0)) == 6.0  # unused cache is fine
+
+
+def test_cache_columns_are_written():
+    span = llm(cache_read_tokens=7, cache_write_5m_tokens=8, cache_write_1h_tokens=9)
+    row = dict(zip(COLUMNS, to_row(span, PROJECT, 30, CACHED, lambda k, d: ""), strict=True))
+    assert (
+        row["cache_read_tokens"],
+        row["cache_write_5m_tokens"],
+        row["cache_write_1h_tokens"],
+    ) == (7, 8, 9)

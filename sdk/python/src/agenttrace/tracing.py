@@ -47,6 +47,9 @@ class ActiveSpan:
         self.model: str | None = None
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
+        self.cache_read_tokens: int | None = None
+        self.cache_write_5m_tokens: int | None = None
+        self.cache_write_1h_tokens: int | None = None
         self.attributes: dict[str, str] = dict(attributes or {})
         # Trace metadata belongs on the root span only; on a child it's ignored.
         self.trace_metadata = trace_metadata if parent is None else None
@@ -69,10 +72,16 @@ class ActiveSpan:
         model: str | None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        cache_read_tokens: int | None = None,
+        cache_write_5m_tokens: int | None = None,
+        cache_write_1h_tokens: int | None = None,
     ) -> None:
         self.model = model
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.cache_write_5m_tokens = cache_write_5m_tokens
+        self.cache_write_1h_tokens = cache_write_1h_tokens
 
     def _end(self) -> None:
         exporter = get_exporter()
@@ -94,6 +103,9 @@ class ActiveSpan:
                 model=self.model,
                 input_tokens=self.input_tokens,
                 output_tokens=self.output_tokens,
+                cache_read_tokens=self.cache_read_tokens,
+                cache_write_5m_tokens=self.cache_write_5m_tokens,
+                cache_write_1h_tokens=self.cache_write_1h_tokens,
                 attributes=self.attributes,
                 trace=self.trace_metadata,
             )

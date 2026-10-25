@@ -73,18 +73,32 @@ def _llm_span(kwargs: dict[str, Any]) -> Iterator[ActiveSpan]:
         yield s
 
 
+def _cache_writes(usage: Any) -> tuple[int | None, int | None]:
+    """(5-minute, 1-hour) cache-write tokens. They're priced differently, so use the per-TTL
+    breakdown when present; without it, all writes are the default 5-minute TTL."""
+    total = getattr(usage, "cache_creation_input_tokens", None)
+    by_ttl = getattr(usage, "cache_creation", None)
+    if by_ttl is not None:
+        return (
+            getattr(by_ttl, "ephemeral_5m_input_tokens", None),
+            getattr(by_ttl, "ephemeral_1h_input_tokens", None),
+        )
+    return total, None
+
+
 def _record_response(s: ActiveSpan, response: Any) -> None:
     usage = getattr(response, "usage", None)
     # response.model is the model that served the call, which differs from the request on a
     # fallback; cost must follow the model that actually ran.
+    write_5m, write_1h = _cache_writes(usage)
     s.set_llm(
         getattr(response, "model", None) or s.model,
         getattr(usage, "input_tokens", None),
         getattr(usage, "output_tokens", None),
+        cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
+        cache_write_5m_tokens=write_5m,
+        cache_write_1h_tokens=write_1h,
     )
-    for key in ("cache_read_input_tokens", "cache_creation_input_tokens"):
-        if (value := getattr(usage, key, None)) is not None:
-            s.set_attribute(f"llm.usage.{key}", value)
     if stop_reason := getattr(response, "stop_reason", None):
         s.set_attribute("llm.stop_reason", stop_reason)
     s.set_output(getattr(response, "content", response))

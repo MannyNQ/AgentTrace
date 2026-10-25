@@ -13,7 +13,8 @@ from agenttrace import Span
 
 COLUMNS = [
     "project_id", "trace_id", "span_id", "parent_span_id", "name", "kind", "start_time",
-    "end_time", "status", "error_type", "model", "input_tokens", "output_tokens", "cost_usd",
+    "end_time", "status", "error_type", "model", "input_tokens", "output_tokens",
+    "cache_read_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens", "cost_usd",
     "input_preview", "output_preview", "input_uri", "output_uri", "session_id", "user_id",
     "tags", "metadata", "attributes", "retention_days",
 ]  # fmt: skip
@@ -26,6 +27,9 @@ class Price:
     effective_from: datetime
     input_per_mtok: float
     output_per_mtok: float
+    cache_read_per_mtok: float | None = None
+    cache_write_5m_per_mtok: float | None = None
+    cache_write_1h_per_mtok: float | None = None
 
 
 @dataclass
@@ -41,7 +45,18 @@ class PriceTable:
         if i < 0:
             return None
         p = prices[i]
-        return (span.input_tokens * p.input_per_mtok + span.output_tokens * p.output_per_mtok) / 1e6
+        total = span.input_tokens * p.input_per_mtok + span.output_tokens * p.output_per_mtok
+        # input_tokens excludes cached tokens, so cache reads and writes are priced on top.
+        for tokens, price in (
+            (span.cache_read_tokens, p.cache_read_per_mtok),
+            (span.cache_write_5m_tokens, p.cache_write_5m_per_mtok),
+            (span.cache_write_1h_tokens, p.cache_write_1h_per_mtok),
+        ):
+            if tokens:
+                if price is None:
+                    return None  # unknown beats wrong (ADR-0010)
+                total += tokens * price
+        return total / 1e6
 
 
 def as_utc(t: datetime) -> datetime:
@@ -100,6 +115,9 @@ def to_row(
         span.model or "",
         span.input_tokens,
         span.output_tokens,
+        span.cache_read_tokens,
+        span.cache_write_5m_tokens,
+        span.cache_write_1h_tokens,
         prices.cost(span) if span.kind == "llm" else None,
         input_preview,
         output_preview,

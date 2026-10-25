@@ -36,9 +36,9 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Trace metadata**: Set on the root span by the SDK: `session_id`, `user_id`, `tags` (list of strings), `metadata` (string-to-string map). Tags and user ID are filterable.
 
-**Cost**: `cost_usd` on an LLM span, computed once at ingestion from the price table and never recomputed. Null when the model has no price. See ADR-0010.
+**Cost**: `cost_usd` on an LLM span, computed once at ingestion from the price table and never recomputed. Covers input, output, and prompt-cache reads and writes (`input_tokens` excludes cached tokens). Null when the model has no price. See ADR-0010.
 
-**Price table**: Versioned prices per model (input and output per-token prices, effective date).
+**Price table**: Versioned prices per model (input, output, cache-read, and 5-minute and 1-hour cache-write per-token prices, effective date).
 
 **Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item or experiment are **pinned** and never expire. See ADR-0011.
 

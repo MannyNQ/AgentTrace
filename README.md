@@ -35,6 +35,8 @@ uv sync --all-packages
 uv run demo-agent "Where is order 1042?"
 ```
 
+Each run is traced into the local stack; open http://localhost:3000/traces to see it. The SDK reads `AGENTTRACE_API_KEY` and `AGENTTRACE_ENDPOINT` (see `.env.example`).
+
 ## Development
 
 ```bash

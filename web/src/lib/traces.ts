@@ -31,6 +31,8 @@ export type SpanRow = {
   model: string;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   costUsd: number | null;
   inputPreview: string;
   outputPreview: string;
@@ -171,7 +173,11 @@ export async function getTrace(
   const spansResult = await client.query({
     query: `
       SELECT span_id, parent_span_id, name, kind, start_time, end_time, status, error_type,
-             model, input_tokens, output_tokens, cost_usd, input_preview, output_preview,
+             model, input_tokens, output_tokens, cache_read_tokens,
+             if(cache_write_5m_tokens IS NULL AND cache_write_1h_tokens IS NULL, NULL,
+                ifNull(cache_write_5m_tokens, 0) + ifNull(cache_write_1h_tokens, 0))
+               AS cache_write_tokens,
+             cost_usd, input_preview, output_preview,
              input_uri, output_uri, attributes
       FROM spans FINAL
       WHERE project_id = {project:UUID}
@@ -199,6 +205,8 @@ export async function getTrace(
     model: string;
     input_tokens: number | null;
     output_tokens: number | null;
+    cache_read_tokens: number | null;
+    cache_write_tokens: number | null;
     cost_usd: number | null;
     input_preview: string;
     output_preview: string;
@@ -219,6 +227,8 @@ export async function getTrace(
       model: r.model,
       inputTokens: r.input_tokens,
       outputTokens: r.output_tokens,
+      cacheReadTokens: r.cache_read_tokens,
+      cacheWriteTokens: r.cache_write_tokens,
       costUsd: r.cost_usd,
       inputPreview: r.input_preview,
       outputPreview: r.output_preview,

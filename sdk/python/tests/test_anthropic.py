@@ -65,3 +65,35 @@ def test_api_errors_mark_the_span_error(collected, http_server):
     s = collected.spans[0]
     assert s.status == SpanStatus.ERROR and s.error_type == "BadRequestError"
     assert s.model == "claude-opus-5-5"
+
+
+def test_cache_tokens_are_recorded_by_ttl(collected, http_server):
+    instrument_anthropic()
+    usage = {
+        "input_tokens": 5,
+        "output_tokens": 3,
+        "cache_read_input_tokens": 1000,
+        "cache_creation_input_tokens": 300,
+        "cache_creation": {"ephemeral_5m_input_tokens": 100, "ephemeral_1h_input_tokens": 200},
+    }
+    url = http_server(lambda p, h, b: (200, {**MESSAGE, "usage": usage}))
+    client(url).messages.create(
+        model="claude-opus-5-5", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    s = collected.spans[0]
+    assert (s.cache_read_tokens, s.cache_write_5m_tokens, s.cache_write_1h_tokens) == (
+        1000,
+        100,
+        200,
+    )
+
+
+def test_cache_writes_without_a_ttl_breakdown_count_as_5m(collected, http_server):
+    instrument_anthropic()
+    usage = {"input_tokens": 5, "output_tokens": 3, "cache_creation_input_tokens": 300}
+    url = http_server(lambda p, h, b: (200, {**MESSAGE, "usage": usage}))
+    client(url).messages.create(
+        model="claude-opus-5-5", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    s = collected.spans[0]
+    assert (s.cache_write_5m_tokens, s.cache_write_1h_tokens) == (300, None)

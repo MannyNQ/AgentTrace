@@ -60,11 +60,14 @@ class Postgres:
 
     def _load_prices(self) -> PriceTable:
         table = PriceTable()
-        for model, eff, inp, out in self._query(
-            "SELECT model, effective_from, input_per_mtok, output_per_mtok "
+        for model, eff, *rates in self._query(
+            "SELECT model, effective_from, input_per_mtok, output_per_mtok, cache_read_per_mtok, "
+            "cache_write_5m_per_mtok, cache_write_1h_per_mtok "
             "FROM model_prices ORDER BY model, effective_from"
         ):
-            table.by_model.setdefault(model, []).append(Price(eff, float(inp), float(out)))
+            inp, out, read, w5m, w1h = (None if r is None else float(r) for r in rates)
+            assert inp is not None and out is not None  # NOT NULL columns
+            table.by_model.setdefault(model, []).append(Price(eff, inp, out, read, w5m, w1h))
         return table
 
     def _load_retention(self) -> dict[UUID, int]:

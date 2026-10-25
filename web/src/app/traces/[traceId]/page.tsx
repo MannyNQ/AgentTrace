@@ -131,6 +131,9 @@ function SpanDetail({ span, traceId }: { span: SpanRow; traceId: string }) {
     facts.push(
       ["Model", span.model || "—"],
       ["Tokens", `${span.inputTokens ?? "?"} in · ${span.outputTokens ?? "?"} out`],
+      ...(span.cacheReadTokens || span.cacheWriteTokens
+        ? [["Cache", `${span.cacheReadTokens ?? 0} read · ${span.cacheWriteTokens ?? 0} written`] as [string, string]]
+        : []),
       ["Cost", formatCost(span.costUsd)],
     );
   }

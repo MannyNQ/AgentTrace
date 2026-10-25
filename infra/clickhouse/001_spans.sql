@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS agenttrace.spans
     model           String,
     input_tokens    Nullable(UInt32),
     output_tokens   Nullable(UInt32),
+    cache_read_tokens      Nullable(UInt32),   -- prompt-cache tokens, not included in input_tokens
+    cache_write_5m_tokens  Nullable(UInt32),
+    cache_write_1h_tokens  Nullable(UInt32),
     cost_usd        Nullable(Float64),          -- ADR-0010: computed once, null when unpriced
     input_preview   String,                     -- ADR-0009: the whole value when small, else the first 1 KB
     output_preview  String,
