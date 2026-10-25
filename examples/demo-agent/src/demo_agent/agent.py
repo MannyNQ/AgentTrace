@@ -7,6 +7,7 @@ model call as an LLM span, and each tool call is a tool span.
 
 import os
 from dataclasses import dataclass, field
+from datetime import date
 
 import anthropic
 
@@ -50,7 +51,8 @@ def run(question: str, client: anthropic.Anthropic | None = None) -> AgentResult
         response = client.beta.messages.create(
             model=MODEL,
             max_tokens=16000,
-            system=SYSTEM,
+            # Without the date the model judges the refund window itself, and gets it wrong.
+            system=f"{SYSTEM}\nToday is {date.today().isoformat()}.",
             tools=TOOL_DEFINITIONS,
             output_config={"effort": "low"},  # short support chats; Opus 5.5 defaults to medium
             betas=["server-side-fallback-2026-07-01"],

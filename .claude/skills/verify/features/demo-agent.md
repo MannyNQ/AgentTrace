@@ -25,7 +25,7 @@ Preconditions:
 
 - **Order status.** Run `H agent "Where is order 1042?"`, then rename the capture: `mv verify-artifacts/<run-id>/agent.out verify-artifacts/<run-id>/agent-order-status.out` (and the same for `.cmd` and `.err`). The `.cmd` shows `exit: 0`, the output has a `✓ lookup_order({'order_id': '1042'})` line, and the answer mentions `UPS` and October 28.
 - **Tool error.** Run `H agent "Where is order 9999?"`, then rename the captures to `agent-tool-error.*`. Exit is 0, there's a `✗ lookup_order` line containing `No order with id '9999'`, and the answer says the order wasn't found.
-- **Refund allowed.** Run `H agent "Please refund order 1043, the mouse stopped working."`, then rename to `agent-refund-allowed.*`. There's a `✓ issue_refund` line with `"refunded_usd": 58.0`, and the answer confirms a $58 refund.
+- **Refund allowed.** Run `H agent "Please refund order 1043, both mice stopped working."`, then rename to `agent-refund-allowed.*`. There's a `✓ issue_refund` line with `"refunded_usd": 58.0`, and the answer confirms a $58 refund.
 - **Refund refused.** Run `H agent "I want a refund for order 1044."`, then rename to `agent-refund-refused.*`. Either a `✗ issue_refund` line contains `outside the 30-day window`, or the agent checks the order and policy first and declines without calling `issue_refund`. Either way the answer declines and cites the 30-day policy, and no `✓ issue_refund` line appears.
 - **Escalate.** Run `H agent "My headphones from order 1044 have a dead left ear, can I get it fixed under warranty?"`, then rename to `agent-escalate.*`. There's a `✓ escalate` line, and the answer gives the ticket `HUMAN-0001`.
 
@@ -35,5 +35,7 @@ Preconditions:
 
 - Without a key, the CLI fails with `TypeError: Could not resolve authentication method` before any tool runs. That's a precondition failure, not an agent bug. Never substitute a fake client to make it pass.
 - The refund window is measured from the real current date. Order 1043 was delivered 2026-10-10, so `agent-refund-allowed` only holds until 2026-11-09. After that it correctly refuses, so update the demo data in `examples/demo-agent/src/demo_agent/data.json` rather than the assertion.
+- Order 1043 has two mice. Asking about "the mouse" makes the agent rightly confirm before refunding the whole $58 order, so the question names both.
+- The agent is told today's date in its system prompt. Without it, the model judged the refund window itself and allowed a refund on 1044, 85 days after delivery.
 - Model wording varies between runs. Assert on tool lines, numbers, IDs and ticket names, not phrasing.
 - `H agent "<q>" <name>` names the capture directly; without a name it overwrites `agent.*` on every call.
