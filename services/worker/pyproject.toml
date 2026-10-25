@@ -1,0 +1,13 @@
+[project]
+name = "agenttrace-worker"
+version = "0.0.1"
+description = "AgentTrace span processing worker"
+requires-python = ">=3.12"
+dependencies = ["agenttrace", "redis>=5.0", "pydantic-settings>=2.4"]
+
+[project.scripts]
+agenttrace-worker = "agenttrace_worker.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

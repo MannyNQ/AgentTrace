@@ -1,0 +1,19 @@
+[project]
+name = "agenttrace-ingest"
+version = "0.0.1"
+description = "AgentTrace ingestion API"
+requires-python = ">=3.12"
+dependencies = [
+  "agenttrace",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic-settings>=2.4",
+  "psycopg[binary]>=3.2",
+  "clickhouse-connect>=0.8",
+  "redis>=5.0",
+  "boto3>=1.35",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

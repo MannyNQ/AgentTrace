@@ -1,0 +1,18 @@
+{
+  "orders": {
+    "1042": {"status": "shipped", "carrier": "UPS", "eta": "2026-10-28", "items": [{"sku": "KB-75", "qty": 1}], "total_usd": 129.0, "delivered_on": null},
+    "1043": {"status": "delivered", "carrier": "USPS", "eta": null, "items": [{"sku": "MS-02", "qty": 2}], "total_usd": 58.0, "delivered_on": "2026-10-10"},
+    "1044": {"status": "delivered", "carrier": "FedEx", "eta": null, "items": [{"sku": "HP-11", "qty": 1}], "total_usd": 249.0, "delivered_on": "2026-08-01"},
+    "1045": {"status": "processing", "carrier": null, "eta": "2026-11-02", "items": [{"sku": "KB-75", "qty": 1}, {"sku": "MS-02", "qty": 1}], "total_usd": 158.0, "delivered_on": null}
+  },
+  "inventory": {
+    "KB-75": {"name": "75% mechanical keyboard", "in_stock": 12},
+    "MS-02": {"name": "Wireless mouse", "in_stock": 0, "restock_date": "2026-11-15"},
+    "HP-11": {"name": "Noise-cancelling headphones", "in_stock": 3}
+  },
+  "kb": [
+    {"id": "refund-policy", "title": "Refund policy", "body": "Delivered orders can be refunded within 30 days of delivery. Orders not yet delivered can be cancelled instead. Refunds go to the original payment method in 5-7 business days."},
+    {"id": "shipping-times", "title": "Shipping times", "body": "Standard shipping takes 3-5 business days after an order ships. Orders ship within 2 business days of purchase."},
+    {"id": "warranty", "title": "Warranty", "body": "All products carry a 1-year limited warranty covering manufacturing defects. Warranty claims are handled by a human agent."}
+  ]
+}
