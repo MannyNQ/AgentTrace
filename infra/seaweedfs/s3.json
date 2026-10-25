@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "agenttrace",
+      "credentials": [{ "accessKey": "agenttrace", "secretKey": "agenttrace-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
