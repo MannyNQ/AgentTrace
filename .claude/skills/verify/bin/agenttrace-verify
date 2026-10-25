@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Drive an isolated AgentTrace instance for verification. Run from anywhere inside the repo.
+# Usage: agenttrace-verify <up|doctor|health|page|store-stop SVC|store-start SVC|agent "Q"|down>
+set -euo pipefail
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.orbstack/bin:$HOME/.local/bin:$PATH"
+ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+PROJECT=agenttrace-verify
+ART_ROOT="$ROOT/verify-artifacts"
+STATE="$ART_ROOT/.state"
+DIST=.next-verify
+
+# Ports for this instance only; the dev stack keeps the defaults (5432, 8000, 3000, ...).
+export AGENTTRACE_POSTGRES_PORT=15432 AGENTTRACE_CLICKHOUSE_HTTP_PORT=18123 \
+  AGENTTRACE_CLICKHOUSE_NATIVE_PORT=19000 AGENTTRACE_REDIS_PORT=16379 \
+  AGENTTRACE_S3_PORT=18333 AGENTTRACE_INGEST_PORT=18000
+WEB_PORT=13000
+INGEST="http://127.0.0.1:$AGENTTRACE_INGEST_PORT"
+WEB="http://127.0.0.1:$WEB_PORT"
+ALL_PORTS="15432 18123 19000 16379 18333 18000 $WEB_PORT"
+
+compose() { docker compose -p "$PROJECT" --project-directory "$ROOT" -f "$ROOT/docker-compose.yml" "$@"; }
+die() { echo "FAIL: $*" >&2; exit 1; }
+listener() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -1; }
+
+run_dir() {
+  [[ -f "$STATE/run_id" ]] || die "no active run; run 'agenttrace-verify up' first"
+  echo "$ART_ROOT/$(cat "$STATE/run_id")"
+}
+
+# Save a command's stdout, stderr, and exit code under the run's artifact dir.
+capture() {
+  local name="$1"; shift
+  local dir; dir="$(run_dir)"
+  local code=0
+  "$@" >"$dir/$name.out" 2>"$dir/$name.err" || code=$?
+  { echo "\$ $*"; echo "exit: $code"; } >"$dir/$name.cmd"
+  echo "$dir/$name.{cmd,out,err} (exit $code)"
+  return 0
+}
+
+cmd_up() {
+  [[ -f "$STATE/run_id" ]] && die "a run is already active ($(cat "$STATE/run_id")); run 'agenttrace-verify down' first"
+  for p in $ALL_PORTS; do
+    [[ -z "$(listener "$p")" ]] || die "port $p is already in use (pid $(listener "$p")); not starting a second instance"
+  done
+  [[ -f "$ROOT/.env" ]] || cp "$ROOT/.env.example" "$ROOT/.env"
+
+  local run_id; run_id="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
+  mkdir -p "$STATE" "$ART_ROOT/$run_id"
+  echo "$run_id" >"$STATE/run_id"
+  git -C "$ROOT" rev-parse --short HEAD >"$ART_ROOT/$run_id/git-sha"
+
+  echo "== stack: docker compose -p $PROJECT (fresh volumes) =="
+  compose up -d --build --wait --wait-timeout 240 >"$ART_ROOT/$run_id/compose-up.log" 2>&1 \
+    || { tail -20 "$ART_ROOT/$run_id/compose-up.log"; die "stack did not become healthy"; }
+
+  echo "== web: next build + next start on :$WEB_PORT =="
+  # next build rewrites tsconfig.json to include its distDir's types; keep the checkout clean.
+  cp "$ROOT/web/tsconfig.json" "$STATE/tsconfig.json.bak"
+  local built=0
+  (cd "$ROOT/web" && pnpm install --frozen-lockfile --silent \
+    && NEXT_DIST_DIR=$DIST pnpm exec next build) >"$ART_ROOT/$run_id/web-build.log" 2>&1 || built=$?
+  cp "$STATE/tsconfig.json.bak" "$ROOT/web/tsconfig.json"
+  [[ $built == 0 ]] || { tail -20 "$ART_ROOT/$run_id/web-build.log"; die "web build failed"; }
+  set -m  # own process group, so 'down' can stop exactly what we started
+  (cd "$ROOT/web" && NEXT_DIST_DIR=$DIST INGEST_URL="$INGEST" \
+    exec ./node_modules/.bin/next start -p "$WEB_PORT" -H 127.0.0.1) \
+    >"$ART_ROOT/$run_id/web.log" 2>&1 &
+  echo $! >"$STATE/web.pgid"
+  set +m
+
+  for _ in $(seq 60); do
+    curl -sf -o /dev/null "$WEB/" && break
+    sleep 1
+  done
+  curl -sf -o /dev/null "$WEB/" || { tail -20 "$ART_ROOT/$run_id/web.log"; die "web never answered on $WEB"; }
+  echo "READY run=$run_id ingest=$INGEST web=$WEB artifacts=$ART_ROOT/$run_id"
+}
+
+cmd_doctor() {
+  local ok=1
+  [[ -f "$STATE/run_id" ]] && echo "run: $(cat "$STATE/run_id") (built from $(cat "$(run_dir)/git-sha"), HEAD now $(git -C "$ROOT" rev-parse --short HEAD))" \
+    || { echo "run: none active"; ok=0; }
+  for svc in postgres clickhouse redis seaweedfs ingest worker; do
+    local h; h="$(docker inspect -f '{{.State.Health.Status}}' "$PROJECT-$svc-1" 2>/dev/null || echo missing)"
+    echo "container $svc: $h"; [[ "$h" == healthy ]] || ok=0
+  done
+  local published; published="$(compose port ingest 8000 2>/dev/null || true)"
+  echo "ingest published at: ${published:-none} (expect *:$AGENTTRACE_INGEST_PORT)"
+  [[ "$published" == *":$AGENTTRACE_INGEST_PORT" ]] || ok=0
+  local code; code="$(curl -s -o /dev/null -w '%{http_code}' "$INGEST/health" || echo 000)"
+  echo "GET $INGEST/health -> $code"; [[ "$code" == 200 ]] || ok=0
+  local pid owner want
+  pid="$(listener "$WEB_PORT")"
+  want="$(cat "$STATE/web.pgid" 2>/dev/null || echo none)"
+  owner="$( [[ -n "$pid" ]] && ps -o pgid= -p "$pid" | tr -d ' ' || echo none)"
+  echo "web :$WEB_PORT listener pid=${pid:-none} pgid=$owner (ours=$want)"
+  [[ -n "$pid" && "$owner" == "$want" ]] || ok=0
+  [[ $ok == 1 ]] && echo "DOCTOR OK" || { echo "DOCTOR FAIL"; exit 1; }
+}
+
+cmd_health() {
+  local dir; dir="$(run_dir)"
+  capture "${1:-health}" curl -s -w '\nhttp_status=%{http_code}\n' "$INGEST/health"
+  cat "$dir/${1:-health}.out"
+}
+
+# Server-rendered HTML of the health page. The store rows stream in after the shell, so the
+# full response (not a browser's first paint) is the reliable text proof.
+cmd_page() {
+  local dir name="${1:-page}"; dir="$(run_dir)"
+  capture "$name" curl -s -m 20 "$WEB/"
+  # Each rendered row is <p>{label}</p><p class=...>{result}</p>; print "label => result".
+  python3 - "$dir/$name.out" <<'PY' | tee "$dir/$name.summary"
+import html, re, sys
+page = open(sys.argv[1], encoding="utf-8").read()
+rows = re.findall(r'<p>([^<]+ · [^<]+)</p><p class="[^"]*">([^<]*)</p>', page)
+for label, result in rows:
+    print(f"{html.unescape(label)} => {html.unescape(result)}")
+if "Ingest API unreachable" in page:
+    print("Ingest API unreachable")
+if not rows and "Ingest API unreachable" not in page:
+    print("NO HEALTH ROWS RENDERED")
+PY
+}
+
+cmd_store() {
+  local action="$1" svc="${2:?service name: postgres|clickhouse|redis|seaweedfs}"
+  run_dir >/dev/null
+  compose "$action" "$svc" >/dev/null 2>&1
+  if [[ "$action" == start ]]; then
+    compose up -d --wait --wait-timeout 120 "$svc" >/dev/null 2>&1 || die "$svc did not become healthy"
+  fi
+  echo "$svc: $action done"
+}
+
+cmd_agent() {
+  local q="${1:?question}"
+  run_dir >/dev/null
+  capture agent bash -c "cd '$ROOT' && uv run --all-packages demo-agent \"\$1\"" _ "$q"
+  local dir; dir="$(run_dir)"
+  cat "$dir/agent.cmd" "$dir/agent.out"; cat "$dir/agent.err" >&2
+}
+
+cmd_down() {
+  if [[ -f "$STATE/web.pgid" ]]; then
+    kill -TERM -- "-$(cat "$STATE/web.pgid")" 2>/dev/null || true
+  fi
+  compose down -v --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$ROOT/web/$DIST" "$STATE"
+  echo "stopped project $PROJECT and the web server we started; artifacts kept in $ART_ROOT"
+}
+
+case "${1:-}" in
+  up) cmd_up ;;
+  doctor) cmd_doctor ;;
+  health) shift; cmd_health "$@" ;;
+  page) shift; cmd_page "$@" ;;
+  store-stop) cmd_store stop "${2:-}" ;;
+  store-start) cmd_store start "${2:-}" ;;
+  agent) shift; cmd_agent "$@" ;;
+  down) cmd_down ;;
+  *) sed -n '2,3p' "$0"; exit 2 ;;
+esac
