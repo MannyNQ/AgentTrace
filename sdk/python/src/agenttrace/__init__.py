@@ -1,5 +1,22 @@
-"""AgentTrace Python SDK. Phase 0 ships only the span data contract; tracing comes in Phase 1."""
+"""AgentTrace Python SDK: trace agent runs and send them to an AgentTrace server."""
 
+from agenttrace.exporter import configure, flush
+from agenttrace.integrations.anthropic import instrument_anthropic
 from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span_id, new_trace_id
+from agenttrace.tracing import ActiveSpan, current_span, span, trace
 
-__all__ = ["Span", "SpanKind", "SpanStatus", "TraceMetadata", "new_span_id", "new_trace_id"]
+__all__ = [
+    "ActiveSpan",
+    "Span",
+    "SpanKind",
+    "SpanStatus",
+    "TraceMetadata",
+    "configure",
+    "current_span",
+    "flush",
+    "instrument_anthropic",
+    "new_span_id",
+    "new_trace_id",
+    "span",
+    "trace",
+]

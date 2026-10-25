@@ -16,3 +16,8 @@ class Settings(BaseSettings):
     s3_secret_key: str = "agenttrace-secret"
     s3_bucket: str = "payloads"
     health_timeout_s: float = 3.0
+    # ADR-0017: the key from .env, registered for the default project on startup.
+    agenttrace_api_key: str | None = None
+    max_spans_per_request: int = 1000
+    max_request_bytes: int = 5 * 1024 * 1024
+    stream_maxlen: int = 1_000_000  # ADR-0015, approximate

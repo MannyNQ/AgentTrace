@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
+from agenttrace_ingest import spans
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import CHECKS, ensure_bucket
 
@@ -19,7 +20,12 @@ async def run_check(check: Callable[[Settings], None], s: Settings) -> str:
         return f"error: {type(e).__name__}: {e}"
 
 
-def create_app(settings: Settings | None = None, checks=CHECKS) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    checks=CHECKS,
+    keys: spans.KeyResolver | None = None,
+    queue: spans.SpanQueue | None = None,
+) -> FastAPI:
     s = settings or Settings()
 
     @asynccontextmanager
@@ -28,9 +34,15 @@ def create_app(settings: Settings | None = None, checks=CHECKS) -> FastAPI:
             await asyncio.to_thread(ensure_bucket, s)
         except Exception:
             log.exception("could not ensure payload bucket; /health will report s3")
+        if s.agenttrace_api_key:
+            try:
+                await asyncio.to_thread(spans.register_key, s, s.agenttrace_api_key)
+            except Exception:
+                log.exception("could not register AGENTTRACE_API_KEY; ingest will answer 401")
         yield
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
+    app.include_router(spans.router(s, keys or spans.PostgresKeys(s), queue or spans.RedisQueue(s)))
 
     @app.get("/health")
     async def health(response: Response) -> dict:

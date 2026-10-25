@@ -3,7 +3,14 @@ name = "agenttrace-worker"
 version = "0.0.1"
 description = "AgentTrace span processing worker"
 requires-python = ">=3.12"
-dependencies = ["agenttrace", "redis>=5.0", "pydantic-settings>=2.4"]
+dependencies = [
+  "agenttrace",
+  "redis>=5.0",
+  "pydantic-settings>=2.4",
+  "psycopg[binary]>=3.2",
+  "clickhouse-connect>=0.8",
+  "boto3>=1.35",
+]
 
 [project.scripts]
 agenttrace-worker = "agenttrace_worker.main:main"

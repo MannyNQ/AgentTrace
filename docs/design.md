@@ -2,7 +2,7 @@
 
 AgentTrace is a self-hostable, open-source platform for teams building LLM agents. It answers three questions: what did my agent do (tracing), why did it fail and does my fix work (replay), and did my change break anything else (evals in CI).
 
-Vocabulary is defined in [`GLOSSARY.md`](../GLOSSARY.md). Lasting decisions are in [`docs/adr/`](adr/). This doc ties them together and lists what's still open.
+Vocabulary is defined in [`GLOSSARY.md`](../GLOSSARY.md). Lasting decisions are in [`docs/adr/`](adr/). This doc ties them together.
 
 ## Angle
 
@@ -49,13 +49,15 @@ Key constraints from the ADRs:
 | `examples/demo-agent/` | Customer-support agent with 5 mock tools; the test fixture for every later phase |
 | `infra/` | ClickHouse and Postgres init SQL, SeaweedFS S3 config |
 
-## Open decisions (settle in Phase 1)
+## Decisions settled in Phase 1
 
-1. **ClickHouse sort key.** Draft: `(project_id, start_time, trace_id, span_id)`. Good for "recent traces in a project"; poor for "all spans of one trace", which the trace detail view needs. Options: a projection ordered by `(project_id, trace_id)`, or a separate `traces` summary table that stores each trace's time range so span lookups can bound `start_time`.
-2. **Dedup.** `ReplacingMergeTree` only dedups at merge time. Either query with `FINAL` (slower), dedup in the worker with a short-lived Redis set of seen `(trace_id, span_id)`, or both.
-3. **Redis Streams semantics.** Consumer group with at-least-once delivery; need a reclaim loop (`XAUTOCLAIM`) for entries a crashed worker left pending, and a max stream length.
-4. **Per-project retention.** The table TTL is a flat 30 days. Per-project retention (ADR-0011) needs either a `retention_days` column in the TTL expression or a scheduled delete job. Pinning is settled in Phase 3.
-5. **Ingest wire format.** OTLP/HTTP plus a simpler JSON endpoint; Phase 1 starts with JSON matching `agenttrace.Span`.
+1. **Sort key and trace lookup.** `spans` keeps `(project_id, start_time, trace_id, span_id)`. A materialized view fills a `traces` summary table; trace completion and status are computed at query time (ADR-0013).
+2. **Dedup.** The worker skips `(trace_id, span_id)` pairs already marked in Redis; single-trace reads use `FINAL` (ADR-0014).
+3. **Redis Streams.** At-least-once delivery, `XAUTOCLAIM` after 60 s idle, a `spans:dead` stream after 5 deliveries, `MAXLEN ~ 1000000` (ADR-0015).
+4. **Per-project retention.** A `retention_days` column stamped at ingestion drives the TTL (ADR-0016). Pinning is settled in Phase 3.
+5. **Ingest wire format.** JSON only, whole-batch validation, API keys resolve the project (ADR-0017). OTLP comes later.
+
+Also settled: the web app reads ClickHouse and S3 directly until Phase 6 (ADR-0018); spans carry separate `input_uri` and `output_uri`; prices live in a Postgres `model_prices` table; the SDK sends each span when it ends and does nothing without an API key.
 
 ## Phase 1 plan
 

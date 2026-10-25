@@ -1,7 +1,8 @@
 """A customer-support agent on the Claude API, written as an explicit loop.
 
 The loop is hand-written (not the SDK's tool runner) so each model call and each tool call is a
-visible step: Phase 1 instruments exactly these steps as LLM spans and tool spans.
+visible step: `run` is the agent span, `instrument_anthropic()` (called by the CLI) records each
+model call as an LLM span, and each tool call is a tool span.
 """
 
 import os
@@ -9,6 +10,7 @@ from dataclasses import dataclass, field
 
 import anthropic
 
+from agenttrace import span, trace
 from demo_agent.tools import TOOL_DEFINITIONS, run_tool
 
 MODEL = os.environ.get("DEMO_AGENT_MODEL", "claude-opus-5-5")
@@ -38,6 +40,7 @@ class AgentError(Exception):
     pass
 
 
+@trace(name="support_agent", kind="agent", tags=["demo-agent"])
 def run(question: str, client: anthropic.Anthropic | None = None) -> AgentResult:
     client = client or anthropic.Anthropic()
     messages: list = [{"role": "user", "content": question}]
@@ -69,7 +72,11 @@ def run(question: str, client: anthropic.Anthropic | None = None) -> AgentResult
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            output, is_error = run_tool(block.name, block.input)
+            with span(block.name, "tool", input=block.input) as tool_span:
+                output, is_error = run_tool(block.name, block.input)
+                tool_span.set_output(output)
+                if is_error:  # the agent recovers from tool errors, so this doesn't raise
+                    tool_span.set_error("ToolError")
             calls.append(ToolCall(block.name, block.input, output, is_error))
             results.append(
                 {

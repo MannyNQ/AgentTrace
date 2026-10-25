@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Drive an isolated AgentTrace instance for verification. Run from anywhere inside the repo.
-# Usage: agenttrace-verify <up|doctor|health|page|store-stop SVC|store-start SVC|agent "Q"|down>
+# Usage: agenttrace-verify <up|doctor|health|page|store-stop SVC|store-start SVC|agent "Q" [name]
+#        |emit [name]|post NAME KEY FILE|ch NAME SQL|traces [TRACE_ID] [name]|down>
 set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.orbstack/bin:$HOME/.local/bin:$PATH"
@@ -16,6 +17,13 @@ export AGENTTRACE_POSTGRES_PORT=15432 AGENTTRACE_CLICKHOUSE_HTTP_PORT=18123 \
   AGENTTRACE_S3_PORT=18333 AGENTTRACE_INGEST_PORT=18000
 WEB_PORT=13000
 INGEST="http://127.0.0.1:$AGENTTRACE_INGEST_PORT"
+# The key compose registers for the default project and the SDK sends: .env's, else the
+# .env.example default. Exported, so it wins over .env for compose, the agent and the emitter.
+AGENTTRACE_API_KEY="$(sed -n 's/^AGENTTRACE_API_KEY=//p' "$ROOT/.env" 2>/dev/null | tail -1)"
+export AGENTTRACE_API_KEY="${AGENTTRACE_API_KEY:-at-local-dev-key}"
+export AGENTTRACE_ENDPOINT="$INGEST"
+# Short quiet period so an unclosed trace completes within a verification run (ADR-0004).
+QUIET_PERIOD_S=20
 WEB="http://127.0.0.1:$WEB_PORT"
 ALL_PORTS="15432 18123 19000 16379 18333 18000 $WEB_PORT"
 
@@ -65,6 +73,8 @@ cmd_up() {
   [[ $built == 0 ]] || { tail -20 "$ART_ROOT/$run_id/web-build.log"; die "web build failed"; }
   set -m  # own process group, so 'down' can stop exactly what we started
   (cd "$ROOT/web" && NEXT_DIST_DIR=$DIST INGEST_URL="$INGEST" \
+    CLICKHOUSE_URL="http://127.0.0.1:$AGENTTRACE_CLICKHOUSE_HTTP_PORT" \
+    S3_ENDPOINT="http://127.0.0.1:$AGENTTRACE_S3_PORT" TRACE_QUIET_PERIOD_S=$QUIET_PERIOD_S \
     exec ./node_modules/.bin/next start -p "$WEB_PORT" -H 127.0.0.1) \
     >"$ART_ROOT/$run_id/web.log" 2>&1 &
   echo $! >"$STATE/web.pgid"
@@ -136,11 +146,68 @@ cmd_store() {
 }
 
 cmd_agent() {
-  local q="${1:?question}"
+  local q="${1:?question}" name="${2:-agent}"
   run_dir >/dev/null
-  capture agent bash -c "cd '$ROOT' && uv run --all-packages demo-agent \"\$1\"" _ "$q"
+  # AGENTTRACE_ENDPOINT/API_KEY are exported above, so the run is traced into this instance.
+  capture "$name" bash -c "cd '$ROOT' && uv run --all-packages demo-agent \"\$1\"" _ "$q"
   local dir; dir="$(run_dir)"
-  cat "$dir/agent.cmd" "$dir/agent.out"; cat "$dir/agent.err" >&2
+  cat "$dir/$name.cmd" "$dir/$name.out"; cat "$dir/$name.err" >&2
+}
+
+# Synthetic traces through the real SDK and ingest path, for cases the agent won't hit:
+# offloaded payloads, unpriced models, root errors, duplicates, and a crashed (unclosed) trace.
+cmd_emit() {
+  local name="${1:-emit}" dir; dir="$(run_dir)"
+  capture "$name" uv run --directory "$ROOT" --all-packages python \
+    "$ROOT/.claude/skills/verify/bin/emit_traces.py"
+  cat "$dir/$name.cmd" "$dir/$name.out"; cat "$dir/$name.err" >&2
+}
+
+# POST a JSON file to /v1/spans with a given key (use '' for none), for the 401/413/422 paths.
+cmd_post() {
+  local name="${1:?capture name}" key="${2?api key or ''}" file="${3:?json file}"
+  local dir; dir="$(run_dir)"
+  local auth=(); [[ -n "$key" ]] && auth=(-H "Authorization: Bearer $key")
+  capture "$name" curl -s -w '\nhttp_status=%{http_code}\n' -X POST "$INGEST/v1/spans" \
+    -H 'Content-Type: application/json' ${auth[@]+"${auth[@]}"} --data-binary "@$file"
+  cat "$dir/$name.out"
+}
+
+# Read-only ClickHouse query against this instance, captured.
+cmd_ch() {
+  local name="${1:?capture name}" sql="${2:?sql}"
+  local dir; dir="$(run_dir)"
+  capture "$name" docker exec "$PROJECT-clickhouse-1" clickhouse-client \
+    --user agenttrace --password agenttrace -d agenttrace -q "$sql"
+  cat "$dir/$name.out" "$dir/$name.err"
+}
+
+# Server-rendered trace list (or one trace with an ID) as text: one line per trace or span.
+cmd_traces() {
+  local trace_id="${1:-}" name="${2:-traces}" dir; dir="$(run_dir)"
+  capture "$name" curl -s -m 20 "$WEB/traces${trace_id:+/$trace_id}"
+  python3 - "$dir/$name.out" <<'PY' | tee "$dir/$name.summary"
+import html, re, sys
+page = open(sys.argv[1], encoding="utf-8").read()
+def text(fragment):
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", fragment)).split())
+rows = re.findall(r'<tr data-trace-id="([0-9a-f]+)">(.*?)</tr>', page, re.S)
+for trace_id, row in rows:
+    cells = [text(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+    print(trace_id, "|", " | ".join(cells))
+if h1 := re.search(r"<h1[^>]*>(.*?)</h1>\s*<span[^>]*data-status=\"(\w+)\"", page, re.S):
+    print("TRACE", text(h1.group(1)), "status=" + h1.group(2))
+    for dt, dd in re.findall(r"<dt[^>]*>(.*?)</dt><dd[^>]*>(.*?)</dd>", page, re.S)[:7]:
+        print(" ", text(dt) + ":", text(dd))
+for span_id, kind, body in re.findall(
+    r'<li data-span-id="([0-9a-f]+)" data-kind="(\w+)">(.*?)</li>', page, re.S
+):
+    depth = re.search(r"padding-left:(\d+)px", body)
+    indent = "  " * (int(depth.group(1)) // 16 if depth else 0)
+    print(f"  {indent}[{kind}] {text(body)}")
+if not rows and "TRACE" not in page and "data-span-id" not in page:
+    print("NO TRACES RENDERED:", text(re.sub(r"<script.*?</script>", "", page, flags=re.S))[-300:])
+PY
 }
 
 cmd_down() {
@@ -160,6 +227,10 @@ case "${1:-}" in
   store-stop) cmd_store stop "${2:-}" ;;
   store-start) cmd_store start "${2:-}" ;;
   agent) shift; cmd_agent "$@" ;;
+  emit) shift; cmd_emit "$@" ;;
+  post) shift; cmd_post "$@" ;;
+  ch) shift; cmd_ch "$@" ;;
+  traces) shift; cmd_traces "$@" ;;
   down) cmd_down ;;
-  *) sed -n '2,3p' "$0"; exit 2 ;;
+  *) sed -n '2,4p' "$0"; exit 2 ;;
 esac

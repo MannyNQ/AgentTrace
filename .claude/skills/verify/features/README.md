@@ -40,4 +40,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Self-host startup](./self-host-startup.md): `docker compose up` from empty volumes seeds the default org and project, the `spans` table, the payload bucket, and the worker's consumer group.
 - [Stack health API](./stack-health-api.md): `GET /health` reports each store, returns 503 naming the failed store, and recovers, including the worker reconnecting after a Redis restart.
 - [Web health page](./web-health-page.md): the UI shows each store's status, a failed store's real error, and an unreachable ingest API.
+- [Span ingest](./span-ingest.md): the SDK and `POST /v1/spans` get spans into ClickHouse with auth, whole-batch validation, payload offload, cost, dedup, and dead-lettering.
+- [Trace UI](./trace-ui.md): the trace list, statuses including `running`, the span tree, span detail, and full payloads.
 - [Demo agent](./demo-agent.md): the Keyly support agent answers through its tools, recovers from tool errors, and follows the refund policy.
