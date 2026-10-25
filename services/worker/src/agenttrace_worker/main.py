@@ -6,6 +6,8 @@ Phase 1 replaces handle_batch with trace assembly, cost, payload offload, and Cl
 import logging
 import signal
 import socket
+import time
+from collections.abc import Callable
 from typing import cast
 
 import redis
@@ -54,11 +56,37 @@ def run_once(r: redis.Redis, s: Settings) -> int:
     return len(entries)
 
 
+def run_forever(
+    r: redis.Redis,
+    s: Settings,
+    should_stop: Callable[[], bool],
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Consume until told to stop, riding out Redis restarts instead of exiting."""
+    delay = 1.0
+    group_ready = False
+    while not should_stop():
+        try:
+            if not group_ready:
+                ensure_group(r)  # also recreates the group if Redis came back without it
+                group_ready = True
+            run_once(r, s)
+            delay = 1.0
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            log.warning("redis unavailable (%s); retrying in %.0fs", e, delay)
+            group_ready = False
+            sleep(delay)
+            delay = min(delay * 2, 30.0)
+        except redis.ResponseError as e:
+            if "NOGROUP" not in str(e):
+                raise
+            group_ready = False
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     s = Settings()
     r = redis.Redis.from_url(s.redis_url, decode_responses=True)
-    ensure_group(r)
     stopping = False
 
     def stop(*_):
@@ -68,8 +96,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     log.info("worker %s consuming %s/%s", s.consumer_name, STREAM, GROUP)
-    while not stopping:
-        run_once(r, s)
+    run_forever(r, s, lambda: stopping)
     log.info("worker stopped")
 
 
