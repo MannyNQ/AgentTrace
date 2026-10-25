@@ -11,6 +11,9 @@ x-service-env: &service-env
   S3_ACCESS_KEY: ${S3_ACCESS_KEY}
   S3_SECRET_KEY: ${S3_SECRET_KEY}
   S3_BUCKET: ${S3_BUCKET}
+  # The key ingest registers for the default project (ADR-0017). The default matches .env.example
+  # and the demo agent's, so a .env from before Phase 1 still works.
+  AGENTTRACE_API_KEY: ${AGENTTRACE_API_KEY:-at-local-dev-key}
 
 services:
   postgres:
@@ -101,10 +104,12 @@ services:
       args: { PACKAGE: agenttrace-worker }
     command: ["agenttrace-worker"]
     restart: unless-stopped
-    environment:
-      REDIS_URL: redis://redis:6379/0
+    environment: *service-env
     depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
       redis: { condition: service_healthy }
+      seaweedfs: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-m", "agenttrace_worker.healthcheck"]
       interval: 10s

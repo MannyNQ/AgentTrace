@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { getHealth, type StoreName } from "@/lib/health";
@@ -12,11 +13,15 @@ const STORE_LABELS: Record<StoreName, string> = {
 export default function Home() {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
-      <p className="font-mono text-xs uppercase tracking-widest text-muted">Phase 0</p>
+      <p className="font-mono text-xs uppercase tracking-widest text-muted">Phase 1</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">AgentTrace</h1>
       <p className="mt-3 text-muted">
-        Observability and evals for LLM agents. Traces, the trace explorer, and evals arrive in
-        later phases; for now this page checks that the stack is up.
+        Observability and evals for LLM agents. Evals arrive in later phases.
+      </p>
+      <p className="mt-6">
+        <Link href="/traces" className="font-medium underline">
+          Browse traces →
+        </Link>
       </p>
       <section className="mt-10">
         <h2 className="text-sm font-medium">Service health</h2>

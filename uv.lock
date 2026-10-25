@@ -59,6 +59,9 @@ version = "0.0.1"
 source = { editable = "services/worker" }
 dependencies = [
     { name = "agenttrace" },
+    { name = "boto3" },
+    { name = "clickhouse-connect" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "redis" },
 ]
@@ -66,6 +69,9 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "agenttrace", editable = "sdk/python" },
+    { name = "boto3", specifier = ">=1.35" },
+    { name = "clickhouse-connect", specifier = ">=0.8" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "redis", specifier = ">=5.0" },
 ]
@@ -325,12 +331,14 @@ name = "demo-agent"
 version = "0.0.1"
 source = { editable = "examples/demo-agent" }
 dependencies = [
+    { name = "agenttrace" },
     { name = "anthropic" },
     { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "agenttrace", editable = "sdk/python" },
     { name = "anthropic", specifier = ">=1.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]

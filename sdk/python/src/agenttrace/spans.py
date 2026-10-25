@@ -59,6 +59,10 @@ class Span(BaseModel):
     model: str | None = None
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    # Prompt-cache tokens, priced separately from input_tokens (which excludes them).
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    cache_write_5m_tokens: int | None = Field(default=None, ge=0)
+    cache_write_1h_tokens: int | None = Field(default=None, ge=0)
     attributes: dict[str, str] = Field(default_factory=dict)
     trace: TraceMetadata | None = None
 

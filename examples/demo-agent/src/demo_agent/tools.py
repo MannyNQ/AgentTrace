@@ -75,7 +75,8 @@ TOOLS = {
     ),
     "issue_refund": (
         issue_refund,
-        "Refund a delivered order within 30 days of delivery.",
+        "Refund a whole delivered order. Checks the 30-day window itself and refuses "
+        "orders outside it.",
         {"order_id": "The order number", "reason": "Why the customer wants a refund"},
     ),
     "search_kb": (

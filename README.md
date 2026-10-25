@@ -6,7 +6,9 @@ Open-source observability and evals for LLM agents. Sentry plus pytest for AI ag
 - **Turn failures into tests** with one click.
 - **Grade trajectories in CI**: which tools the agent called, in what order, so a prompt change can't quietly break things.
 
-> **Status: Phase 0 (foundations).** The stack runs and the health check passes; tracing arrives in Phase 1. See [`docs/design.md`](docs/design.md).
+> **Status: Phase 1 (tracing).** The Python SDK traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. See [`docs/design.md`](docs/design.md).
+>
+> Phase 1 changed the database schemas. A dev stack created before it needs `docker compose down -v` (this deletes its data) before `docker compose up`.
 >
 > There is no authentication until Phase 6. Don't expose a running instance to the internet.
 
@@ -32,6 +34,8 @@ Demo agent:
 uv sync --all-packages
 uv run demo-agent "Where is order 1042?"
 ```
+
+Each run is traced into the local stack; open http://localhost:3000/traces to see it. The SDK reads `AGENTTRACE_API_KEY` and `AGENTTRACE_ENDPOINT` (see `.env.example`).
 
 ## Development
 

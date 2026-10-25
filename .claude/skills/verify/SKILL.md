@@ -11,7 +11,7 @@ Drive a throwaway AgentTrace instance the way a user would, and keep proof. Ever
 .claude/skills/verify/bin/agenttrace-verify <command>
 ```
 
-Run it from the repo root. Commands: `up`, `doctor`, `health [name]`, `page [name]`, `store-stop <svc>`, `store-start <svc>`, `agent "<question>"`, `down`.
+Run it from the repo root. Commands: `up`, `doctor`, `health [name]`, `page [name]`, `store-stop <svc>`, `store-start <svc>`, `agent "<question>" [name]`, `emit [name]`, `post <name> <key> <file>`, `ch <name> "<sql>"`, `traces [trace_id] [name]`, `down`.
 
 The feature map in [`features/README.md`](features/README.md) lists what to verify and how. Read it, pick the features your change touches, and drive every entry point listed there, not just the convenient one.
 
@@ -20,11 +20,12 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Surface | Where | Driven by |
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
-| Ingest HTTP API | `GET /health` | `health` (curl) |
-| Web UI | the health page at `/` | `page` (server HTML) + the built-in browser pane for screenshots |
-| Demo agent CLI | `uv run demo-agent "<question>"` | `agent` |
+| Ingest HTTP API | `GET /health`, `POST /v1/spans` | `health`, `post` (curl), `emit` (real SDK) |
+| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
+| Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
+| Stored state | ClickHouse `spans`/`traces`, Redis streams, S3 payloads | `ch`, `docker exec` |
 
-Phase 0 has no span ingestion yet. When `POST /v1/spans` and trace views land, add them to the map.
+`H` exports `AGENTTRACE_API_KEY` (from `.env`, else `at-local-dev-key`) and `AGENTTRACE_ENDPOINT=http://127.0.0.1:18000`, so compose registers the same key the SDK sends and every agent run is traced into this instance, never the dev stack. The web server runs with `TRACE_QUIET_PERIOD_S=20`.
 
 ## Isolation
 

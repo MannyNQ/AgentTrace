@@ -1,4 +1,4 @@
--- Draft span table. Sort key, TTL, and dedup strategy are open decisions for Phase 1 (docs/design.md).
+-- Spans: append-only, one row per span. Dedup: ADR-0014. Retention: ADR-0016.
 CREATE TABLE IF NOT EXISTS agenttrace.spans
 (
     project_id      UUID,                       -- ADR-0002: every row is project-scoped
@@ -14,17 +14,22 @@ CREATE TABLE IF NOT EXISTS agenttrace.spans
     model           String,
     input_tokens    Nullable(UInt32),
     output_tokens   Nullable(UInt32),
+    cache_read_tokens      Nullable(UInt32),   -- prompt-cache tokens, not included in input_tokens
+    cache_write_5m_tokens  Nullable(UInt32),
+    cache_write_1h_tokens  Nullable(UInt32),
     cost_usd        Nullable(Float64),          -- ADR-0010: computed once, null when unpriced
-    input_preview   String,                     -- ADR-0009: first 1 KB
+    input_preview   String,                     -- ADR-0009: the whole value when small, else the first 1 KB
     output_preview  String,
-    payload_uri     String,                     -- '' when the payload is inline
+    input_uri       String,                     -- '' when the input is inline
+    output_uri      String,
     session_id      String,                     -- trace metadata, set on the root span only
     user_id         String,
     tags            Array(String),
     metadata        Map(String, String),
     attributes      Map(String, String),
+    retention_days  UInt16 DEFAULT 30,          -- ADR-0016: stamped from the project at ingestion
     ingested_at     DateTime64(6, 'UTC') DEFAULT now64(6)
 )
 ENGINE = ReplacingMergeTree(ingested_at)
 ORDER BY (project_id, start_time, trace_id, span_id)
-TTL toDateTime(start_time) + INTERVAL 30 DAY;  -- ADR-0011 default; per-project retention later
+TTL toDateTime(start_time) + toIntervalDay(retention_days);
