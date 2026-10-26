@@ -1,6 +1,7 @@
 """The runner against a scripted agent and an in-memory API, so no server or model is needed."""
 
 import asyncio
+import json
 import random
 import threading
 import time
@@ -11,8 +12,19 @@ import pytest
 from agenttrace import span, tracing
 from agenttrace.eval import config, scorers
 from agenttrace.eval.client import ApiError, DatasetVersion, VersionItem
-from agenttrace.eval.results import Finish, NewExperiment, SampleResult
-from agenttrace.eval.runner import Git, RunError, Runner, git_from_env, storable_output
+from agenttrace.eval.results import Finish, NewExperiment, SampleResult, ToolCall
+from agenttrace.eval.runner import (
+    MAX_ARG_BYTES,
+    MAX_TRAJECTORY_BYTES,
+    MAX_UPLOAD_BYTES,
+    Git,
+    RunError,
+    Runner,
+    UploadBuffer,
+    git_from_env,
+    storable_output,
+    storable_trajectory,
+)
 
 
 class FakeApi:
@@ -205,6 +217,87 @@ def test_uploads_are_batched():
     )
     api, _, _ = run(version=many, samples=3, concurrency=16)
     assert [len(b) for b in api.batches] == [20, 20, 5]
+
+
+def test_upload_batches_stay_under_ingests_body_limit():
+    """20 samples of 300 KB each is 6 MB, over ingest's 5 MB limit: batches are cut by size."""
+    many = DatasetVersion(
+        SUPPORT.dataset_id, "support", 2, [item(f"where is {n}") for n in range(20)]
+    )
+    api, _, _ = run(entry=lambda input: "y" * 300_000, version=many, samples=1)
+    sizes = [len(json.dumps([s.model_dump(mode="json") for s in b])) for b in api.batches]
+    assert len(api.samples) == 20 and len(api.batches) > 1
+    assert max(sizes) <= MAX_UPLOAD_BYTES, sizes
+
+
+def test_the_upload_buffer_cuts_by_count_and_by_size():
+    def sample(n: int, output: str) -> SampleResult:
+        return SampleResult(item_id=uuid4(), sample_index=n, started_at="2026-10-26T00:00:00Z",
+                            latency_ms=1, output=output)  # fmt: skip
+
+    by_count = UploadBuffer(max_count=2, max_bytes=10_000)
+    ready = [by_count.add(sample(n, "x")) for n in range(5)]
+    assert [len(b) if b else 0 for b in ready] == [0, 0, 2, 0, 2]
+    assert len(by_count.rest()) == 1 and by_count.rest() == []
+
+    by_size = UploadBuffer(max_count=100, max_bytes=1_000)
+    assert by_size.add(sample(0, "a" * 600)) is None
+    assert [s.sample_index for s in by_size.add(sample(1, "b" * 600)) or []] == [0]
+    assert [s.sample_index for s in by_size.rest()] == [1]  # a big sample still goes, alone
+
+
+def test_uploaded_tool_calls_are_cut_and_stripped_of_nul_but_scored_in_full():
+    calls = [
+        ToolCall(tool="look\x00up", args={"query": "a\x00b", "doc": "z" * 50_000, "n": 3}),
+        ToolCall(tool="search_kb"),
+    ]
+    [first, second] = storable_trajectory(calls)
+    assert first.tool == "look\ufffdup" and first.args is not None
+    assert first.args["query"] == "a\ufffdb" and first.args["n"] == 3
+    assert first.args["doc"].endswith("…") and len(first.args["doc"].encode()) <= MAX_ARG_BYTES
+    assert second == ToolCall(tool="search_kb")
+
+    many = [ToolCall(tool=f"t{n}", args={"doc": "z" * 3000}) for n in range(1000)]
+    cut = storable_trajectory(many)
+    assert [c.tool for c in cut] == [f"t{n}" for n in range(1000)]  # every call kept
+    kept = sum(len(json.dumps(c.args)) for c in cut if c.args)
+    assert kept <= MAX_TRAJECTORY_BYTES and cut[-1].args is None
+
+    def agent(input: dict) -> str:
+        with span("lookup_order", "tool", input={"order_id": "10\x0042"}):
+            pass
+        return "UPS"
+
+    one = DatasetVersion(SUPPORT.dataset_id, "support", 2, [item("q", expected_trajectory=[
+        {"tool": "lookup_order", "args": {"order_id": "10\x0042"}}])])  # fmt: skip
+    api, _, _ = run(entry=agent, version=one, samples=1)
+    [s] = api.samples
+    assert s.trajectory[0].args == {"order_id": "10\ufffd42"}  # storable
+    assert [(x.scorer, x.score) for x in s.scores if x.scorer == "steps"] == [("steps", 1)]
+
+
+def test_a_stopped_run_doesnt_wait_for_samples_still_running():
+    """An upload fails while one sample is stuck in the agent: the experiment is marked failed
+    right away, not when (or if) the stuck call returns."""
+    release = threading.Event()
+
+    def agent(input: dict) -> str:
+        if input["question"] == "stuck":
+            release.wait(30)
+        return "x"
+
+    items = [item("stuck")] + [item(f"where is {n}") for n in range(25)]
+    api = FakeApi(fail_upload_after=0)
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(RunError) as e:
+            run(entry=agent, api=api, version=DatasetVersion(SUPPORT.dataset_id, "s", 2, items),
+                samples=1, timeout_s=60)  # fmt: skip
+        assert time.monotonic() - t0 < 5
+        assert e.value.abandoned
+        assert [f.status for f in api.finished] == ["failed"]
+    finally:
+        release.set()
 
 
 def test_a_run_that_stops_finishes_the_experiment_failed():

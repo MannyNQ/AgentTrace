@@ -68,7 +68,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Trajectory scorer**: The built-in scorer that compares a trace's trajectory to an expected trajectory in one of these modes: `exact`, `in_order`, `any_order` (against the item's expected trajectory), `forbidden`, `max_steps` (parameters from the scorer config). Scores 1 or 0.
 
-**eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their thresholds, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name` and `concurrency`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
+**eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their thresholds, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, and `version`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
 
 **Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. See ADR-0006.
 

@@ -5,7 +5,13 @@ Each sample runs under a root span the runner opens, so concurrent samples never
 and a span processor collects that trace's spans as they end: the tool spans are the trajectory,
 the LLM spans the token usage. Sync entry points run on a thread pool and async ones on the
 event loop, both bounded by `concurrency`. A timed-out sync sample can't be stopped; its thread
-is abandoned and `RunResult.abandoned` tells the caller to exit without waiting for it.
+is abandoned and `abandoned` (on `RunResult` or `RunError`) tells the caller to exit without
+waiting for it. A run that stops never waits for samples still running: their timeouts no longer
+apply once the run has stopped, so waiting could hang.
+
+Uploads are batched by size as well as count, since ingest refuses requests over 5 MB, and every
+sample is shrunk to fit one request: its output to 1 MB and its tool-call arguments to a budget.
+Scorers see everything in full; only the uploaded copy is cut.
 """
 
 import asyncio
@@ -45,10 +51,19 @@ MAX_OUTPUT_BYTES = 1024 * 1024  # what the server stores (ADR-0023)
 MAX_ERROR = 1000
 UNKNOWN_MODEL = "unknown"  # an LLM span without a model: the server can't price it
 UPLOAD_BATCH = 20
+# Ingest refuses requests over 5 MB (ADR-0017); stay under it with room for the envelope.
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+MAX_ARG_BYTES = 4 * 1024  # one tool-call argument value, as uploaded
+MAX_TRAJECTORY_BYTES = 1024 * 1024  # all of a sample's tool-call arguments, as uploaded
 
 
 class RunError(Exception):
-    """The run can't go on: the experiment is (or would be) `failed`."""
+    """The run can't go on: the experiment is (or would be) `failed`. `abandoned` means agent
+    threads may still be running, so the caller shouldn't wait for them at exit."""
+
+    def __init__(self, message: str, abandoned: bool = False):
+        super().__init__(message)
+        self.abandoned = abandoned
 
 
 @dataclass(frozen=True)
@@ -144,6 +159,61 @@ def storable_output(value: Any) -> tuple[Any, bool]:
     if len(data) <= MAX_OUTPUT_BYTES - 1024:
         return value, False
     return data[: MAX_OUTPUT_BYTES // 2].decode(errors="ignore"), True
+
+
+def _cut_arg(value: Any) -> Any:
+    """A tool-call argument as uploaded: NUL replaced, and over `MAX_ARG_BYTES` of JSON cut to a
+    string prefix ending in an ellipsis."""
+    value = _without_nul(to_jsonable(value))
+    text = json.dumps(value, ensure_ascii=False)
+    if len(text.encode()) <= MAX_ARG_BYTES:
+        return value
+    return text.encode()[: MAX_ARG_BYTES - 3].decode(errors="ignore") + "…"
+
+
+def storable_trajectory(calls: list[ToolCall]) -> list[ToolCall]:
+    """The trajectory as uploaded: every call and tool name kept, NUL replaced, each argument
+    value cut to `MAX_ARG_BYTES`, and once the calls' arguments pass `MAX_TRAJECTORY_BYTES` the
+    remaining calls keep their names only."""
+    out, budget = [], MAX_TRAJECTORY_BYTES
+    for call in calls:
+        args = None
+        if call.args is not None:
+            cut = {_clean(k): _cut_arg(v) for k, v in call.args.items()}
+            size = len(json.dumps(cut, ensure_ascii=False).encode())
+            if size <= budget:
+                args, budget = cut, budget - size
+            else:
+                budget = 0
+        out.append(ToolCall(tool=_clean(call.tool), args=args))
+    return out
+
+
+class UploadBuffer:
+    """Collects samples into batches that ingest accepts: at most `UPLOAD_BATCH` samples and
+    `MAX_UPLOAD_BYTES` of JSON. Every sample fits on its own (outputs and trajectories are
+    capped), so a batch never has to be split."""
+
+    def __init__(self, max_count: int = UPLOAD_BATCH, max_bytes: int = MAX_UPLOAD_BYTES):
+        self.max_count, self.max_bytes = max_count, max_bytes
+        self.pending: list[SampleResult] = []
+        self.size = 0
+
+    def add(self, r: SampleResult) -> list[SampleResult] | None:
+        """Adds a sample; returns a full batch to upload first, if adding it would overflow."""
+        size = len(r.model_dump_json().encode()) + 1
+        ready = None
+        if self.pending and (
+            len(self.pending) >= self.max_count or self.size + size > self.max_bytes
+        ):
+            ready = self.rest()
+        self.pending.append(r)
+        self.size += size
+        return ready
+
+    def rest(self) -> list[SampleResult]:
+        batch, self.pending, self.size = self.pending, [], 0
+        return batch
 
 
 def git_from_env(env: dict[str, str]) -> Git:
@@ -267,7 +337,7 @@ class Runner:
             latency_ms=s.latency_ms,
             output=output,
             output_truncated=truncated,
-            trajectory=calls,
+            trajectory=storable_trajectory(calls),
             error=s.error,
             usage=usage(s.spans),
             scores=scores,
@@ -285,10 +355,11 @@ class Runner:
         return next(x.threshold for x in self.cfg.scorers if x.name == name)
 
     async def _samples(self, experiment_id: str, version: DatasetVersion) -> bool:
-        """Runs and uploads every sample; returns whether a sync sample's thread was abandoned."""
+        """Runs and uploads every sample; returns whether a sync sample's thread was abandoned.
+        If this raises, samples still running are left to finish on their own."""
         sem = asyncio.Semaphore(self.cfg.concurrency)
-        pending: list[SampleResult] = []
-        abandoned = False
+        uploads = UploadBuffer()
+        abandoned, finished = False, False
         jobs = [(item, i) for item in version.items for i in range(self.cfg.samples)]
         # Not a `with` block: leaving one waits for every thread, abandoned ones included.
         pool = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-eval")
@@ -302,22 +373,25 @@ class Runner:
                 abandoned |= s.timed_out_thread
                 r = self._result(s)
                 self.report(self._line(done, len(jobs), s, r))
-                pending.append(r)
-                if len(pending) >= UPLOAD_BATCH:
-                    await asyncio.to_thread(self.client.upload_samples, experiment_id, pending)
-                    pending = []
-            if pending:
-                await asyncio.to_thread(self.client.upload_samples, experiment_id, pending)
+                batch = uploads.add(r)
+                if batch:
+                    await asyncio.to_thread(self.client.upload_samples, experiment_id, batch)
+            if uploads.pending:
+                await asyncio.to_thread(self.client.upload_samples, experiment_id, uploads.rest())
+            finished = True
         finally:
             for t in tasks:
                 t.cancel()
-            pool.shutdown(wait=not abandoned, cancel_futures=True)
+            # Waiting is only safe when every sample has returned or timed out cleanly.
+            pool.shutdown(wait=finished and not abandoned, cancel_futures=True)
         return abandoned
 
     def run(self, version: DatasetVersion, git: Git, name: str | None = None) -> RunResult:
         """Creates the experiment, runs it, and finishes it. Anything that stops the run after
         the experiment exists finishes it as `failed` and raises RunError."""
         assert UPLOAD_BATCH <= MAX_SAMPLES_PER_REQUEST
+        # A truncated output's text doubles at worst when encoded again (escaped quotes).
+        assert 2 * MAX_OUTPUT_BYTES + MAX_TRAJECTORY_BYTES < MAX_UPLOAD_BYTES
         experiment_id = str(uuid.uuid4())
         self.client.create_experiment(
             NewExperiment(
@@ -336,9 +410,9 @@ class Runner:
         remove = add_span_processor(self.capture)
         try:
             abandoned = asyncio.run(self._samples(experiment_id, version))
-        except BaseException as e:
+        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
             self._fail(experiment_id, f"{type(e).__name__}: {e}")
-            raise RunError(f"the run stopped: {type(e).__name__}: {e}") from e
+            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
         finally:
             remove()
         flush(timeout_s=10)  # so each sample's trace is there to open from the results

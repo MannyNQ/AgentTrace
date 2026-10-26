@@ -36,8 +36,10 @@ from agenttrace.eval.results import ScorerName, ScorerSpec
 
 ImportPath = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")]
 Threshold = Annotated[float, Field(ge=0, le=1)]
-# Fields that don't change what's measured, so changing them keeps experiments comparable.
-NOT_HASHED = {"name", "concurrency"}
+# Fields that don't change what's measured, so changing them keeps experiments comparable. The
+# dataset version is one: comparisons already use the items both runs share (ADR-0007), and
+# `latest` would otherwise hash the same across versions while a pinned number wouldn't.
+NOT_HASHED = {"name", "concurrency", "version"}
 
 
 class ConfigError(Exception):
@@ -159,12 +161,18 @@ class EvalConfig(BaseModel):
             raise ValueError("scorer names must be unique")
         return self
 
+    def with_version(self, version: int) -> "EvalConfig":
+        """The same config run on another dataset version (`agenttrace eval --dataset-version`).
+        Validated like eval.yaml, and hashed the same as the original."""
+        return EvalConfig.model_validate({**self.as_json(), "version": version})
+
     def as_json(self) -> dict[str, Any]:
         return self.model_dump(mode="json", by_alias=True)
 
     def hash(self) -> str:
         """SHA-256 of the config as canonical JSON, defaults filled in and `NOT_HASHED` left out,
-        so formatting, comments, and spelled-out defaults don't change it (ADR-0023)."""
+        so formatting, comments, spelled-out defaults, and the dataset version don't change it
+        (ADR-0023)."""
         data = {k: v for k, v in self.as_json().items() if k not in NOT_HASHED}
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(canonical.encode()).hexdigest()

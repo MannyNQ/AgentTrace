@@ -69,7 +69,10 @@ def run_eval(args: argparse.Namespace) -> int:
     except config.ConfigError as e:
         return stop(str(e))
     if args.dataset_version is not None:
-        cfg = cfg.model_copy(update={"version": args.dataset_version})
+        try:
+            cfg = cfg.with_version(args.dataset_version)
+        except ValueError as e:  # pydantic's ValidationError, e.g. version 0
+            return stop(f"--dataset-version: {e}")
     env = Config.from_env()
     if not env.api_key:
         return stop("set AGENTTRACE_API_KEY to the project's API key")
@@ -102,13 +105,21 @@ def run_eval(args: argparse.Namespace) -> int:
         result = runner.run(version, git, args.name)
     except RunError as e:
         print(f"agenttrace eval: {e}", file=sys.stderr)
+        if e.abandoned:  # agent threads may still be running; exiting normally would wait
+            _exit_now(1)
         return 1
     print(summary(result.summary))
     if result.abandoned:  # a hung sync sample: don't wait for its thread at exit
-        sys.stdout.flush()
-        flush(timeout_s=2)
-        os._exit(0)
+        _exit_now(0)
     return 0
+
+
+def _exit_now(code: int) -> None:
+    """Exit without joining agent threads that may never return (a hung sample)."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    flush(timeout_s=2)
+    os._exit(code)
 
 
 def main(argv: list[str] | None = None) -> None:

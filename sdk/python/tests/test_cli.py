@@ -28,6 +28,10 @@ def test_problems_before_the_run_exit_2_and_record_nothing(monkeypatch, tmp_path
     )
     assert run(monkeypatch, tmp_path, GOOD, {}) == 2
     assert "AGENTTRACE_API_KEY" in capsys.readouterr().err
+    monkeypatch.setenv("AGENTTRACE_API_KEY", "k")
+    with pytest.raises(SystemExit) as e:
+        cli.main(["eval", "-c", str(tmp_path / "eval.yaml"), "--dataset-version", "0"])
+    assert e.value.code == 2 and "--dataset-version" in capsys.readouterr().err
     # Nothing listening: the dataset lookup fails before any experiment is created.
     env = {"AGENTTRACE_API_KEY": "k", "AGENTTRACE_ENDPOINT": "http://127.0.0.1:9"}
     monkeypatch.setattr("agenttrace.eval.client.time.sleep", lambda s: None)

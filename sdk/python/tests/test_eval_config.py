@@ -62,6 +62,17 @@ def test_hash_ignores_formatting_defaults_name_and_concurrency(tmp_path):
     assert parse().hash() != parse(scorers=changed).hash()
 
 
+def test_the_dataset_version_isnt_hashed():
+    """Comparisons use the items both runs share (ADR-0007), so pinning or overriding the
+    version must not make runs incomparable."""
+    latest = parse()
+    assert parse(version=3).hash() == latest.hash()
+    overridden = latest.with_version(7)
+    assert overridden.version == 7 and overridden.hash() == latest.hash()
+    with pytest.raises(ValueError):
+        latest.with_version(0)
+
+
 def test_schema_files_are_read_relative_to_eval_yaml_and_hashed(tmp_path):
     (tmp_path / "schemas").mkdir()
     schema = tmp_path / "schemas" / "answer.json"

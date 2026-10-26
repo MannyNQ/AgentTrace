@@ -109,8 +109,8 @@ Also settled:
 - An errored sample (the agent raised or exceeded `timeout_s`, default 120) scores 0 on every scorer.
 - `agenttrace eval` ships in the `agenttrace` package (`agenttrace.eval`); PyYAML and jsonschema sit behind the `agenttrace[eval]` extra. It exits 0 when the experiment completes, 1 when it's `failed`, and 2 when the run couldn't start, in which case nothing is recorded.
 - Each scorer type in `eval.yaml` has its own fields, and unknown fields are errors. `exact_match` compares JSON values (strings without surrounding whitespace); `contains` checks each of a list of phrases, case-insensitively by default; `regex` takes a `pattern` for every item, or the item's `expected_output` as the pattern; `json_schema` reads `schema` or `schema_file` (relative to `eval.yaml`, read at load so it's hashed); `custom` names a function taking a `Case` and returning a bool, a 0-1 number, `(score, reason)`, or None to skip.
-- The `eval.yaml` hash leaves out `name` and `concurrency`.
-- Samples run on one asyncio loop: async entry points directly, sync ones on a thread pool, both bounded by `concurrency`, with the timeout counted from each sample's start. A timed-out async sample is cancelled; a sync one can't be, so its thread is abandoned and the CLI exits without waiting for it.
+- The `eval.yaml` hash leaves out `name`, `concurrency`, and `version`; `--dataset-version` overrides the version without changing it.
+- Samples run on one asyncio loop: async entry points directly, sync ones on a thread pool, both bounded by `concurrency`, with the timeout counted from each sample's start. A timed-out async sample is cancelled; a sync one can't be, so its thread is abandoned and the CLI exits without waiting for it. A run that stops (an upload refused, Ctrl-C) is marked `failed` at once and the CLI exits without waiting for samples still running.
 - Experiments record git commit, branch, scorer configs, and the `eval.yaml` hash now, though only Phase 4 reads them.
 
 ## Phase 3 plan
