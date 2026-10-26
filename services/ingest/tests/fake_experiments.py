@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fake_datasets import FakeDatasets
 
-from agenttrace.evals import NewExperiment
+from agenttrace.eval.results import NewExperiment
 from agenttrace.pricing import PriceTable
 from agenttrace_ingest.datasets import Conflict, Item, NotFound
 from agenttrace_ingest.experiments import (

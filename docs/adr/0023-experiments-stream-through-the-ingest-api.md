@@ -9,15 +9,15 @@ The eval runner produces an experiment and many samples, often in CI, where a ru
 ## Decision
 
 - Results go to `/v1/experiments` in the ingest service, authenticated with API keys like `/v1/datasets` (ADR-0019), and live in Postgres.
-- The runner generates the experiment ID. It creates the experiment as `running` when the run starts, uploads each sample with its scores as soon as it's scored, and finishes it as `completed`, or `failed` when the runner itself fails (bad config, unreachable server, crash). A failing agent doesn't fail the experiment (ADR-0022).
+- The runner generates the experiment ID. It creates the experiment as `running` when the run starts, uploads each sample with its scores as soon as it's scored, and finishes it as `completed`, or `failed` when the run stops after that (the server became unreachable, the runner crashed). Problems found before the run starts (an invalid `eval.yaml`, an unknown dataset or version, an entry point or scorer that won't import) exit without creating anything. A failing agent doesn't fail the experiment (ADR-0022).
 - Sample uploads are upserts keyed by `(experiment_id, item_id, sample_index)`, so retries are no-ops.
 - Each sample carries its `trace_id`, output, trajectory, latency, and token counts per model. The server computes its cost from the price table on arrival and stores it with the sample.
 - Outputs are capped at 1 MB of JSON, like dataset items; a larger output is stored as a truncated prefix and marked truncated.
-- Every experiment records its dataset version (resolved to a number at start), git commit and branch when available, each scorer's config, and the `eval.yaml` hash: SHA-256 of the parsed config serialized as canonical JSON, so formatting and comments don't change it.
+- Every experiment records its dataset version (resolved to a number at start), git commit and branch when available, each scorer's config, and the `eval.yaml` hash: SHA-256 of the parsed config, defaults filled in, serialized as canonical JSON, so formatting, comments, and spelled-out defaults don't change it. The experiment's `name` and `concurrency` are left out, since they don't change what's measured.
 
 ## Consequences
 
 - A crashed CI run leaves a visible `failed` or stuck `running` experiment instead of nothing, and the UI can show progress.
 - Experiment cost survives the expiry of its traces.
 - Phase 4's baseline and regression logic has everything it needs from Phase 3 experiments.
-- The CLI exits non-zero only when the experiment is `failed`; Phase 3 has no score gate.
+- The CLI exits 0 when the experiment completes, whatever the scores (Phase 3 has no score gate), 1 when it's `failed`, and 2 when the run couldn't start.

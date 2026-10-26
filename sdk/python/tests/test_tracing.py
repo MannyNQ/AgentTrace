@@ -93,3 +93,38 @@ def test_no_api_key_means_no_export_and_no_error(monkeypatch):
     with span("quiet") as s:
         s.set_output(1)
     assert exporter._exporter is None
+
+
+def test_span_processors_see_spans_without_an_exporter(monkeypatch):
+    from agenttrace import add_span_processor, tracing
+
+    monkeypatch.setattr(tracing, "get_exporter", lambda: None)
+    seen, failing = [], []
+
+    def broken(_):
+        failing.append(1)
+        raise RuntimeError("processor bug")
+
+    remove_broken = add_span_processor(broken)
+    remove = add_span_processor(seen.append)
+    with span("root"), span("child", "tool"):
+        pass
+    remove()
+    remove_broken()
+    with span("after"):
+        pass
+    assert [s.name for s in seen] == ["child", "root"]
+    assert len(failing) == 2  # a raising processor doesn't stop the others
+
+
+def test_span_processors_run_before_export(collected):
+    from agenttrace import add_span_processor
+
+    seen = []
+    remove = add_span_processor(lambda s: seen.append((s.name, len(collected.spans))))
+    try:
+        with span("one"):
+            pass
+    finally:
+        remove()
+    assert seen == [("one", 0)] and [s.name for s in collected.spans] == ["one"]

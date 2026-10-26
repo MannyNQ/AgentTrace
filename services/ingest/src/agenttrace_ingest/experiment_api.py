@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
-from agenttrace.evals import Finish, NewExperiment, SampleBatch
+from agenttrace.eval.results import Finish, NewExperiment, SampleBatch
 from agenttrace_ingest import experiments as ex
 from agenttrace_ingest.spans import KeyResolver, key_auth
 

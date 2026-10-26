@@ -1,0 +1,354 @@
+"""The eval runner (ADR-0006, ADR-0022): run the entry point over every item of a dataset version
+`samples` times, score each sample, and stream the results to the server (ADR-0023).
+
+Each sample runs under a root span the runner opens, so concurrent samples never share a trace,
+and a span processor collects that trace's spans as they end: the tool spans are the trajectory,
+the LLM spans the token usage. Sync entry points run on a thread pool and async ones on the
+event loop, both bounded by `concurrency`. A timed-out sync sample can't be stopped; its thread
+is abandoned and `RunResult.abandoned` tells the caller to exit without waiting for it.
+"""
+
+import asyncio
+import contextvars
+import inspect
+import json
+import threading
+import time
+import uuid
+from collections import defaultdict
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+
+from agenttrace._json import to_jsonable
+from agenttrace.eval import scorers as sc
+from agenttrace.eval.client import Client, DatasetVersion, VersionItem
+from agenttrace.eval.config import EvalConfig
+from agenttrace.eval.results import (
+    MAX_SAMPLES_PER_REQUEST,
+    Finish,
+    ModelUsage,
+    NewExperiment,
+    SampleResult,
+    Score,
+    ToolCall,
+)
+from agenttrace.exporter import flush
+from agenttrace.spans import Span, SpanKind
+from agenttrace.tracing import add_span_processor, span
+
+SAMPLE_SPAN = "agenttrace.eval.sample"
+EVAL_TAG = "agenttrace-eval"
+MAX_OUTPUT_BYTES = 1024 * 1024  # what the server stores (ADR-0023)
+MAX_ERROR = 1000
+UNKNOWN_MODEL = "unknown"  # an LLM span without a model: the server can't price it
+UPLOAD_BATCH = 20
+
+
+class RunError(Exception):
+    """The run can't go on: the experiment is (or would be) `failed`."""
+
+
+@dataclass(frozen=True)
+class Git:
+    commit: str | None = None
+    branch: str | None = None
+
+
+@dataclass
+class RunResult:
+    experiment_id: str
+    summary: dict[str, Any]  # the server's experiment detail, after finishing
+    abandoned: bool = False  # a timed-out sync sample's thread is still running
+
+
+class Capture:
+    """Spans of the traces being run, by trace id, as they end."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.spans: dict[str, list[Span]] = defaultdict(list)
+        self.watching: set[str] = set()
+
+    def watch(self, trace_id: str) -> None:
+        with self.lock:
+            self.watching.add(trace_id)
+
+    def __call__(self, s: Span) -> None:
+        with self.lock:
+            if s.trace_id in self.watching:
+                self.spans[s.trace_id].append(s)
+
+    def take(self, trace_id: str) -> list[Span]:
+        """The trace's spans so far; spans that end later (an abandoned sample's) are dropped."""
+        with self.lock:
+            self.watching.discard(trace_id)
+            return self.spans.pop(trace_id, [])
+
+
+def trajectory(spans: list[Span]) -> list[ToolCall]:
+    """Tool spans in start order (GLOSSARY.md). Arguments are the span's input when it's an
+    object."""
+    tools = sorted((s for s in spans if s.kind == SpanKind.TOOL), key=lambda s: s.start_time)
+    return [
+        ToolCall(tool=s.name, args=s.input if isinstance(s.input, dict) else None) for s in tools
+    ]
+
+
+def usage(spans: list[Span]) -> list[ModelUsage]:
+    totals: dict[str, dict[str, int]] = {}
+    for s in spans:
+        if s.kind != SpanKind.LLM:
+            continue
+        model = s.model if s.model and s.input_tokens is not None else UNKNOWN_MODEL
+        t = totals.setdefault(model, defaultdict(int))
+        for f in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_5m_tokens",
+            "cache_write_1h_tokens",
+        ):
+            t[f] += getattr(s, f) or 0
+    return [ModelUsage(model=m, **t) for m, t in totals.items()]
+
+
+def _clean(text: str) -> str:
+    return text.replace("\x00", "�")  # Postgres text and jsonb can't hold NUL
+
+
+def _without_nul(value: Any) -> Any:
+    if isinstance(value, str):
+        return _clean(value)
+    if isinstance(value, dict):
+        return {_clean(k): _without_nul(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_without_nul(v) for v in value]
+    return value
+
+
+def storable_output(value: Any) -> tuple[Any, bool]:
+    """The output as the server can store it, and whether it was cut: JSON without NaN or NUL,
+    at most 1 MB, else its JSON text cut to fit (marked truncated)."""
+    value = to_jsonable(value)
+    try:
+        text = json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except ValueError:  # NaN or Infinity: keep the JSON text, as a string
+        value = text = json.dumps(value, ensure_ascii=False)
+    if "\\u0000" in text:  # json.dumps writes NUL as an escape
+        value = _without_nul(value)
+        text = json.dumps(value, ensure_ascii=False)
+    data = text.encode()
+    if len(data) <= MAX_OUTPUT_BYTES - 1024:
+        return value, False
+    return data[: MAX_OUTPUT_BYTES // 2].decode(errors="ignore"), True
+
+
+def git_from_env(env: dict[str, str]) -> Git:
+    """GitHub Actions sets these; locally, the CLI falls back to asking git."""
+    branch = env.get("GITHUB_HEAD_REF") or env.get("GITHUB_REF_NAME") or None
+    return Git(commit=env.get("GITHUB_SHA") or None, branch=branch)
+
+
+def _run_in(ctx: contextvars.Context, fn: Callable[[Any], Any], arg: Any) -> Any:
+    return ctx.run(fn, arg)
+
+
+@dataclass
+class _Sample:
+    item: VersionItem
+    index: int
+    trace_id: str
+    started_at: datetime
+    latency_ms: float
+    output: Any = None
+    error: str | None = None
+    timed_out_thread: bool = False
+    spans: list[Span] = field(default_factory=list)
+
+
+def _case(item: VersionItem, s: _Sample, calls: list[ToolCall]) -> sc.Case:
+    c = item.contents
+    expected = c.get("expected_trajectory")
+    return sc.Case(
+        input=c["input"],
+        expected_output=c.get("expected_output"),
+        expected_trajectory=None if expected is None else [ToolCall(**t) for t in expected],
+        metadata=c.get("metadata") or {},
+        output=s.output,
+        trajectory=calls,
+    )
+
+
+def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> list[Score]:
+    """Skipped scorers give no score; on an errored sample every other scorer gives 0."""
+    out = []
+    for scorer in scorers:
+        if not scorer.applies(case):
+            continue
+        if error is not None:
+            result = sc.fail(f"agent raised {error.split(':', 1)[0]}")
+        else:
+            try:
+                result = scorer.grade(case)
+            except Exception as e:  # a scorer bug grades the sample 0, and says so
+                result = sc.fail(f"scorer failed: {type(e).__name__}: {e}")
+            if result is None:
+                continue
+        reason = None if result.reason is None else _clean(result.reason)
+        out.append(Score(scorer=scorer.name, score=result.score, reason=reason))
+    return out
+
+
+class Runner:
+    def __init__(
+        self,
+        cfg: EvalConfig,
+        client: Client,
+        entry: Callable[[Any], Any],
+        scorers: list[sc.Scorer],
+        report: Callable[[str], None] = print,
+    ):
+        self.cfg, self.client, self.entry, self.scorers = cfg, client, entry, scorers
+        self.report = report
+        self.capture = Capture()
+        self.is_async = inspect.iscoroutinefunction(entry)
+
+    async def _run_one(
+        self, experiment_id: str, item: VersionItem, index: int, sem: asyncio.Semaphore,
+        pool: ThreadPoolExecutor,
+    ) -> _Sample:  # fmt: skip
+        async with sem:
+            meta = {"experiment_id": experiment_id, "item_id": item.item_id, "sample": str(index)}
+            started_at, t0 = datetime.now(UTC), time.monotonic()
+            error, output, abandoned = None, None, False
+            inp = item.contents["input"]
+            with span(SAMPLE_SPAN, "agent", input=inp, tags=[EVAL_TAG], metadata=meta) as root:
+                self.capture.watch(root.trace_id)
+                try:
+                    if self.is_async:
+                        call = self.entry(inp)
+                    else:
+                        ctx = contextvars.copy_context()  # the agent's spans nest under root
+                        loop = asyncio.get_running_loop()
+                        call = loop.run_in_executor(pool, _run_in, ctx, self.entry, inp)
+                    output = await asyncio.wait_for(call, self.cfg.timeout_s)
+                    root.set_output(output)
+                except TimeoutError:
+                    error = f"TimeoutError: no result after {self.cfg.timeout_s:g} s"
+                    abandoned = not self.is_async
+                    root.set_error("TimeoutError")
+                except Exception as e:
+                    error = f"{type(e).__name__}: {e}"[:MAX_ERROR]
+                    root.set_error(type(e).__name__)
+            return _Sample(
+                item=item,
+                index=index,
+                trace_id=root.trace_id,
+                started_at=started_at,
+                latency_ms=(time.monotonic() - t0) * 1000,
+                output=output,
+                error=None if error is None else _clean(error),
+                timed_out_thread=abandoned,
+                spans=self.capture.take(root.trace_id),
+            )
+
+    def _result(self, s: _Sample) -> SampleResult:
+        calls = trajectory(s.spans)
+        scores = score(self.scorers, _case(s.item, s, calls), s.error)
+        output, truncated = (None, False) if s.error else storable_output(s.output)
+        return SampleResult(
+            item_id=uuid.UUID(s.item.item_id),
+            sample_index=s.index,
+            trace_id=s.trace_id,
+            started_at=s.started_at,
+            latency_ms=s.latency_ms,
+            output=output,
+            output_truncated=truncated,
+            trajectory=calls,
+            error=s.error,
+            usage=usage(s.spans),
+            scores=scores,
+        )
+
+    def _line(self, done: int, total: int, s: _Sample, r: SampleResult) -> str:
+        marks = " ".join(
+            f"{x.scorer}:{'pass' if x.score >= self._threshold(x.scorer) else 'FAIL'}"
+            for x in r.scores
+        )
+        status = f"error ({s.error})" if s.error else marks or "no scorer applies"
+        return f"[{done}/{total}] item {s.item.item_id[:8]} #{s.index}  {status}"
+
+    def _threshold(self, name: str) -> float:
+        return next(x.threshold for x in self.cfg.scorers if x.name == name)
+
+    async def _samples(self, experiment_id: str, version: DatasetVersion) -> bool:
+        """Runs and uploads every sample; returns whether a sync sample's thread was abandoned."""
+        sem = asyncio.Semaphore(self.cfg.concurrency)
+        pending: list[SampleResult] = []
+        abandoned = False
+        jobs = [(item, i) for item in version.items for i in range(self.cfg.samples)]
+        # Not a `with` block: leaving one waits for every thread, abandoned ones included.
+        pool = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-eval")
+        tasks = [
+            asyncio.ensure_future(self._run_one(experiment_id, item, i, sem, pool))
+            for item, i in jobs
+        ]
+        try:
+            for done, next_sample in enumerate(asyncio.as_completed(tasks), 1):
+                s = await next_sample
+                abandoned |= s.timed_out_thread
+                r = self._result(s)
+                self.report(self._line(done, len(jobs), s, r))
+                pending.append(r)
+                if len(pending) >= UPLOAD_BATCH:
+                    await asyncio.to_thread(self.client.upload_samples, experiment_id, pending)
+                    pending = []
+            if pending:
+                await asyncio.to_thread(self.client.upload_samples, experiment_id, pending)
+        finally:
+            for t in tasks:
+                t.cancel()
+            pool.shutdown(wait=not abandoned, cancel_futures=True)
+        return abandoned
+
+    def run(self, version: DatasetVersion, git: Git, name: str | None = None) -> RunResult:
+        """Creates the experiment, runs it, and finishes it. Anything that stops the run after
+        the experiment exists finishes it as `failed` and raises RunError."""
+        assert UPLOAD_BATCH <= MAX_SAMPLES_PER_REQUEST
+        experiment_id = str(uuid.uuid4())
+        self.client.create_experiment(
+            NewExperiment(
+                id=uuid.UUID(experiment_id),
+                dataset_id=uuid.UUID(version.dataset_id),
+                dataset_version=version.version,
+                name=name or self.cfg.name,
+                samples=self.cfg.samples,
+                scorers=[s.spec() for s in self.cfg.scorers],
+                config=self.cfg.as_json(),
+                config_hash=self.cfg.hash(),
+                git_commit=git.commit,
+                git_branch=git.branch,
+            )
+        )
+        remove = add_span_processor(self.capture)
+        try:
+            abandoned = asyncio.run(self._samples(experiment_id, version))
+        except BaseException as e:
+            self._fail(experiment_id, f"{type(e).__name__}: {e}")
+            raise RunError(f"the run stopped: {type(e).__name__}: {e}") from e
+        finally:
+            remove()
+        flush(timeout_s=10)  # so each sample's trace is there to open from the results
+        self.client.finish(experiment_id, Finish(status="completed"))
+        return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
+
+    def _fail(self, experiment_id: str, error: str) -> None:
+        try:
+            self.client.finish(
+                experiment_id, Finish(status="failed", error=_clean(error)[:MAX_ERROR])
+            )
+        except Exception as e:  # the server may be why the run failed
+            self.report(f"could not mark experiment {experiment_id} failed: {e}")

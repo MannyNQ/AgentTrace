@@ -22,7 +22,7 @@ from pydantic import (
     field_validator,
 )
 
-from agenttrace.evals import ToolCall
+from agenttrace.eval.results import ToolCall
 
 log = logging.getLogger(__name__)
 

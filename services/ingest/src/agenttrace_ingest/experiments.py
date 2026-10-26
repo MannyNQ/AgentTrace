@@ -12,7 +12,14 @@ from datetime import datetime
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
-from agenttrace.evals import Finish, ModelUsage, NewExperiment, SampleResult, ScorerSpec, ToolCall
+from agenttrace.eval.results import (
+    Finish,
+    ModelUsage,
+    NewExperiment,
+    SampleResult,
+    ScorerSpec,
+    ToolCall,
+)
 from agenttrace.pricing import PriceTable
 from agenttrace_ingest.datasets import (
     MAX_JSON_BYTES,

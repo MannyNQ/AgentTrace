@@ -10,7 +10,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
-from agenttrace.evals import NewExperiment
+from agenttrace.eval.results import NewExperiment
 from agenttrace.pricing import PRICES_SQL, PriceTable
 from agenttrace_ingest.dataset_store import ITEM_COLUMNS, item_from_row
 from agenttrace_ingest.datasets import Conflict, Item, NotFound

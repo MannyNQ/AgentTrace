@@ -1,12 +1,15 @@
 """`span()` and `@trace`: record units of work as spans, nested through a context variable.
 
 A span is exported once, when it ends (never on start). Nesting follows `contextvars`, so it
-works across threads started with a copied context and across asyncio tasks.
+works across threads started with a copied context and across asyncio tasks. Span processors see
+every span as it ends, whether or not an exporter is configured: the eval runner reads each
+sample's trajectory this way (ADR-0022).
 """
 
 import functools
 import inspect
 import logging
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -20,6 +23,25 @@ from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span
 log = logging.getLogger("agenttrace")
 
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
+
+SpanProcessor = Callable[[Span], None]
+_processors: tuple[SpanProcessor, ...] = ()
+_processors_lock = threading.Lock()
+
+
+def add_span_processor(processor: SpanProcessor) -> Callable[[], None]:
+    """Call `processor` with every span as it ends, on the thread that ended it. Returns a
+    function that removes it. A processor that raises is logged and doesn't affect the span."""
+    global _processors
+    with _processors_lock:
+        _processors = (*_processors, processor)
+
+    def remove() -> None:
+        global _processors
+        with _processors_lock:
+            _processors = tuple(p for p in _processors if p is not processor)
+
+    return remove
 
 
 class ActiveSpan:
@@ -84,8 +106,8 @@ class ActiveSpan:
         self.cache_write_1h_tokens = cache_write_1h_tokens
 
     def _end(self) -> None:
-        exporter = get_exporter()
-        if exporter is None:
+        exporter, processors = get_exporter(), _processors
+        if exporter is None and not processors:
             return
         try:
             span = Span(
@@ -112,7 +134,13 @@ class ActiveSpan:
         except Exception:
             log.warning("agenttrace: could not build span %r", self.name, exc_info=True)
             return
-        exporter.export(span)
+        for processor in processors:
+            try:
+                processor(span)
+            except Exception:
+                log.warning("agenttrace: span processor %r failed", processor, exc_info=True)
+        if exporter is not None:
+            exporter.export(span)
 
 
 def current_span() -> ActiveSpan | None:
