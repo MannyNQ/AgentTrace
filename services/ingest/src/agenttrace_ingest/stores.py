@@ -34,15 +34,19 @@ def check_postgres(s: Settings) -> None:
         assert row is not None and row[0] >= 1, "no default project"
 
 
-def check_clickhouse(s: Settings) -> None:
-    client = clickhouse_connect.get_client(
+def clickhouse_client(s: Settings, **options):
+    return clickhouse_connect.get_client(
         host=s.clickhouse_host,
         port=s.clickhouse_port,
         username=s.clickhouse_user,
         password=s.clickhouse_password,
         database=s.clickhouse_database,
-        connect_timeout=2,
+        **options,
     )
+
+
+def check_clickhouse(s: Settings) -> None:
+    client = clickhouse_client(s, connect_timeout=2)
     assert client.command("EXISTS TABLE spans") == 1, "spans table missing"
 
 

@@ -20,10 +20,10 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Surface | Where | Driven by |
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
-| Ingest HTTP API | `GET /health`, `POST /v1/spans` | `health`, `post` (curl), `emit` (real SDK) |
-| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
+| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets` | `health`, `post` (curl), `emit` (real SDK) |
+| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
-| Stored state | ClickHouse `spans`/`traces`, Redis streams, S3 payloads | `ch`, `docker exec` |
+| Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 
 `H` exports `AGENTTRACE_API_KEY` (from `.env`, else `at-local-dev-key`) and `AGENTTRACE_ENDPOINT=http://127.0.0.1:18000`, so compose registers the same key the SDK sends and every agent run is traced into this instance, never the dev stack. The web server runs with `TRACE_QUIET_PERIOD_S=20`.
 

@@ -5,9 +5,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
-from agenttrace_ingest import spans
+from agenttrace_ingest import dataset_api, spans
+from agenttrace_ingest.body_limit import BodyLimit
+from agenttrace_ingest.dataset_store import PostgresDatasets
+from agenttrace_ingest.datasets import Store, TraceInputs
+from agenttrace_ingest.migrate import migrate
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import CHECKS, ensure_bucket
+from agenttrace_ingest.trace_inputs import StoredTraceInputs
 
 log = logging.getLogger(__name__)
 
@@ -25,11 +30,17 @@ def create_app(
     checks=CHECKS,
     keys: spans.KeyResolver | None = None,
     queue: spans.SpanQueue | None = None,
+    datasets: Store | None = None,
+    trace_inputs: TraceInputs | None = None,
 ) -> FastAPI:
     s = settings or Settings()
+    keys = keys or spans.PostgresKeys(s)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # A failed migration stops startup: serving on a half-upgraded schema is worse.
+        for name in await asyncio.to_thread(migrate, s.postgres_dsn):
+            log.info("schema migration applied: %s", name)
         try:
             await asyncio.to_thread(ensure_bucket, s)
         except Exception:
@@ -42,7 +53,14 @@ def create_app(
         yield
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
-    app.include_router(spans.router(s, keys or spans.PostgresKeys(s), queue or spans.RedisQueue(s)))
+    app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
+    app.include_router(spans.router(s, keys, queue or spans.RedisQueue(s)))
+    app.include_router(
+        dataset_api.router(
+            datasets or PostgresDatasets(s), trace_inputs or StoredTraceInputs(s), keys
+        )
+    )
+    dataset_api.install_error_handlers(app)
 
     @app.get("/health")
     async def health(response: Response) -> dict:
