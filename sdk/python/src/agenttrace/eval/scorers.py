@@ -3,6 +3,8 @@
 A scorer that needs an expectation the item doesn't have is skipped for that item, rather than
 scoring 0 (design.md, Phase 3). Built-in scores are 1 or 0. A custom scorer is a function taking a
 `Case` and returning a bool, a number from 0 to 1, a `(score, reason)` pair, or None to skip.
+The LLM judge asks an Anthropic model for a pass or fail verdict (ADR-0027); when the model can't
+be reached it skips the sample, raising `Skipped` with the reason.
 """
 
 import importlib
@@ -13,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agenttrace.eval import config as c
-from agenttrace.eval.results import ToolCall
+from agenttrace.eval.results import ModelUsage, ToolCall
 
 MAX_REASON = 300
 
@@ -34,6 +36,7 @@ class Case:
 class Result:
     score: float
     reason: str | None = None
+    usage: tuple[ModelUsage, ...] = ()  # model calls the scorer made: the LLM judge's
 
 
 PASS = Result(1.0)
@@ -45,6 +48,15 @@ def fail(reason: str) -> Result:
 
 class ScorerError(Exception):
     """A scorer can't be built or returned something that isn't a score."""
+
+
+class Skipped(Exception):
+    """The scorer couldn't grade this sample (the judge's model was unreachable); the message
+    says why. Unlike a failure it gives no score, so an outage doesn't look like a regression."""
+
+    def __init__(self, reason: str, usage: tuple[ModelUsage, ...] = ()):
+        super().__init__(reason)
+        self.usage = usage
 
 
 def load_object(path: str) -> Any:
@@ -272,6 +284,97 @@ class Custom(Scorer):
         return Result(float(value), None if reason is None else str(reason)[:MAX_REASON])
 
 
+JUDGE_SYSTEM = """You grade one sample of an AI agent's work against the criteria you're given.
+Judge only from what's shown. The verdict is "pass" only when the sample meets every criterion;
+otherwise it's "fail". Give the reason in one or two sentences, naming what was missing or wrong
+when it fails."""
+
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reason": {"type": "string"},
+        "verdict": {"type": "string", "enum": ["pass", "fail"]},
+    },
+    "required": ["reason", "verdict"],
+    "additionalProperties": False,
+}
+JUDGE_RETRIES = 3
+JUDGE_MAX_TOKENS = 16000
+
+
+def _usage(model: str, usage: Any) -> ModelUsage:
+    from agenttrace.integrations.anthropic import _cache_writes
+
+    write_5m, write_1h = _cache_writes(usage)
+    return ModelUsage(
+        model=model,
+        input_tokens=getattr(usage, "input_tokens", None) or 0,
+        output_tokens=getattr(usage, "output_tokens", None) or 0,
+        cache_read_tokens=getattr(usage, "cache_read_input_tokens", None) or 0,
+        cache_write_5m_tokens=write_5m or 0,
+        cache_write_1h_tokens=write_1h or 0,
+    )
+
+
+class LlmJudge(Scorer):
+    """Asks `model` whether the sample meets `criteria`, as a JSON verdict with a reason
+    (structured output, so the reply always parses). Its calls are untraced: they'd otherwise
+    land in no sample's trace, or in a trace of their own (ADR-0027)."""
+
+    def __init__(self, cfg: c.LlmJudge, client: Any = None):
+        super().__init__(cfg)
+        self.model, self.criteria, self.include = cfg.model, cfg.criteria, cfg.include
+        if client is None:
+            try:
+                import anthropic
+            except ImportError as e:
+                raise ScorerError("llm_judge needs anthropic: pip install anthropic") from e
+            client = anthropic.Anthropic(max_retries=JUDGE_RETRIES)
+        self.client = client
+
+    def prompt(self, case: Case) -> str:
+        shown = {
+            "input": case.input,
+            "output": case.output,
+            "expected_output": case.expected_output,
+            "trajectory": [t.model_dump() for t in case.trajectory],
+        }
+        parts = [f"<criteria>\n{self.criteria}\n</criteria>"]
+        for name in self.include:
+            if name == "expected_output" and case.expected_output is None:
+                continue
+            parts.append(f"<{name}>\n{_text(shown[name])}\n</{name}>")
+        return "\n\n".join(parts)
+
+    def grade(self, case: Case) -> Result:
+        import anthropic
+
+        from agenttrace.tracing import untraced
+
+        try:
+            with untraced():
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=JUDGE_MAX_TOKENS,
+                    system=JUDGE_SYSTEM,
+                    messages=[{"role": "user", "content": self.prompt(case)}],
+                    output_config={"format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
+                )
+        except anthropic.APIError as e:  # the SDK has already retried
+            raise Skipped(f"judge unavailable: {type(e).__name__}: {e}") from e
+        usage = (_usage(getattr(response, "model", None) or self.model, response.usage),)
+        if response.stop_reason != "end_turn":
+            raise Skipped(f"judge stopped with {response.stop_reason}", usage)
+        text = next((b.text for b in response.content if b.type == "text"), "")
+        try:
+            verdict = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise Skipped("judge's verdict wasn't JSON", usage) from e
+        reason = str(verdict.get("reason") or "")[:MAX_REASON]
+        # The judge's reason is kept on a pass too: it says what the verdict rested on.
+        return Result(1.0 if verdict.get("verdict") == "pass" else 0.0, reason or None, usage)
+
+
 BUILT = {
     "exact_match": ExactMatch,
     "contains": Contains,
@@ -279,6 +382,7 @@ BUILT = {
     "json_schema": JsonSchema,
     "trajectory": Trajectory,
     "custom": Custom,
+    "llm_judge": LlmJudge,
 }
 
 

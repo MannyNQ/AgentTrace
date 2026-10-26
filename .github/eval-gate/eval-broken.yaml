@@ -1,0 +1,11 @@
+# Same contents as eval.yaml, so it hashes the same and shares its baseline. The workflow runs it
+# with EVAL_GATE_BROKEN=1 and expects the gate to fail.
+entry: gate_agent:entry
+dataset: support
+samples: 3
+scorers:
+  - name: answer
+    type: contains
+  - name: steps
+    type: trajectory
+    mode: in_order

@@ -113,3 +113,8 @@ class Client:
 
     def experiment(self, experiment_id: str) -> dict[str, Any]:
         return self.request("GET", f"/v1/experiments/{urllib.parse.quote(experiment_id)}")
+
+    def comparison(self, experiment_id: str) -> dict[str, Any]:
+        """Against the baseline ingest selects (ADR-0024)."""
+        path = f"/v1/experiments/{urllib.parse.quote(experiment_id)}/comparison"
+        return self.request("GET", path)
