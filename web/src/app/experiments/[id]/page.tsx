@@ -3,9 +3,16 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { getDataset, getVersion } from "@/lib/datasets";
-import { getExperiment, type ExperimentDetail, type ScorerSpec } from "@/lib/experiments";
+import {
+  getComparison,
+  getExperiment,
+  listExperiments,
+  type ExperimentDetail,
+  type ScorerSpec,
+} from "@/lib/experiments";
 import { formatCost, formatDuration, formatTime } from "@/lib/format";
 import { Crumbs, count, oneLine } from "../../datasets/ui";
+import { BaselineLine, CompareNotes, ScorerComparisonTable, Verdict } from "../compare";
 import { GitRef, PassCount, StatusBadge, experimentLabel, pct } from "../ui";
 
 type Props = PageProps<"/experiments/[id]">;
@@ -31,6 +38,7 @@ function describe(s: ScorerSpec): string {
   }
   if (s.type === "regex" && c.pattern) return `regex · /${c.pattern}/`;
   if (s.type === "custom") return `custom · ${c.function}`;
+  if (s.type === "llm_judge") return `llm judge · ${c.model} · ${String(c.criteria)}`;
   return s.type.replace("_", " ");
 }
 
@@ -61,6 +69,7 @@ async function ExperimentView({ params }: Pick<Props, "params">) {
         uploaded · cost{" "}
         {e.samples_uploaded === 0 ? "—" : formatCost(e.cost_usd, e.unpriced_samples)}
         {e.unpriced_samples > 0 && ` (${count(e.unpriced_samples, "sample")} unpriced)`}
+        {e.judge_cost_usd > 0 && ` · judge ${formatCost(e.judge_cost_usd)}`}
       </p>
       <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
         <dt className="text-muted">Started</dt>
@@ -93,9 +102,80 @@ async function ExperimentView({ params }: Pick<Props, "params">) {
         </p>
       )}
 
+      {e.status === "completed" && (
+        <Suspense fallback={<p className="mt-8 text-sm text-muted">Comparing with the baseline…</p>}>
+          <BaselinePanel e={e} />
+        </Suspense>
+      )}
       <ScorerTable e={e} />
       <ItemTable e={e} inputs={inputs} />
     </>
+  );
+}
+
+/** ADR-0007: the baseline ingest selects for this run, and other runs it can be compared with:
+ * completed, with the same eval.yaml hash. */
+async function BaselinePanel({ e }: { e: ExperimentDetail }) {
+  const [r, all] = await Promise.all([getComparison(e.id), listExperiments()]);
+  const others = all.filter((x) => x.id !== e.id && x.status === "completed" && x.config_hash === e.config_hash);
+  return (
+    <section className="mt-8" aria-label="Versus baseline">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="font-medium">Versus baseline</h2>
+        {r.ok && (
+          <span className="text-sm">
+            <Verdict c={r.data} /> <BaselineLine c={r.data} />
+          </span>
+        )}
+        <details className="relative ml-auto text-sm" data-compare-picker>
+          <summary className="cursor-pointer text-muted hover:underline">Compare with…</summary>
+          <ul className="absolute right-0 z-10 mt-1 max-h-72 w-80 overflow-auto rounded-md border border-line bg-background p-1 shadow">
+            {others.length === 0 && (
+              <li className="p-2 text-xs text-muted">No other completed run with this eval.yaml hash.</li>
+            )}
+            {others.map((x) => (
+              <li key={x.id}>
+                <Link
+                  href={`/experiments/${e.id}/compare/${x.id}`}
+                  className="block rounded px-2 py-1 text-xs hover:bg-line/40"
+                  data-compare-with={x.id}
+                >
+                  <span className="font-mono">{experimentLabel(x)}</span>{" "}
+                  <span className="text-muted">
+                    <GitRef e={x} /> · {formatTime(new Date(x.started_at))}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      </div>
+      {!r.ok ? (
+        <p className="mt-2 text-sm text-bad">{r.error.error}</p>
+      ) : !r.data.baseline ? (
+        <p className="mt-2 text-sm text-muted" data-no-baseline>
+          No baseline yet: no completed run with this eval.yaml hash at the merge-base or on the base
+          branch{e.git_base_branch ? ` (${e.git_base_branch})` : ""}. The CI gate passes without one.
+        </p>
+      ) : (
+        <>
+          <ScorerComparisonTable c={r.data} />
+          <CompareNotes c={r.data} />
+          <p className="mt-2 text-sm">
+            <Link
+              href={`/experiments/${e.id}/compare/${r.data.baseline.id}`}
+              className="underline"
+              data-open-comparison
+            >
+              Open the comparison
+              {r.data.item_regressions.length > 0 &&
+                ` (${count(r.data.item_regressions.length, "item regression")})`}{" "}
+              →
+            </Link>
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 

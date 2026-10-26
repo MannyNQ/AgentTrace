@@ -1,0 +1,11 @@
+# The eval-gate workflow's eval.yaml. eval-broken.yaml is a copy with the same contents (so the
+# same hash and baseline) that the workflow runs with EVAL_GATE_BROKEN=1, under its own comment.
+entry: gate_agent:entry
+dataset: support
+samples: 3
+scorers:
+  - name: answer
+    type: contains
+  - name: steps
+    type: trajectory
+    mode: in_order

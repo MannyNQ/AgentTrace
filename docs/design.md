@@ -123,4 +123,35 @@ Also settled:
 4. Demo agent: an `eval_entry` adapter and an `eval.yaml`.
 5. Proof: scorer unit tests, runner tests with a scripted fake agent and a fake API, experiments API integration tests against Postgres, and an `evals` entry in the verify skill that seeds and publishes a dataset with one item built to fail its trajectory check, runs `agenttrace eval`, and checks the experiment in the UI.
 
-Phase 4 is the CI gate: baselines (ADR-0007), bootstrap regressions (ADR-0008), the GitHub Action and PR comment, comparing two experiments in the UI, and the LLM judge.
+## Decisions settled in Phase 4
+
+1. **Comparisons are computed in ingest.** `GET /v1/experiments/{id}/comparison` selects the baseline (or takes `?baseline=`), runs the bootstrap with a fixed seed, and lists item regressions. Both experiments must be `completed` with the same `eval.yaml` hash, or it's 409. The CLI and the web app both call it, so the PR comment and the UI can't disagree (ADR-0024, amending ADR-0018).
+2. **Paired item-level bootstrap and `max_drop`.** One metric per scorer: its pass rate over the items scored in both runs. The bootstrap resamples items, not samples. A scorer regresses when the 95% interval lies below zero and the drop exceeds its `max_drop` (default 0.05, outside the hash). Underpowered means the interval's half-width exceeds `max_drop` (ADR-0025, amending ADR-0008).
+3. **The CLI records head, merge-base, and base branch.** On a PR, `git_commit` is the PR head SHA from the event payload, not `GITHUB_SHA`; the CLI computes `git_merge_base` itself and records `git_base_branch`, and the server picks the baseline from those (ADR-0026, refining ADR-0007).
+4. **The LLM judge runs client-side.** `llm_judge` on Anthropic with required `model` and `criteria`, a binary verdict as structured JSON output (current models refuse forced tool use), skipped (not 0) after 3 failed retries, untraced, with `judge_cost_usd` stored per sample (ADR-0027).
+
+Also settled:
+
+- Cost per sample and p50 latency are compared but don't gate.
+- Item regressions are per scorer: more than half the item's samples passed in the baseline and more than half fail now. Listed, never gating.
+- `agenttrace eval --fail-on-regression` exits 3 on a metric regression; 0, 1, and 2 keep their Phase 3 meanings, and with the flag a comparison that can't be fetched exits 1 (fail closed). No baseline means exit 0. Without the flag, `eval` still prints the comparison. No separate `compare` command. `--base <branch>` finds a baseline outside a GitHub pull request, for local previews.
+- `--report-md <path>` writes the comparison as the PR comment's markdown, so rendering is tested Python and can be previewed locally.
+- The GitHub Action is a composite `action.yml` at the repo root (`MannyNQ/AgentTrace@v0`). Inputs: `config`, `api-url`, `api-key`, `web-url`, `github-token`, plus `run-prefix` (e.g. `uv run`, for agents whose dependencies live in a uv project) and `install` (pip-install `agenttrace[eval]` from the action's copy of the SDK, default on). On a pull request it unshallows the checkout and fetches the base branch for the merge-base, runs `eval` with `--fail-on-regression` only on `pull_request`, writes the markdown to `$GITHUB_STEP_SUMMARY`, and creates or updates one sticky comment per config, found by `<!-- agenttrace:<eval.yaml path> -->` and by its author (the token's user). On pushes it runs ungated, which builds the base branch's baselines.
+- On fork PRs, secrets are unavailable: the Action skips with a step-summary note and exits 0. No `pull_request_target`.
+- The PR comment, top to bottom: verdict (✅ / ❌ N regressions / ⚪ no baseline) with links to both experiments and how the baseline was chosen; a per-scorer table (baseline, current, change with 95% CI, `max_drop`, denominator, regressed / ok / underpowered); cost per sample and p50 latency; up to 10 item regressions (by item ID) linking to their compare view, then "+N more"; counts of items added and removed.
+- The judge is configured with `model`, `criteria`, and optional `include` (`input`, `output`, `expected_output`, `trajectory`); all of it is in the hash. Judge calls share `concurrency`. A misconfigured judge (no credentials, a bad key, an unknown model) exits 2 before the run, or stops it, rather than skipping every sample.
+- Scoring runs on threads so judge calls overlap, but custom scorers are still called one at a time, as in Phase 3.
+- The PR comment and job summary name items by ID, never by input: items are often copied from production traces, and a comment can be public.
+- The CLI sends only fields that differ from their defaults, so a newer SDK or Action still works against an older ingest until it uses a newer feature. A refused create exits 2.
+- Ingest keeps the last 256 comparisons in memory by (experiment, baseline): both are completed, so they can't change, and the bootstrap costs about 1.5 s per scorer at 1,000 items.
+
+## Phase 4 plan
+
+A pull request's eval is compared with its baseline, posted as a PR comment, and fails the check on a real regression:
+
+1. Comparison core: an experiments migration (`git_merge_base`, `git_base_branch`, judge token counts and `judge_cost_usd`), baseline selection, the paired bootstrap, item regressions, and the comparison endpoint.
+2. CLI gate: head SHA, merge-base and base branch capture, `max_drop` in `eval.yaml`, the comparison printout, `--fail-on-regression` with exit 3, and `--report-md`.
+3. GitHub Action and PR comment: `action.yml`, the sticky comment, the step summary, the fork skip, and a README for the Action.
+4. Compare UI: a "vs baseline" panel on the experiment page with a "Compare with…" picker limited to completed experiments with the same hash, and `/experiments/[id]/compare/[baselineId]` with the scorer table, items sorted regressions first, and per-item baseline and current samples side by side.
+5. LLM judge: the `llm_judge` scorer, its retries and skip, suppressed tracing, and judge cost. It goes last and can slip without blocking the gate.
+6. Proof: unit tests for the bootstrap, baseline selection, and item regressions; CLI tests for exit 3 and the markdown; a `ci-gate` entry in the verify skill that runs a baseline, breaks the demo agent, and checks for exit 3, the compare view, and the rendered comment; and an `Eval gate` workflow that runs `action.yml` for real on pull requests touching the SDK, ingest, or the Action, against a stack started in the job, with a scripted agent (`.github/eval-gate/`) once passing and once broken. This repo's CI doesn't gate on the demo agent, since a fresh stack has no baseline history and the demo agent needs a model key.

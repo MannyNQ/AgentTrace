@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 
 from agenttrace.eval.results import Finish, NewExperiment, SampleBatch
+from agenttrace_ingest import comparisons as cmp
 from agenttrace_ingest import experiments as ex
 from agenttrace_ingest.spans import KeyResolver, key_auth
 
@@ -55,6 +56,13 @@ def router(store: ex.Store, prices: ex.Prices, keys: KeyResolver) -> APIRouter:
         project: Annotated[UUID, auth], experiment_id: UUID, body: Finish
     ) -> ex.ExperimentInfo:
         return ex.finish(store, project, experiment_id, body)
+
+    @r.get("/{experiment_id}/comparison")
+    def comparison(
+        project: Annotated[UUID, auth], experiment_id: UUID, baseline: UUID | None = None
+    ) -> cmp.Comparison:
+        """Against `baseline`, or the one ADR-0007 selects (ADR-0024)."""
+        return cmp.compare(store, project, experiment_id, baseline)
 
     @r.get("/{experiment_id}/items/{item_id}")
     def item(project: Annotated[UUID, auth], experiment_id: UUID, item_id: UUID) -> ex.ItemDetail:

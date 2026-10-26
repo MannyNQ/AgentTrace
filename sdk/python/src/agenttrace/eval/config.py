@@ -11,7 +11,11 @@ scorers:
   - {name: answer, type: contains}
   - {name: steps, type: trajectory, mode: in_order}
   - {name: no-refund, type: trajectory, mode: forbidden, tools: [issue_refund]}
+  - {name: helpful, type: llm_judge, model: claude-haiku-5-5, criteria: "Answers the question."}
 ```
+
+Every scorer also takes `threshold` (the pass threshold, default 1.0) and `max_drop` (the largest
+pass-rate drop versus the baseline the CI gate tolerates, default 0.05; ADR-0025).
 
 Each scorer type has its own fields, and unknown fields are errors, so a typo can't silently
 change what's graded. The config hash decides which experiments can be compared (ADR-0007).
@@ -40,6 +44,9 @@ Threshold = Annotated[float, Field(ge=0, le=1)]
 # dataset version is one: comparisons already use the items both runs share (ADR-0007), and
 # `latest` would otherwise hash the same across versions while a pinned number wouldn't.
 NOT_HASHED = {"name", "concurrency", "version"}
+# Per scorer: loosening the CI gate doesn't change what's measured either (ADR-0025).
+NOT_HASHED_SCORER = {"max_drop"}
+JudgeField = Literal["input", "output", "expected_output", "trajectory"]
 
 
 class ConfigError(Exception):
@@ -52,14 +59,24 @@ class _Scorer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
     name: ScorerName
     threshold: Threshold = 1.0
+    max_drop: Threshold = 0.05
 
     def spec(self) -> ScorerSpec:
         """The scorer as the server stores it: its type-specific fields go in `config`."""
         fields = self.model_dump(
-            mode="json", by_alias=True, exclude={"name", "threshold"}, exclude_none=True
+            mode="json",
+            by_alias=True,
+            exclude={"name", "threshold", "max_drop"},
+            exclude_none=True,
         )
         kind = fields.pop("type")
-        return ScorerSpec(name=self.name, type=kind, threshold=self.threshold, config=fields)
+        return ScorerSpec(
+            name=self.name,
+            type=kind,
+            threshold=self.threshold,
+            max_drop=self.max_drop,
+            config=fields,
+        )
 
 
 class ExactMatch(_Scorer):
@@ -138,8 +155,33 @@ class Custom(_Scorer):
     function: ImportPath
 
 
+class LlmJudge(_Scorer):
+    """An Anthropic model grades the sample against `criteria`, pass or fail with a reason
+    (ADR-0027). `include` picks what it's shown; by default the input, the output, and the
+    expected output when the item has one. `model` has no default: it's part of the hash, and a
+    default that changed would silently reset baselines."""
+
+    type: Literal["llm_judge"]
+    model: Annotated[str, StringConstraints(min_length=1)]
+    criteria: Annotated[str, StringConstraints(min_length=1)]
+    include: Annotated[list[JudgeField], Field(min_length=1)] = [
+        "input",
+        "output",
+        "expected_output",
+    ]
+
+    @model_validator(mode="after")
+    def _output_shown(self) -> "LlmJudge":
+        if len(set(self.include)) != len(self.include):
+            raise ValueError("`include` lists a field twice")
+        if not {"output", "trajectory"} & set(self.include):
+            raise ValueError("`include` needs output or trajectory: something the agent did")
+        return self
+
+
 Scorer = Annotated[
-    ExactMatch | Contains | Regex | JsonSchema | Trajectory | Custom, Field(discriminator="type")
+    ExactMatch | Contains | Regex | JsonSchema | Trajectory | Custom | LlmJudge,
+    Field(discriminator="type"),
 ]
 
 
@@ -170,10 +212,13 @@ class EvalConfig(BaseModel):
         return self.model_dump(mode="json", by_alias=True)
 
     def hash(self) -> str:
-        """SHA-256 of the config as canonical JSON, defaults filled in and `NOT_HASHED` left out,
-        so formatting, comments, spelled-out defaults, and the dataset version don't change it
-        (ADR-0023)."""
+        """SHA-256 of the config as canonical JSON, defaults filled in and `NOT_HASHED` and
+        `NOT_HASHED_SCORER` left out, so formatting, comments, spelled-out defaults, the dataset
+        version, and `max_drop` don't change it (ADR-0023, ADR-0025)."""
         data = {k: v for k, v in self.as_json().items() if k not in NOT_HASHED}
+        data["scorers"] = [
+            {k: v for k, v in s.items() if k not in NOT_HASHED_SCORER} for s in data["scorers"]
+        ]
         canonical = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(canonical.encode()).hexdigest()
 

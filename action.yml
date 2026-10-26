@@ -1,0 +1,133 @@
+# The AgentTrace CI gate (design.md, Phase 4). Runs `agenttrace eval`, compares the experiment
+# with its baseline (ADR-0007, ADR-0026), and on a pull request fails the check on a regression
+# (ADR-0025) and posts the comparison as one sticky comment per eval.yaml. On pushes it runs
+# without gating, which records the base branch's baselines.
+name: AgentTrace eval
+description: Run AgentTrace evals and fail the pull request on a statistically real regression.
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  config:
+    description: Path to eval.yaml.
+    default: eval.yaml
+  api-url:
+    description: The AgentTrace ingest API, e.g. https://agenttrace.example.com:8000.
+    required: true
+  api-key:
+    description: The project's AgentTrace API key. Pass it from a secret.
+    required: true
+  web-url:
+    description: The AgentTrace web UI, for links in the comment.
+    default: ""
+  github-token:
+    description: "Token that can comment on pull requests (needs `pull-requests: write`)."
+    default: ${{ github.token }}
+  run-prefix:
+    description: >-
+      Prefix for the `agenttrace` command, e.g. `uv run` when your agent's dependencies live in
+      a uv project. Empty runs `agenttrace` from PATH.
+    default: ""
+  install:
+    description: Install `agenttrace[eval]` from this action's copy of the SDK with pip first.
+    default: "true"
+
+outputs:
+  exit-code:
+    description: The CLI's exit code (0 ok, 1 run failed, 2 couldn't start, 3 regression).
+    value: ${{ steps.eval.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - id: skip
+      shell: bash
+      env:
+        API_KEY: ${{ inputs.api-key }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        REPO: ${{ github.repository }}
+      run: |
+        # Secrets aren't given to pull_request runs from forks; never use pull_request_target to
+        # get them, since that runs untrusted code with secrets.
+        if [ -z "$API_KEY" ] || { [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$REPO" ]; }; then
+          echo "AgentTrace eval skipped: secrets aren't available (a pull request from a fork?)." \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - if: steps.skip.outputs.skip != 'true' && inputs.install == 'true'
+      shell: bash
+      run: python -m pip install --quiet "${{ github.action_path }}/sdk/python[eval]"
+
+    - if: steps.skip.outputs.skip != 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        BASE: ${{ github.base_ref }}
+      run: |
+        # The merge-base needs history back to where the PR branched (ADR-0026).
+        if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+          git fetch --quiet --unshallow origin || true
+        fi
+        git fetch --quiet --no-tags origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || true
+
+    - id: eval
+      if: steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        AGENTTRACE_ENDPOINT: ${{ inputs.api-url }}
+        AGENTTRACE_API_KEY: ${{ inputs.api-key }}
+        AGENTTRACE_WEB_URL: ${{ inputs.web-url }}
+        CONFIG: ${{ inputs.config }}
+        PREFIX: ${{ inputs.run-prefix }}
+        GATE: ${{ github.event_name == 'pull_request' && '--fail-on-regression' || '' }}
+        REPORT: ${{ runner.temp }}/agenttrace-report.md
+      run: |
+        rm -f "$REPORT"
+        set +e
+        $PREFIX agenttrace eval -c "$CONFIG" --report-md "$REPORT" $GATE
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        if [ -f "$REPORT" ]; then
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - if: >-
+        steps.skip.outputs.skip != 'true' && github.event_name == 'pull_request' && !cancelled()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        CONFIG: ${{ inputs.config }}
+        PR: ${{ github.event.pull_request.number }}
+        REPORT: ${{ runner.temp }}/agenttrace-report.md
+      run: |
+        [ -f "$REPORT" ] || exit 0
+        # One comment per eval.yaml, updated on every push, found by its hidden marker and by
+        # its author: anyone can post a comment starting with the marker, and editing theirs
+        # would fail or overwrite it. The default token is the Actions bot, which can't look
+        # itself up; a personal token can.
+        marker="<!-- agenttrace:$CONFIG -->"
+        { echo "$marker"; cat "$REPORT"; } > "$REPORT.comment"
+        me=$(gh api user --jq .login 2>/dev/null) || me="github-actions[bot]"
+        id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" \
+          | head -n 1)
+        if [ -n "$id" ]; then
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" \
+            -F "body=@$REPORT.comment" > /dev/null
+        else
+          gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            -F "body=@$REPORT.comment" > /dev/null
+        fi
+
+    - if: steps.skip.outputs.skip != 'true'
+      shell: bash
+      env:
+        CODE: ${{ steps.eval.outputs.exit-code }}
+      run: |
+        case "$CODE" in
+          0) ;;
+          3) echo "::error::AgentTrace eval: a scorer regressed against the baseline"; exit 3 ;;
+          *) echo "::error::AgentTrace eval exited $CODE"; exit "$CODE" ;;
+        esac

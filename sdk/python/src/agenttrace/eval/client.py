@@ -100,11 +100,17 @@ class Client:
         items = [VersionItem(i["item_id"], i["rev"], i["contents"]) for i in v["items"]]
         return DatasetVersion(found["id"], found["name"], v["version"], items)
 
+    # Fields left at their defaults aren't sent, so a field added in a later phase (judge usage,
+    # merge-base, max_drop) only reaches the server when it's used, and an older ingest that
+    # refuses unknown fields still accepts everything else. The server's defaults are the same.
+
     def create_experiment(self, e: NewExperiment) -> dict[str, Any]:
-        return self.request("POST", "/v1/experiments", e.model_dump(mode="json"))
+        return self.request(
+            "POST", "/v1/experiments", e.model_dump(mode="json", exclude_defaults=True)
+        )
 
     def upload_samples(self, experiment_id: str, samples: list[SampleResult]) -> None:
-        body = {"samples": [s.model_dump(mode="json") for s in samples]}
+        body = {"samples": [s.model_dump(mode="json", exclude_defaults=True) for s in samples]}
         self.request("POST", f"/v1/experiments/{experiment_id}/samples", body)
 
     def finish(self, experiment_id: str, finish: Finish) -> dict[str, Any]:
@@ -113,3 +119,8 @@ class Client:
 
     def experiment(self, experiment_id: str) -> dict[str, Any]:
         return self.request("GET", f"/v1/experiments/{urllib.parse.quote(experiment_id)}")
+
+    def comparison(self, experiment_id: str) -> dict[str, Any]:
+        """Against the baseline ingest selects (ADR-0024)."""
+        path = f"/v1/experiments/{urllib.parse.quote(experiment_id)}/comparison"
+        return self.request("GET", path)

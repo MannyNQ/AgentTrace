@@ -26,25 +26,26 @@ from agenttrace_ingest.settings import Settings
 
 EXPERIMENT_COLUMNS = """e.id, e.dataset_id, e.dataset_version, e.name, e.status, e.error,
     e.samples_per_item, e.scorers, e.config, e.config_hash, e.git_commit, e.git_branch,
-    e.started_at, e.finished_at"""
+    e.git_merge_base, e.git_base_branch, e.started_at, e.finished_at"""
 
 # Listings add each experiment's item count, progress, and cost.
 INFO_SELECT = f"""
     SELECT {EXPERIMENT_COLUMNS},
            (SELECT count(*) FROM version_items v
             WHERE v.dataset_id = e.dataset_id AND v.version = e.dataset_version),
-           s.uploaded, s.cost, s.unpriced
+           s.uploaded, s.cost, s.unpriced, s.judge_cost
     FROM experiments e
     LEFT JOIN LATERAL (
         SELECT count(*) AS uploaded, coalesce(sum(cost_usd), 0) AS cost,
-               count(*) FILTER (WHERE cost_usd IS NULL) AS unpriced
+               count(*) FILTER (WHERE cost_usd IS NULL) AS unpriced,
+               coalesce(sum(judge_cost_usd), 0) AS judge_cost
         FROM experiment_samples WHERE experiment_id = e.id
     ) s ON true"""
 
 
 def _fields(row: tuple) -> dict[str, Any]:
     (id_, dataset_id, version, name, status, error, samples, scorers, config, config_hash,
-     commit, branch, started, finished) = row  # fmt: skip
+     commit, branch, merge_base, base_branch, started, finished) = row  # fmt: skip
     return dict(
         id=id_,
         dataset_id=dataset_id,
@@ -58,19 +59,22 @@ def _fields(row: tuple) -> dict[str, Any]:
         config_hash=config_hash,
         git_commit=commit,
         git_branch=branch,
+        git_merge_base=merge_base,
+        git_base_branch=base_branch,
         started_at=started,
         finished_at=finished,
     )
 
 
 def _info(row: tuple) -> ExperimentInfo:
-    *experiment, items, uploaded, cost, unpriced = row
+    *experiment, items, uploaded, cost, unpriced, judge_cost = row
     return ExperimentInfo(
         **_fields(tuple(experiment)),
         item_count=items,
         samples_uploaded=uploaded,
         cost_usd=cost,
         unpriced_samples=unpriced,
+        judge_cost_usd=judge_cost,
     )
 
 
@@ -94,7 +98,8 @@ def _version_items(
 
 
 def _sample(item_id: UUID, row: tuple) -> StoredSample:
-    n, trace, started, ms, output, truncated, trajectory, error, usage, cost, scores = row
+    (n, trace, started, ms, output, truncated, trajectory, error, usage, cost, judge_usage,
+     judge_cost, scores) = row  # fmt: skip
     return StoredSample(
         item_id=item_id,
         sample_index=n,
@@ -107,6 +112,8 @@ def _sample(item_id: UUID, row: tuple) -> StoredSample:
         error=error,
         usage=usage,
         cost_usd=cost,
+        judge_usage=judge_usage,
+        judge_cost_usd=judge_cost,
         scores=scores,
     )
 
@@ -133,15 +140,17 @@ class PostgresTx:
             cur.executemany(
                 """INSERT INTO experiment_samples
                      (experiment_id, item_id, sample_index, trace_id, started_at, latency_ms,
-                      output, output_truncated, trajectory, error, usage, cost_usd)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      output, output_truncated, trajectory, error, usage, cost_usd,
+                      judge_usage, judge_cost_usd)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (experiment_id, item_id, sample_index) DO UPDATE SET
                      trace_id = EXCLUDED.trace_id, started_at = EXCLUDED.started_at,
                      latency_ms = EXCLUDED.latency_ms, output = EXCLUDED.output,
                      output_truncated = EXCLUDED.output_truncated,
                      trajectory = EXCLUDED.trajectory, error = EXCLUDED.error,
                      usage = EXCLUDED.usage, cost_usd = EXCLUDED.cost_usd,
-                     uploaded_at = now()""",
+                     judge_usage = EXCLUDED.judge_usage,
+                     judge_cost_usd = EXCLUDED.judge_cost_usd, uploaded_at = now()""",
                 [
                     (
                         eid,
@@ -156,6 +165,8 @@ class PostgresTx:
                         s.error,
                         Jsonb([u.model_dump(mode="json") for u in s.usage]),
                         s.cost_usd,
+                        Jsonb([u.model_dump(mode="json") for u in s.judge_usage]),
+                        s.judge_cost_usd,
                     )
                     for s in samples
                 ],
@@ -202,8 +213,9 @@ class PostgresExperiments:
                 conn.execute(
                     """INSERT INTO experiments
                          (id, project_id, dataset_id, dataset_version, name, samples_per_item,
-                          scorers, config, config_hash, git_commit, git_branch)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                          scorers, config, config_hash, git_commit, git_branch,
+                          git_merge_base, git_base_branch)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         e.id,
                         project,
@@ -216,6 +228,8 @@ class PostgresExperiments:
                         e.config_hash,
                         e.git_commit,
                         e.git_branch,
+                        e.git_merge_base,
+                        e.git_base_branch,
                     ),
                 )
             except psycopg.errors.UniqueViolation as e_:
@@ -238,6 +252,26 @@ class PostgresExperiments:
             ).fetchall()
         return [_info(r) for r in rows]
 
+    def latest_completed(
+        self,
+        project: UUID,
+        config_hash: str,
+        exclude: UUID,
+        commit: str | None = None,
+        branch: str | None = None,
+    ) -> ExperimentInfo | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"""{INFO_SELECT}
+                    WHERE e.project_id = %s AND e.config_hash = %s AND e.status = 'completed'
+                      AND e.id <> %s
+                      AND (%s::text IS NULL OR e.git_commit = %s::text)
+                      AND (%s::text IS NULL OR e.git_branch = %s::text)
+                    ORDER BY e.started_at DESC, e.id LIMIT 1""",
+                (project, config_hash, exclude, commit, commit, branch, branch),
+            ).fetchone()
+        return _info(row) if row else None
+
     @contextmanager
     def open(self, project: UUID, experiment_id: UUID, exclusive: bool) -> Iterator[PostgresTx]:
         with self._connect() as conn, conn.transaction():
@@ -254,13 +288,13 @@ class PostgresExperiments:
     def sample_rows(self, experiment_id: UUID) -> list[SampleRow]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT item_id, sample_index, error IS NOT NULL, latency_ms
+                """SELECT item_id, sample_index, error IS NOT NULL, latency_ms, cost_usd
                    FROM experiment_samples WHERE experiment_id = %s""",
                 (experiment_id,),
             ).fetchall()
         return [
-            SampleRow(item_id=i, sample_index=n, errored=err, latency_ms=ms)
-            for i, n, err, ms in rows
+            SampleRow(item_id=i, sample_index=n, errored=err, latency_ms=ms, cost_usd=cost)
+            for i, n, err, ms, cost in rows
         ]
 
     def score_rows(self, experiment_id: UUID) -> list[ScoreRow]:
@@ -280,6 +314,7 @@ class PostgresExperiments:
             rows = conn.execute(
                 """SELECT s.sample_index, s.trace_id, s.started_at, s.latency_ms, s.output,
                           s.output_truncated, s.trajectory, s.error, s.usage, s.cost_usd,
+                          s.judge_usage, s.judge_cost_usd,
                           coalesce(jsonb_agg(jsonb_build_object(
                               'scorer', c.scorer, 'score', c.score, 'passed', c.passed,
                               'reason', c.reason) ORDER BY c.scorer)

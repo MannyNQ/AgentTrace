@@ -1,6 +1,6 @@
 # 8. A regression needs statistical significance and a threshold
 
-Status: accepted
+Status: accepted. Amended by ADR-0025.
 
 ## Context
 

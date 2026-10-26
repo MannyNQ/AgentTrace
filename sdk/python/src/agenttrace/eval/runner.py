@@ -9,6 +9,9 @@ is abandoned and `abandoned` (on `RunResult` or `RunError`) tells the caller to 
 waiting for it. A run that stops never waits for samples still running: their timeouts no longer
 apply once the run has stopped, so waiting could hang.
 
+Scoring runs on its own thread pool, under the same `concurrency` limit as the agent calls, since
+the LLM judge calls a model (ADR-0027).
+
 Uploads are batched by size as well as count, since ingest refuses requests over 5 MB, and every
 sample is shrunk to fit one request: its output to 1 MB and its tool-call arguments to a budget.
 Scorers see everything in full; only the uploaded copy is cut.
@@ -30,7 +33,7 @@ from typing import Any
 
 from agenttrace._json import to_jsonable
 from agenttrace.eval import scorers as sc
-from agenttrace.eval.client import Client, DatasetVersion, VersionItem
+from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
 from agenttrace.eval.config import EvalConfig
 from agenttrace.eval.results import (
     MAX_SAMPLES_PER_REQUEST,
@@ -57,6 +60,10 @@ MAX_ARG_BYTES = 4 * 1024  # one tool-call argument value, as uploaded
 MAX_TRAJECTORY_BYTES = 1024 * 1024  # all of a sample's tool-call arguments, as uploaded
 
 
+class StartError(Exception):
+    """The server refused to create the experiment, so nothing was recorded."""
+
+
 class RunError(Exception):
     """The run can't go on: the experiment is (or would be) `failed`. `abandoned` means agent
     threads may still be running, so the caller shouldn't wait for them at exit."""
@@ -70,6 +77,8 @@ class RunError(Exception):
 class Git:
     commit: str | None = None
     branch: str | None = None
+    merge_base: str | None = None  # on a pull request (ADR-0026)
+    base_branch: str | None = None
 
 
 @dataclass
@@ -217,9 +226,18 @@ class UploadBuffer:
 
 
 def git_from_env(env: dict[str, str]) -> Git:
-    """GitHub Actions sets these; locally, the CLI falls back to asking git."""
+    """What GitHub Actions says about the run; locally, the CLI falls back to asking git. On a
+    pull request `GITHUB_SHA` is GitHub's temporary merge commit, so the commit is the PR head
+    from the event payload (ADR-0026). The merge-base needs git, so the CLI computes it."""
     branch = env.get("GITHUB_HEAD_REF") or env.get("GITHUB_REF_NAME") or None
-    return Git(commit=env.get("GITHUB_SHA") or None, branch=branch)
+    commit = env.get("GITHUB_SHA") or None
+    if env.get("GITHUB_EVENT_NAME", "").startswith("pull_request") and env.get("GITHUB_EVENT_PATH"):
+        try:
+            with open(env["GITHUB_EVENT_PATH"]) as f:
+                commit = json.load(f)["pull_request"]["head"]["sha"]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass  # keep GITHUB_SHA rather than nothing
+    return Git(commit=commit, branch=branch, base_branch=env.get("GITHUB_BASE_REF") or None)
 
 
 def _run_in(ctx: contextvars.Context, fn: Callable[[Any], Any], arg: Any) -> Any:
@@ -252,9 +270,37 @@ def _case(item: VersionItem, s: _Sample, calls: list[ToolCall]) -> sc.Case:
     )
 
 
-def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> list[Score]:
-    """Skipped scorers give no score; on an errored sample every other scorer gives 0."""
-    out = []
+@dataclass
+class Scored:
+    scores: list[Score] = field(default_factory=list)
+    judge_usage: list[ModelUsage] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)  # "<scorer>: <why>", for the run's output
+
+
+def _sum_usage(usage: list[ModelUsage]) -> list[ModelUsage]:
+    totals: dict[str, dict[str, int]] = {}
+    for u in usage:
+        t = totals.setdefault(u.model, defaultdict(int))
+        for k, v in u.model_dump(exclude={"model"}).items():
+            t[k] += v
+    return [ModelUsage(model=m, **t) for m, t in totals.items()]
+
+
+# Custom scorers are called one at a time across the run (`Scorer.thread_safe`).
+_serial = threading.Lock()
+
+
+def _grade(scorer: sc.Scorer, case: sc.Case) -> sc.Result | None:
+    if scorer.thread_safe:
+        return scorer.grade(case)
+    with _serial:
+        return scorer.grade(case)
+
+
+def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> Scored:
+    """Skipped scorers give no score; on an errored sample every other scorer gives 0. A `Fatal`
+    scorer error propagates and stops the run."""
+    out, usage = Scored(), []
     for scorer in scorers:
         if not scorer.applies(case):
             continue
@@ -262,13 +308,21 @@ def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> list[Sc
             result = sc.fail(f"agent raised {error.split(':', 1)[0]}")
         else:
             try:
-                result = scorer.grade(case)
+                result = _grade(scorer, case)
+            except sc.Fatal:
+                raise
+            except sc.Skipped as e:
+                usage += e.usage
+                out.skipped.append(f"{scorer.name}: {e}")
+                continue
             except Exception as e:  # a scorer bug grades the sample 0, and says so
                 result = sc.fail(f"scorer failed: {type(e).__name__}: {e}")
             if result is None:
                 continue
+            usage += result.usage
         reason = None if result.reason is None else _clean(result.reason)
-        out.append(Score(scorer=scorer.name, score=result.score, reason=reason))
+        out.scores.append(Score(scorer=scorer.name, score=result.score, reason=reason))
+    out.judge_usage = _sum_usage(usage)
     return out
 
 
@@ -288,8 +342,9 @@ class Runner:
 
     async def _run_one(
         self, experiment_id: str, item: VersionItem, index: int, sem: asyncio.Semaphore,
-        pool: ThreadPoolExecutor,
-    ) -> _Sample:  # fmt: skip
+        pool: ThreadPoolExecutor, scoring: ThreadPoolExecutor,
+    ) -> tuple[_Sample, SampleResult, list[str]]:  # fmt: skip
+        """Runs one sample and scores it, both within one `concurrency` slot."""
         async with sem:
             meta = {"experiment_id": experiment_id, "item_id": item.item_id, "sample": str(index)}
             started_at, t0 = datetime.now(UTC), time.monotonic()
@@ -313,7 +368,7 @@ class Runner:
                 except Exception as e:
                     error = f"{type(e).__name__}: {e}"[:MAX_ERROR]
                     root.set_error(type(e).__name__)
-            return _Sample(
+            s = _Sample(
                 item=item,
                 index=index,
                 trace_id=root.trace_id,
@@ -324,10 +379,14 @@ class Runner:
                 timed_out_thread=abandoned,
                 spans=self.capture.take(root.trace_id),
             )
+            result, skipped = await asyncio.get_running_loop().run_in_executor(
+                scoring, self._result, s
+            )
+            return s, result, skipped
 
-    def _result(self, s: _Sample) -> SampleResult:
+    def _result(self, s: _Sample) -> tuple[SampleResult, list[str]]:
         calls = trajectory(s.spans)
-        scores = score(self.scorers, _case(s.item, s, calls), s.error)
+        scored = score(self.scorers, _case(s.item, s, calls), s.error)
         output, truncated = (None, False) if s.error else storable_output(s.output)
         return SampleResult(
             item_id=uuid.UUID(s.item.item_id),
@@ -340,16 +399,18 @@ class Runner:
             trajectory=storable_trajectory(calls),
             error=s.error,
             usage=usage(s.spans),
-            scores=scores,
-        )
+            judge_usage=scored.judge_usage,
+            scores=scored.scores,
+        ), scored.skipped
 
-    def _line(self, done: int, total: int, s: _Sample, r: SampleResult) -> str:
+    def _line(self, done: int, total: int, s: _Sample, r: SampleResult, skipped: list[str]) -> str:
         marks = " ".join(
             f"{x.scorer}:{'pass' if x.score >= self._threshold(x.scorer) else 'FAIL'}"
             for x in r.scores
         )
         status = f"error ({s.error})" if s.error else marks or "no scorer applies"
-        return f"[{done}/{total}] item {s.item.item_id[:8]} #{s.index}  {status}"
+        skips = "".join(f"  (skipped {x})" for x in skipped)
+        return f"[{done}/{total}] item {s.item.item_id[:8]} #{s.index}  {status}{skips}"
 
     def _threshold(self, name: str) -> float:
         return next(x.threshold for x in self.cfg.scorers if x.name == name)
@@ -363,16 +424,17 @@ class Runner:
         jobs = [(item, i) for item in version.items for i in range(self.cfg.samples)]
         # Not a `with` block: leaving one waits for every thread, abandoned ones included.
         pool = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-eval")
+        # Scorers get their own threads, so an abandoned agent thread can't hold up scoring.
+        scoring = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-score")
         tasks = [
-            asyncio.ensure_future(self._run_one(experiment_id, item, i, sem, pool))
+            asyncio.ensure_future(self._run_one(experiment_id, item, i, sem, pool, scoring))
             for item, i in jobs
         ]
         try:
             for done, next_sample in enumerate(asyncio.as_completed(tasks), 1):
-                s = await next_sample
+                s, r, skipped = await next_sample
                 abandoned |= s.timed_out_thread
-                r = self._result(s)
-                self.report(self._line(done, len(jobs), s, r))
+                self.report(self._line(done, len(jobs), s, r, skipped))
                 batch = uploads.add(r)
                 if batch:
                     await asyncio.to_thread(self.client.upload_samples, experiment_id, batch)
@@ -384,6 +446,7 @@ class Runner:
                 t.cancel()
             # Waiting is only safe when every sample has returned or timed out cleanly.
             pool.shutdown(wait=finished and not abandoned, cancel_futures=True)
+            scoring.shutdown(wait=finished, cancel_futures=True)
         return abandoned
 
     def run(self, version: DatasetVersion, git: Git, name: str | None = None) -> RunResult:
@@ -393,6 +456,25 @@ class Runner:
         # A truncated output's text doubles at worst when encoded again (escaped quotes).
         assert 2 * MAX_OUTPUT_BYTES + MAX_TRAJECTORY_BYTES < MAX_UPLOAD_BYTES
         experiment_id = str(uuid.uuid4())
+        try:
+            self._create(experiment_id, version, git, name)
+        except ApiError as e:
+            raise StartError(f"couldn't create the experiment: {e}") from e
+        remove = add_span_processor(self.capture)
+        try:
+            abandoned = asyncio.run(self._samples(experiment_id, version))
+        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
+            self._fail(experiment_id, f"{type(e).__name__}: {e}")
+            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
+        finally:
+            remove()
+        flush(timeout_s=10)  # so each sample's trace is there to open from the results
+        self.client.finish(experiment_id, Finish(status="completed"))
+        return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
+
+    def _create(
+        self, experiment_id: str, version: DatasetVersion, git: Git, name: str | None
+    ) -> None:
         self.client.create_experiment(
             NewExperiment(
                 id=uuid.UUID(experiment_id),
@@ -405,19 +487,10 @@ class Runner:
                 config_hash=self.cfg.hash(),
                 git_commit=git.commit,
                 git_branch=git.branch,
+                git_merge_base=git.merge_base,
+                git_base_branch=git.base_branch,
             )
         )
-        remove = add_span_processor(self.capture)
-        try:
-            abandoned = asyncio.run(self._samples(experiment_id, version))
-        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
-            self._fail(experiment_id, f"{type(e).__name__}: {e}")
-            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
-        finally:
-            remove()
-        flush(timeout_s=10)  # so each sample's trace is there to open from the results
-        self.client.finish(experiment_id, Finish(status="completed"))
-        return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
 
     def _fail(self, experiment_id: str, error: str) -> None:
         try:

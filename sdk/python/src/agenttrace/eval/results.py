@@ -46,6 +46,8 @@ class ScorerSpec(Body):
     name: ScorerName
     type: Annotated[str, StringConstraints(min_length=1, max_length=200)]
     threshold: Annotated[float, Field(ge=0, le=1)] = 1.0  # pass threshold (GLOSSARY.md)
+    # The largest pass-rate drop versus the baseline the CI gate tolerates (ADR-0025).
+    max_drop: Annotated[float, Field(ge=0, le=1)] = 0.05
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -60,6 +62,9 @@ class NewExperiment(Body):
     config_hash: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
     git_commit: Annotated[str, StringConstraints(max_length=200)] | None = None
     git_branch: Annotated[str, StringConstraints(max_length=500)] | None = None
+    # On a pull request: where it branched from, and the branch it targets (ADR-0026).
+    git_merge_base: Annotated[str, StringConstraints(max_length=200)] | None = None
+    git_base_branch: Annotated[str, StringConstraints(max_length=500)] | None = None
 
     @model_validator(mode="after")
     def _unique_scorers(self) -> Self:
@@ -100,6 +105,7 @@ class SampleResult(Body):
     trajectory: list[ToolCall] = Field(default_factory=list)
     error: str | None = None
     usage: list[ModelUsage] = Field(default_factory=list)
+    judge_usage: list[ModelUsage] = Field(default_factory=list)  # LLM judge calls (ADR-0027)
     scores: list[Score] = Field(default_factory=list)
 
     @model_validator(mode="after")
