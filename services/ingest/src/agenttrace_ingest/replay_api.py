@@ -10,9 +10,9 @@ from pydantic import BaseModel
 
 from agenttrace.eval.results import Finish, NewReplay, ReplayRunBatch
 from agenttrace_ingest import replays as rp
+from agenttrace_ingest.auth import Auth, ProjectAccess
 from agenttrace_ingest.datasets import TraceId
 from agenttrace_ingest.experiments import Prices
-from agenttrace_ingest.spans import KeyResolver, key_auth
 from agenttrace_ingest.trace_inputs import RootInput, TraceRoots
 
 PREFIX = "/v1/replays"
@@ -27,9 +27,9 @@ class Uploaded(BaseModel):
     uploaded: int
 
 
-def router(store: rp.Store, prices: Prices, keys: KeyResolver) -> APIRouter:
+def router(store: rp.Store, prices: Prices, a: Auth) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
-    auth = Depends(key_auth(keys))
+    auth = Depends(ProjectAccess(a))
 
     @r.get("")
     def list_replays(project: Annotated[UUID, auth], trace_id: TraceId) -> ReplayList:
@@ -60,9 +60,9 @@ def router(store: rp.Store, prices: Prices, keys: KeyResolver) -> APIRouter:
     return r
 
 
-def traces_router(roots: TraceRoots, keys: KeyResolver) -> APIRouter:
+def traces_router(roots: TraceRoots, a: Auth) -> APIRouter:
     r = APIRouter(prefix=TRACES_PREFIX)
-    auth = Depends(key_auth(keys))
+    auth = Depends(ProjectAccess(a))
 
     @r.get("/{trace_id}/input")
     def trace_input(project: Annotated[UUID, auth], trace_id: TraceId) -> RootInput:

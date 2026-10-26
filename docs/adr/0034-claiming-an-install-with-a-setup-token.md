@@ -14,6 +14,7 @@ A fresh or upgraded install has data and keys but no users. The first account be
 - Members join by invite links and recover passwords by reset links, both created by an owner: single use, 7-day expiry, with the role chosen in the invite. There is no email.
 - A locked-out owner recovers with `docker compose exec ingest agenttrace-admin reset-password <email>`.
 - The org always keeps at least one owner; the last owner can't be demoted or removed.
+- Deactivating a user voids every unused link they created and every reset link aimed at them, in the same transaction, so a removed owner can't come back through an invite they made earlier.
 
 ## Consequences
 

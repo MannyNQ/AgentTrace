@@ -6,14 +6,14 @@ from concurrent.futures import ThreadPoolExecutor
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from stack import emit_root
+from stack import emit_root, register_key
 
 from agenttrace_ingest.app import create_app
+from agenttrace_ingest.auth import DEFAULT_PROJECT_ID
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Contents, Refused, add_item, publish
 from agenttrace_ingest.migrate import migrate, pending
 from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.spans import DEFAULT_PROJECT_ID, register_key
 
 pytestmark = pytest.mark.integration
 

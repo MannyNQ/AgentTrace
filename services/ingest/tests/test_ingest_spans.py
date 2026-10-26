@@ -1,6 +1,7 @@
 import json
 from uuid import UUID
 
+from fake_auth import FakeAuth
 from fastapi.testclient import TestClient
 
 from agenttrace import new_span_id, new_trace_id
@@ -10,9 +11,7 @@ from agenttrace_ingest.settings import Settings
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 
 
-class Keys:
-    async def resolve(self, api_key: str) -> UUID | None:
-        return PROJECT if api_key == "good" else None
+KEYS = {"good": PROJECT}
 
 
 class Queue:
@@ -36,7 +35,7 @@ def span(**over) -> dict:
 
 def setup(**settings):
     q = Queue()
-    app = create_app(Settings(**settings), checks={}, keys=Keys(), queue=q)
+    app = create_app(Settings(**settings), checks={}, auth_store=FakeAuth.with_keys(KEYS), queue=q)
     return TestClient(app), q
 
 

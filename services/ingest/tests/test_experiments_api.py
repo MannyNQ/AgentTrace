@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
+from fake_auth import FakeAuth
 from fake_datasets import FakeDatasets, FakePins
 from fake_experiments import FakeExperiments, FakePrices
 from fastapi.testclient import TestClient
@@ -16,9 +17,7 @@ STARTED = "2026-10-01T00:00:00Z"
 PRICES = PriceTable({"m": [Price(datetime(2026, 1, 1, tzinfo=UTC), 4.0, 20.0)]})
 
 
-class Keys:
-    async def resolve(self, api_key: str) -> UUID | None:
-        return {"good": PROJECT, "other": OTHER}.get(api_key)
+KEYS = {"good": PROJECT, "other": OTHER}
 
 
 class Api:
@@ -30,7 +29,7 @@ class Api:
         app = create_app(
             Settings(),
             checks={},
-            keys=Keys(),
+            auth_store=FakeAuth.with_keys(KEYS),
             datasets=datasets,
             pins=FakePins(),
             experiment_store=FakeExperiments(datasets),

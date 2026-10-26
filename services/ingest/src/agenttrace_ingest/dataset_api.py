@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from agenttrace_ingest import datasets as ds
+from agenttrace_ingest.auth import Auth, ProjectAccess
 from agenttrace_ingest.datasets import Contents, Name, Text, TraceId
-from agenttrace_ingest.spans import KeyResolver, key_auth
 
 PREFIX = "/v1/datasets"
 
@@ -54,9 +54,9 @@ class Published(BaseModel):
     version: int
 
 
-def router(store: ds.Store, traces: ds.TraceInputs, pins: ds.Pins, keys: KeyResolver) -> APIRouter:
+def router(store: ds.Store, traces: ds.TraceInputs, pins: ds.Pins, a: Auth) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
-    auth = Depends(key_auth(keys))
+    auth = Depends(ProjectAccess(a))
 
     @r.get("")
     def list_datasets(

@@ -11,7 +11,7 @@ API keys resolve a project (ADR-0017). A user can belong to many projects, so a 
 ## Decision
 
 - Ingest holds users, argon2id password hashes, org memberships, and sessions in Postgres. A session is an opaque random token stored hashed.
-- The web app's login form calls `/v1/auth/login`, keeps the token in an httpOnly cookie, and forwards it to ingest on every call. The browser never talks to ingest.
+- The web app's login form calls `/v1/auth/login`, keeps the token in an httpOnly cookie, and forwards it to ingest on every call as `Authorization: Session <token>`, beside API keys' `Bearer`, so ingest never has to guess which kind a credential is. The browser never talks to ingest.
 - Ingest's auth dependency accepts either an API key or a session and hands every handler a resolved `project_id`, as handlers get today.
 - Session requests keep the same `/v1/...` paths and name the project in `AgentTrace-Project: <slug>`. Ingest checks membership. A key request that sends a header naming a different project than its key gets 403.
 - Users belong to one org with a role, `owner` or `member`. Members see every project in the org. There are no per-project access lists, and the UI assumes one org per install.

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from fake_auth import FakeAuth
 from fake_datasets import FakeDatasets, FakePins, FakeTraces
 from fake_experiments import FakePrices
 from fake_replays import FakeReplays
@@ -22,9 +23,7 @@ TRUNCATED = "c" * 32
 UNRELATED = "d" * 32
 
 
-class Keys:
-    async def resolve(self, api_key: str) -> UUID | None:
-        return {"good": PROJECT, "other": OTHER}.get(api_key)
+KEYS = {"good": PROJECT, "other": OTHER}
 
 
 class Api:
@@ -44,7 +43,7 @@ class Api:
         app = create_app(
             Settings(),
             checks={},
-            keys=Keys(),
+            auth_store=FakeAuth.with_keys(KEYS),
             datasets=datasets,
             trace_inputs=traces,
             pins=FakePins(),

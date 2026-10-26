@@ -5,7 +5,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
-from agenttrace_ingest import dataset_api, experiment_api, experiments, replay_api, replays, spans
+from agenttrace_ingest import (
+    auth,
+    auth_api,
+    dataset_api,
+    experiment_api,
+    experiments,
+    replay_api,
+    replays,
+    spans,
+)
+from agenttrace_ingest.auth_store import PostgresAuth, RedisLimiter
 from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Pins, Store, TraceInputs, pin_pending
@@ -67,7 +77,8 @@ async def migrate_clickhouse_until_done(s: Settings) -> None:
 def create_app(
     settings: Settings | None = None,
     checks=CHECKS,
-    keys: spans.KeyResolver | None = None,
+    auth_store: auth.Store | None = None,
+    limiter: auth.Limiter | None = None,
     queue: spans.SpanQueue | None = None,
     datasets: Store | None = None,
     trace_inputs: TraceInputs | None = None,
@@ -78,7 +89,9 @@ def create_app(
     trace_roots: TraceRoots | None = None,
 ) -> FastAPI:
     s = settings or Settings()
-    keys = keys or spans.PostgresKeys(s)
+    a = auth.Auth(
+        auth_store or PostgresAuth(s), limiter or RedisLimiter(s), s.agenttrace_setup_token
+    )
     datasets = datasets or PostgresDatasets(s)
     pins = pins or ClickHousePins(s)
     prices = prices or PostgresPrices(s)
@@ -97,9 +110,25 @@ def create_app(
             log.exception("could not ensure payload bucket; /health will report s3")
         if s.agenttrace_api_key:
             try:
-                await asyncio.to_thread(spans.register_key, s, s.agenttrace_api_key)
+                registered = await asyncio.to_thread(
+                    a.register_env_key, s.agenttrace_api_key, s.public_url
+                )
             except Exception:
                 log.exception("could not register AGENTTRACE_API_KEY; ingest will answer 401")
+            else:
+                if not registered:
+                    log.error(
+                        "AGENTTRACE_API_KEY is the published dev key and AGENTTRACE_PUBLIC_URL "
+                        "(%s) isn't local, so ingest refuses it. Set AGENTTRACE_API_KEY to a key "
+                        "of your own.",
+                        s.public_url,
+                    )
+        setup_token = await asyncio.to_thread(a.prepare_setup)
+        if setup_token:
+            # ADR-0034: whoever can read these logs can claim the install.
+            log.warning(
+                "no owner yet; claim this install in the web app with setup token %s", setup_token
+            )
         # Backfill and retry pins without holding up startup (ADR-0021).
         task = asyncio.create_task(asyncio.to_thread(_pin_pending, datasets, pins))
         background.add(task)
@@ -109,16 +138,25 @@ def create_app(
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
-    app.include_router(spans.router(s, keys, queue or spans.RedisQueue(s)))
-    app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, keys))
-    app.include_router(
-        experiment_api.router(experiment_store or PostgresExperiments(s), prices, keys)
-    )
-    app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, keys))
-    app.include_router(replay_api.traces_router(trace_roots or stored_inputs, keys))
+    app.include_router(spans.router(s, a, queue or spans.RedisQueue(s)))
+    app.include_router(auth_api.router(a))
+    app.include_router(auth_api.members_router(a))
+    app.include_router(auth_api.keys_router(a))
+    app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, a))
+    app.include_router(experiment_api.router(experiment_store or PostgresExperiments(s), prices, a))
+    app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, a))
+    app.include_router(replay_api.traces_router(trace_roots or stored_inputs, a))
     dataset_api.install_error_handlers(
         app,
-        (dataset_api.PREFIX, experiment_api.PREFIX, replay_api.PREFIX, replay_api.TRACES_PREFIX),
+        (
+            dataset_api.PREFIX,
+            experiment_api.PREFIX,
+            replay_api.PREFIX,
+            replay_api.TRACES_PREFIX,
+            auth_api.PREFIX,
+            auth_api.MEMBERS_PREFIX,
+            auth_api.KEYS_PREFIX,
+        ),
     )
 
     @app.get("/health")

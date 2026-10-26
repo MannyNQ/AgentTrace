@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from agenttrace.eval.results import Finish, NewExperiment, SampleBatch
 from agenttrace_ingest import comparisons as cmp
 from agenttrace_ingest import experiments as ex
-from agenttrace_ingest.spans import KeyResolver, key_auth
+from agenttrace_ingest.auth import Auth, ProjectAccess
 
 PREFIX = "/v1/experiments"
 
@@ -23,9 +23,9 @@ class Uploaded(BaseModel):
     uploaded: int
 
 
-def router(store: ex.Store, prices: ex.Prices, keys: KeyResolver) -> APIRouter:
+def router(store: ex.Store, prices: ex.Prices, a: Auth) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
-    auth = Depends(key_auth(keys))
+    auth = Depends(ProjectAccess(a))
 
     @r.get("")
     def list_experiments(

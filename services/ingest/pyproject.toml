@@ -12,7 +12,11 @@ dependencies = [
   "clickhouse-connect>=0.8",
   "redis>=5.0",
   "boto3>=1.35",
+  "argon2-cffi>=23.1",
 ]
+
+[project.scripts]
+agenttrace-admin = "agenttrace_ingest.admin:main"
 
 [build-system]
 requires = ["hatchling"]

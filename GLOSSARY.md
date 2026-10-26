@@ -18,11 +18,11 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Session**: A logged-in user's access, an opaque token held by ingest (hashed) and by the web app in an httpOnly cookie. Lasts 30 days, sliding. See ADR-0032. _Avoid_ confusing it with Session ID, which groups traces.
 
-**API key**: A secret that authenticates the SDK, the CLI, or CI as one project. Shown once, stored as a SHA-256 hash, revoked rather than deleted. The key from `AGENTTRACE_API_KEY` is re-added on every startup and can't be revoked in the UI. See ADR-0017 and ADR-0033.
+**API key**: A secret that authenticates the SDK, the CLI, or CI as one project. Shown once, stored as a SHA-256 hash, revoked rather than deleted. The key from `AGENTTRACE_API_KEY` is re-added on every startup and can't be revoked in the UI; the published dev key `at-local-dev-key` is accepted only while `AGENTTRACE_PUBLIC_URL` is localhost. See ADR-0017 and ADR-0033.
 
 **Key scope**: What an API key may do: `ingest` (send spans only, for agents in production) or `full` (the whole project API, for the CLI and CI). See ADR-0033.
 
-**Invite**: An owner-created, single-use link, valid for 7 days, that lets a person create a user with the role chosen in the invite. Password-reset links work the same way. There is no email.
+**Invite**: An owner-created, single-use link, valid for 7 days, that lets a person create a user with the role chosen in the invite. Password-reset links work the same way. Deactivating a user voids the unused links they made. There is no email.
 
 **Setup token**: The secret needed to claim an install that has no users yet, from `AGENTTRACE_SETUP_TOKEN` or printed in ingest's logs. Claiming creates the first owner. See ADR-0034.
 

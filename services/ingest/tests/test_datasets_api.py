@@ -2,6 +2,7 @@ import json
 from uuid import UUID
 
 import pytest
+from fake_auth import FakeAuth
 from fake_datasets import FakeDatasets, FakePins, FakeTraces
 from fastapi.testclient import TestClient
 
@@ -17,9 +18,7 @@ BIG_TRACE = "b" * 32
 CUT_TRACE = "c" * 32
 
 
-class Keys:
-    async def resolve(self, api_key: str) -> UUID | None:
-        return {"good": PROJECT, "other": OTHER}.get(api_key)
+KEYS = {"good": PROJECT, "other": OTHER}
 
 
 class Api:
@@ -36,7 +35,7 @@ class Api:
         app = create_app(
             Settings(),
             checks={},
-            keys=Keys(),
+            auth_store=FakeAuth.with_keys(KEYS),
             datasets=self.store,
             trace_inputs=traces,
             pins=self.pins,
@@ -128,7 +127,12 @@ def test_deleting_keeps_published_items_and_drops_unpublished_ones(api: Api):
 
 def test_bodies_over_the_limit_are_413_even_without_content_length():
     c = TestClient(
-        create_app(Settings(max_request_bytes=100), checks={}, keys=Keys(), datasets=FakeDatasets())
+        create_app(
+            Settings(max_request_bytes=100),
+            checks={},
+            auth_store=FakeAuth.with_keys(KEYS),
+            datasets=FakeDatasets(),
+        )
     )
     headers = {"Authorization": "Bearer good", "Content-Type": "application/json"}
     r = c.post(
@@ -301,7 +305,7 @@ def test_from_trace_refuses_inputs_jsonb_cannot_hold():
         create_app(
             Settings(),
             checks={},
-            keys=Keys(),
+            auth_store=FakeAuth.with_keys(KEYS),
             datasets=FakeDatasets(),
             trace_inputs=traces,
             pins=FakePins(),
