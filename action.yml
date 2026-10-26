@@ -22,7 +22,7 @@ inputs:
     description: The AgentTrace web UI, for links in the comment.
     default: ""
   github-token:
-    description: Token that can comment on pull requests (needs `pull-requests: write`).
+    description: "Token that can comment on pull requests (needs `pull-requests: write`)."
     default: ${{ github.token }}
   run-prefix:
     description: >-
