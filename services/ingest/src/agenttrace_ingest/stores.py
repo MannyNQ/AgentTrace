@@ -19,6 +19,14 @@ def s3_client(s: Settings):
     )
 
 
+def read_payload(s: Settings, client, uri: str) -> str:
+    """An offloaded payload (ADR-0009). `uri` comes from a span row, never from a request."""
+    prefix = f"s3://{s.s3_bucket}/"
+    if not uri.startswith(prefix):
+        raise RuntimeError(f"unexpected payload uri: {uri}")
+    return client.get_object(Bucket=s.s3_bucket, Key=uri[len(prefix) :])["Body"].read().decode()
+
+
 def ensure_bucket(s: Settings) -> None:
     """Create the payload bucket if it's missing. Safe to call on every startup."""
     client = s3_client(s)

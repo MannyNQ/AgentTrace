@@ -52,9 +52,9 @@ def test_a_route_without_a_guard_is_caught():
     a = app()
     forgot = APIRouter()
 
-    @forgot.get("/v1/traces")
-    def list_traces() -> dict:
+    @forgot.get("/v1/forgotten")
+    def forgotten() -> dict:
         return {}
 
     a.include_router(forgot)
-    assert unguarded(a) - PUBLIC_ROUTES == {("GET", "/v1/traces")}
+    assert unguarded(a) - PUBLIC_ROUTES == {("GET", "/v1/forgotten")}

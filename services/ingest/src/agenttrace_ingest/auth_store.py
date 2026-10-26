@@ -27,6 +27,7 @@ USER_COLUMNS = """u.id, u.org_id, u.email, u.role, u.created_at,
                   u.deactivated_at IS NOT NULL AS deactivated"""
 KEY_COLUMNS = """k.id, k.project_id, k.name, k.scope, k.hint, k.from_env, k.created_by,
                  k.created_at, k.last_used_at, k.revoked_at"""
+PROJECT_COLUMNS = "id, org_id, slug, name, retention_days, created_at"
 CLAIM_LOCK_ID = 0x61677475  # "agtu": serializes claiming the install
 TAKEN = "a user with this email already exists"
 
@@ -45,7 +46,8 @@ class PostgresAuth:
     def key(self, key_hash: str) -> KeyRow | None:
         with self._connect() as conn:
             row = conn.execute(
-                f"""SELECT {KEY_COLUMNS}, p.org_id, p.slug, p.name AS project_name
+                f"""SELECT {KEY_COLUMNS}, p.org_id, p.slug, p.name AS project_name,
+                           p.retention_days, p.created_at AS project_created_at
                     FROM api_keys k JOIN projects p ON p.id = k.project_id
                     WHERE k.key_hash = %s""",
                 (key_hash,),
@@ -53,7 +55,12 @@ class PostgresAuth:
         if row is None:
             return None
         project = Project(
-            id=row["project_id"], org_id=row["org_id"], slug=row["slug"], name=row["project_name"]
+            id=row["project_id"],
+            org_id=row["org_id"],
+            slug=row["slug"],
+            name=row["project_name"],
+            retention_days=row["retention_days"],
+            created_at=row["project_created_at"],
         )
         return KeyRow(info=KeyInfo.model_validate(row), project=project)
 
@@ -134,10 +141,56 @@ class PostgresAuth:
     def project(self, org_id: UUID, slug: str) -> Project | None:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT id, org_id, slug, name FROM projects WHERE org_id = %s AND slug = %s",
+                f"SELECT {PROJECT_COLUMNS} FROM projects WHERE org_id = %s AND slug = %s",
                 (org_id, slug),
             ).fetchone()
         return Project.model_validate(row) if row else None
+
+    def project_by_id(self, project_id: UUID) -> Project | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT {PROJECT_COLUMNS} FROM projects WHERE id = %s", (project_id,)
+            ).fetchone()
+        return Project.model_validate(row) if row else None
+
+    def projects(self, org_id: UUID) -> list[Project]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT {PROJECT_COLUMNS} FROM projects WHERE org_id = %s ORDER BY name",
+                (org_id,),
+            ).fetchall()
+        return [Project.model_validate(r) for r in rows]
+
+    def create_project(self, org_id: UUID, name: str, slug: str) -> Project | None:
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    f"""INSERT INTO projects (org_id, name, slug) VALUES (%s, %s, %s)
+                        RETURNING {PROJECT_COLUMNS}""",
+                    (org_id, name, slug),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as e:
+            if e.diag.constraint_name == "projects_slug_unique":
+                return None
+            raise Conflict(f'a project named "{name}" already exists') from e
+        return Project.model_validate(row)
+
+    def update_project(
+        self, project_id: UUID, name: str | None, retention_days: int | None
+    ) -> Project:
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    f"""UPDATE projects SET name = coalesce(%s, name),
+                          retention_days = coalesce(%s, retention_days)
+                        WHERE id = %s RETURNING {PROJECT_COLUMNS}""",
+                    (name, retention_days, project_id),
+                ).fetchone()
+        except psycopg.errors.UniqueViolation as e:
+            raise Conflict(f'a project named "{name}" already exists') from e
+        if row is None:
+            raise NotFound("project not found")
+        return Project.model_validate(row)
 
     # Claiming the install
 

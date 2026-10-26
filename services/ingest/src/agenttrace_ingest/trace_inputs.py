@@ -9,7 +9,7 @@ from uuid import UUID
 from agenttrace.eval.results import SpanRef
 from agenttrace_ingest.datasets import NotFound, Record, Refused
 from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import clickhouse_client, s3_client
+from agenttrace_ingest.stores import clickhouse_client, read_payload, s3_client
 
 TRUNCATED_ATTRIBUTE = "agenttrace.truncated"  # sdk/python/src/agenttrace/exporter.py
 REPLAY_OF_ATTRIBUTE = "agenttrace.replay_of"  # sdk/python/src/agenttrace/eval/replay.py
@@ -104,7 +104,7 @@ class StoredTraceInputs:
         span_id, preview, uri, truncated, replay_of = rows[0]
         if "input" in truncated.split(","):
             raise Refused("the SDK cut this trace's input to fit a request, so it can't be copied")
-        text = self._read(uri) if uri else preview
+        text = read_payload(self.s, self._s3, uri) if uri else preview
         if text == "":
             raise Refused("the trace's root span has no input")
         return RootInput(
@@ -113,10 +113,3 @@ class StoredTraceInputs:
             input=decode_payload(text),
             replay_of=parse_ref(replay_of),
         )
-
-    def _read(self, uri: str) -> str:
-        prefix = f"s3://{self.s.s3_bucket}/"
-        if not uri.startswith(prefix):
-            raise RuntimeError(f"unexpected payload uri: {uri}")
-        body = self._s3.get_object(Bucket=self.s.s3_bucket, Key=uri[len(prefix) :])["Body"]
-        return body.read().decode()

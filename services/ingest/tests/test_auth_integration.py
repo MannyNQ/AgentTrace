@@ -189,6 +189,19 @@ def test_revoking_by_hash_also_clears_from_env(store, org):
     store.revoke_key_hash(hash_token("no-such-key"))  # a no-op, not an error
 
 
+def test_projects_tell_a_taken_slug_from_a_taken_name(store, org):
+    org_id, _ = org
+    made = store.create_project(org_id, "Support Bot", "support-bot")
+    assert made and made.slug == "support-bot" and made.retention_days == 30
+    assert store.create_project(org_id, "Other name", "support-bot") is None
+    with pytest.raises(Conflict):
+        store.create_project(org_id, "Support Bot", "support-bot-2")
+    changed = store.update_project(made.id, "Helpdesk", 90)
+    assert (changed.name, changed.slug, changed.retention_days) == ("Helpdesk", "support-bot", 90)
+    assert [p.slug for p in store.projects(org_id)] == ["support-bot", "p"]
+    assert store.project_by_id(made.id) == changed
+
+
 def test_failed_logins_count_in_redis_and_clear():
     limiter = RedisLimiter(Settings())
     email = f"{uuid.uuid4().hex[:12]}@example.com"

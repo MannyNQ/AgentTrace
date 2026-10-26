@@ -97,8 +97,10 @@ class User(Record):
 class Project(Record):
     id: UUID
     org_id: UUID
-    slug: str
+    slug: str  # never changes; the name can (design.md, Phase 6)
     name: str
+    retention_days: int  # applies to spans ingested from now on (ADR-0016)
+    created_at: datetime
 
 
 class KeyInfo(Record):
@@ -190,6 +192,20 @@ class Store(Protocol):
 
     # Projects
     def project(self, org_id: UUID, slug: str) -> Project | None: ...
+
+    def project_by_id(self, project_id: UUID) -> Project | None: ...
+
+    def projects(self, org_id: UUID) -> list[Project]: ...
+
+    def create_project(self, org_id: UUID, name: str, slug: str) -> Project | None:
+        """None when the slug is taken in the org. Raises Conflict when the name is."""
+        ...
+
+    def update_project(
+        self, project_id: UUID, name: str | None, retention_days: int | None
+    ) -> Project:
+        """Changes the given fields. Raises Conflict when the name is taken in the org."""
+        ...
 
     # Claiming the install
     def has_users(self) -> bool: ...

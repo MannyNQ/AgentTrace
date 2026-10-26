@@ -24,6 +24,7 @@ export AGENTTRACE_API_KEY="${AGENTTRACE_API_KEY:-at-local-dev-key}"
 export AGENTTRACE_ENDPOINT="$INGEST"
 # Short quiet period so an unclosed trace completes within a verification run (ADR-0004).
 QUIET_PERIOD_S=20
+export TRACE_QUIET_PERIOD_S=$QUIET_PERIOD_S  # ingest decides trace status too (ADR-0031)
 WEB="http://127.0.0.1:$WEB_PORT"
 ALL_PORTS="15432 18123 19000 16379 18333 18000 $WEB_PORT"
 

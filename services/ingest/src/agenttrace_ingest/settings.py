@@ -31,3 +31,5 @@ class Settings(BaseSettings):
     max_spans_per_request: int = 1000
     max_request_bytes: int = 5 * 1024 * 1024
     stream_maxlen: int = 1_000_000  # ADR-0015, approximate
+    # ADR-0004 / ADR-0013: a trace whose root never ended is complete after this much quiet.
+    trace_quiet_period_s: float = 300.0

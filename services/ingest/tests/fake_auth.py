@@ -35,7 +35,7 @@ class _Link:
 
 @dataclass
 class FakeAuth:
-    projects: dict[UUID, Project] = field(default_factory=dict)
+    projects_by_id: dict[UUID, Project] = field(default_factory=dict)
     api_keys: dict[str, KeyInfo] = field(default_factory=dict)  # by hash
     users_by_id: dict[UUID, _User] = field(default_factory=dict)
     sessions: dict[str, tuple[UUID, datetime]] = field(default_factory=dict)
@@ -53,7 +53,14 @@ class FakeAuth:
         return store
 
     def add_project(self, project_id: UUID, slug: str, org_id: UUID = DEFAULT_ORG_ID) -> None:
-        self.projects[project_id] = Project(id=project_id, org_id=org_id, slug=slug, name=slug)
+        self.projects_by_id[project_id] = Project(
+            id=project_id,
+            org_id=org_id,
+            slug=slug,
+            name=slug,
+            retention_days=30,
+            created_at=datetime.now(UTC),
+        )
 
     def add_key(self, key: str, project_id: UUID, scope: Scope = "full") -> KeyInfo:
         info = KeyInfo(
@@ -75,7 +82,7 @@ class FakeAuth:
 
     def key(self, key_hash: str) -> KeyRow | None:
         info = self.api_keys.get(key_hash)
-        return KeyRow(info=info, project=self.projects[info.project_id]) if info else None
+        return KeyRow(info=info, project=self.projects_by_id[info.project_id]) if info else None
 
     def touch_key(self, key_id: UUID) -> None:
         self.touched.append(key_id)
@@ -151,8 +158,43 @@ class FakeAuth:
 
     def project(self, org_id: UUID, slug: str) -> Project | None:
         return next(
-            (p for p in self.projects.values() if p.org_id == org_id and p.slug == slug), None
+            (p for p in self.projects_by_id.values() if p.org_id == org_id and p.slug == slug), None
         )
+
+    def project_by_id(self, project_id: UUID) -> Project | None:
+        return self.projects_by_id.get(project_id)
+
+    def projects(self, org_id: UUID) -> list[Project]:
+        return sorted(
+            (p for p in self.projects_by_id.values() if p.org_id == org_id), key=lambda p: p.name
+        )
+
+    def create_project(self, org_id: UUID, name: str, slug: str) -> Project | None:
+        mine = self.projects(org_id)
+        if any(p.slug == slug for p in mine):
+            return None
+        if any(p.name == name for p in mine):
+            raise Conflict(f'a project named "{name}" already exists')
+        project_id = uuid4()
+        self.add_project(project_id, slug, org_id)
+        self.projects_by_id[project_id] = self.projects_by_id[project_id].model_copy(
+            update={"name": name}
+        )
+        return self.projects_by_id[project_id]
+
+    def update_project(
+        self, project_id: UUID, name: str | None, retention_days: int | None
+    ) -> Project:
+        p = self.projects_by_id[project_id]
+        if name is not None and any(
+            o.name == name and o.id != project_id for o in self.projects(p.org_id)
+        ):
+            raise Conflict(f'a project named "{name}" already exists')
+        update = {
+            k: v for k, v in (("name", name), ("retention_days", retention_days)) if v is not None
+        }
+        self.projects_by_id[project_id] = p.model_copy(update=update)
+        return self.projects_by_id[project_id]
 
     # Claiming the install
 
