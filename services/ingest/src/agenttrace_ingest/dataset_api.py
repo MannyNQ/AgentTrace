@@ -54,7 +54,7 @@ class Published(BaseModel):
     version: int
 
 
-def router(store: ds.Store, traces: ds.TraceInputs, keys: KeyResolver) -> APIRouter:
+def router(store: ds.Store, traces: ds.TraceInputs, pins: ds.Pins, keys: KeyResolver) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
     auth = Depends(key_auth(keys))
 
@@ -69,7 +69,7 @@ def router(store: ds.Store, traces: ds.TraceInputs, keys: KeyResolver) -> APIRou
         if body.trace_id is None:
             return ds.create_dataset(store, project, body.name, body.description)
         return ds.create_from_trace(
-            store, traces, project, body.name, body.description, body.trace_id
+            store, traces, pins, project, body.name, body.description, body.trace_id
         )
 
     @r.get("/{dataset_id}")
@@ -109,7 +109,7 @@ def router(store: ds.Store, traces: ds.TraceInputs, keys: KeyResolver) -> APIRou
     def add_from_trace(
         project: Annotated[UUID, auth], dataset_id: UUID, body: FromTrace
     ) -> ds.Item:
-        return ds.add_from_trace(store, traces, project, dataset_id, body.trace_id)
+        return ds.add_from_trace(store, traces, pins, project, dataset_id, body.trace_id)
 
     @r.post("/{dataset_id}/publish")
     def publish(project: Annotated[UUID, auth], dataset_id: UUID) -> Published:
@@ -139,9 +139,10 @@ def _fields(errors: list[dict[str, Any]]) -> dict[str, str]:
     return fields
 
 
-def install_error_handlers(app: FastAPI) -> None:
-    """Dataset errors answer `{"detail": {"error": ..., ...}}`. Validation errors on dataset
-    routes use the same shape with `fields`; a malformed id in the path is a 404."""
+def install_error_handlers(app: FastAPI, prefixes: tuple[str, ...]) -> None:
+    """Dataset errors, which the experiment rules raise too, answer `{"detail": {"error": ...,
+    ...}}`. Validation errors on routes under `prefixes` use the same shape with `fields`; a
+    malformed id in the path is a 404."""
 
     @app.exception_handler(ds.DatasetError)
     async def dataset_error(_: Request, e: ds.DatasetError) -> JSONResponse:
@@ -149,7 +150,7 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request: Request, e: RequestValidationError) -> JSONResponse:
-        if not request.url.path.startswith(PREFIX):
+        if not request.url.path.startswith(prefixes):
             return await request_validation_exception_handler(request, e)
         errors = list(e.errors())
         if any(err["loc"][0] == "path" for err in errors):

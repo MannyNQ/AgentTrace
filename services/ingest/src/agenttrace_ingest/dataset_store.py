@@ -46,7 +46,7 @@ def _dataset(row: tuple) -> Dataset:
     )
 
 
-def _item(row: tuple) -> Item:
+def item_from_row(row: tuple) -> Item:
     item_id, rev, source, created, inp, out, trajectory, metadata = row
     contents = Contents.model_validate(
         {
@@ -110,7 +110,7 @@ class PostgresTx:
                 ORDER BY i.created_at, i.item_id""",
             (self._id,),
         ).fetchall()
-        return [_item(r) for r in rows]
+        return [item_from_row(r) for r in rows]
 
     def draft_item(self, item_id: UUID) -> Item | None:
         row = self.conn.execute(
@@ -119,7 +119,7 @@ class PostgresTx:
                 WHERE i.dataset_id = %s AND i.item_id = %s AND i.deleted_at IS NULL""",
             (self._id, item_id),
         ).fetchone()
-        return _item(row) if row else None
+        return item_from_row(row) if row else None
 
     def item_for_trace(self, trace_id: str) -> UUID | None:
         row = self.conn.execute(
@@ -165,7 +165,7 @@ class PostgresTx:
                 ORDER BY i.created_at, i.item_id""",
             (self._id, n),
         ).fetchall()
-        return _version(info), [_item(r) for r in rows]
+        return _version(info), [item_from_row(r) for r in rows]
 
     def insert_item(self, source_trace_id: str | None) -> UUID:
         row = self.conn.execute(
@@ -260,6 +260,27 @@ class PostgresDatasets:
                 raise _name_taken(conn, project, name) from e
         assert row is not None
         return row[0]
+
+    def unpinned(self, limit: int) -> list[tuple[UUID, str]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT d.project_id, i.source_trace_id FROM dataset_items i
+                   JOIN datasets d ON d.id = i.dataset_id
+                   WHERE i.source_trace_id IS NOT NULL AND i.pinned_at IS NULL
+                   GROUP BY d.project_id, i.source_trace_id
+                   ORDER BY min(i.created_at) LIMIT %s""",
+                (limit,),
+            ).fetchall()
+        return [(project, trace_id) for project, trace_id in rows]
+
+    def mark_pinned(self, project: UUID, trace_ids: list[str]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """UPDATE dataset_items i SET pinned_at = now() FROM datasets d
+                   WHERE d.id = i.dataset_id AND d.project_id = %s
+                     AND i.source_trace_id = ANY(%s) AND i.pinned_at IS NULL""",
+                (project, trace_ids),
+            )
 
     @contextmanager
     def open(self, project: UUID, dataset_id: UUID, lock: bool) -> Iterator[PostgresTx]:

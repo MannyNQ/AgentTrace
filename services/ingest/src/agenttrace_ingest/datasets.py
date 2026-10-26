@@ -5,6 +5,8 @@ version numbers, the delete policy, the archived rule, publish checks) is made h
 layer is in `dataset_api`, the Postgres store in `dataset_store`."""
 
 import json
+import logging
+from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
@@ -18,8 +20,11 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
-    model_serializer,
 )
+
+from agenttrace.eval.results import ToolCall
+
+log = logging.getLogger(__name__)
 
 MAX_JSON_BYTES = 1024 * 1024  # input and expected_output, each (design.md, Phase 2)
 
@@ -30,22 +35,6 @@ Change = Literal["added", "changed", "unchanged"]
 
 
 # --- Contents -------------------------------------------------------------------------------
-
-
-class ToolCall(BaseModel):
-    """One expected tool call. `args` is a partial match: listed keys must be equal, others are
-    ignored. Anything looser (regex, wildcards) is a Phase 3 scorer's job."""
-
-    model_config = ConfigDict(extra="forbid")
-    tool: Annotated[str, StringConstraints(min_length=1)]
-    args: dict[str, Any] | None = None
-
-    @model_serializer(mode="wrap")
-    def _omit_missing_args(self, handler) -> dict[str, Any]:
-        data = handler(self)
-        if data.get("args") is None:
-            data.pop("args", None)
-        return data
 
 
 class Contents(BaseModel):
@@ -62,24 +51,24 @@ class Contents(BaseModel):
     def _input(cls, v: Any) -> Any:
         if v is None:
             raise ValueError("input is required")
-        return _storable(v, "input", MAX_JSON_BYTES)
+        return storable(v, "input", MAX_JSON_BYTES)
 
     @field_validator("expected_output")
     @classmethod
     def _expected_output(cls, v: Any) -> Any:
-        return v if v is None else _storable(v, "expected_output", MAX_JSON_BYTES)
+        return v if v is None else storable(v, "expected_output", MAX_JSON_BYTES)
 
     @field_validator("expected_trajectory")
     @classmethod
     def _trajectory(cls, v: list[ToolCall] | None) -> list[ToolCall] | None:
         if v is not None:
-            _storable([t.model_dump() for t in v], "expected_trajectory")
+            storable([t.model_dump() for t in v], "expected_trajectory")
         return v
 
     @field_validator("metadata")
     @classmethod
     def _metadata(cls, v: dict[str, str]) -> dict[str, str]:
-        return _storable(v, "metadata")
+        return storable(v, "metadata")
 
     def has_expectation(self) -> bool:
         return self.expected_output is not None or self.expected_trajectory is not None
@@ -95,7 +84,7 @@ def _has_nul(v: Any) -> bool:
     return False
 
 
-def _storable(v: Any, field: str, max_bytes: int | None = None) -> Any:
+def storable(v: Any, field: str, max_bytes: int | None = None) -> Any:
     """Postgres `jsonb` holds standard JSON only: no NaN or Infinity, and no NUL characters."""
     try:
         text = json.dumps(v, ensure_ascii=False, allow_nan=False)
@@ -283,6 +272,20 @@ class Store(Protocol):
         NotFound when the project has no such dataset."""
         ...
 
+    def unpinned(self, limit: int) -> list[tuple[UUID, str]]:
+        """`(project, trace_id)` for source traces of items not yet marked pinned, oldest first."""
+        ...
+
+    def mark_pinned(self, project: UUID, trace_ids: list[str]) -> None:
+        """Marks every item in the project linking to these traces as pinned."""
+        ...
+
+
+class Pins(Protocol):
+    def pin(self, project: UUID, trace_ids: list[str]) -> None:
+        """Exempts the traces from retention (ADR-0021). Returns once the change is queued."""
+        ...
+
 
 class TraceInputs(Protocol):
     def root_input(self, project: UUID, trace_id: str) -> Any:
@@ -392,18 +395,56 @@ def _insert_from_trace(tx: Tx, trace_id: str, contents: Contents) -> Item:
     return _reload(tx, item_id)
 
 
+def pin_traces(store: Store, pins: Pins, project: UUID, trace_ids: list[str]) -> bool:
+    """Pins the traces and marks their items pinned. A failure is logged, not raised: the item
+    holds its own copy of the input, and unmarked items are retried on startup (ADR-0021)."""
+    try:
+        pins.pin(project, trace_ids)
+        store.mark_pinned(project, trace_ids)
+    except Exception:
+        log.warning(
+            "could not pin %d traces; retrying on next startup", len(trace_ids), exc_info=True
+        )
+        return False
+    return True
+
+
+def pin_pending(store: Store, pins: Pins, batch: int = 500) -> int:
+    """Pins every unmarked item's source trace: the backfill, and pins that failed earlier.
+    Stops at the first failure, so a ClickHouse outage doesn't spin. Returns traces pinned."""
+    pinned = 0
+    while found := store.unpinned(batch):
+        by_project: dict[UUID, list[str]] = defaultdict(list)
+        for project, trace_id in found:
+            by_project[project].append(trace_id)
+        for project, trace_ids in by_project.items():
+            if not pin_traces(store, pins, project, trace_ids):
+                return pinned
+            pinned += len(trace_ids)
+    return pinned
+
+
 def add_from_trace(
-    store: Store, traces: TraceInputs, project: UUID, dataset_id: UUID, trace_id: str
+    store: Store, traces: TraceInputs, pins: Pins, project: UUID, dataset_id: UUID, trace_id: str
 ) -> Item:
     """Add to dataset (GLOSSARY.md): the server copies the root span's full input. The trace is
-    read first, outside the transaction, then every check and the insert run under the lock."""
+    read first, outside the transaction, then every check and the insert run under the lock. The
+    trace is pinned once the item is committed."""
     contents = _trace_contents(traces, project, trace_id)
     with _writing(store, project, dataset_id) as tx:
-        return _insert_from_trace(tx, trace_id, contents)
+        item = _insert_from_trace(tx, trace_id, contents)
+    pin_traces(store, pins, project, [trace_id])
+    return item
 
 
 def create_from_trace(
-    store: Store, traces: TraceInputs, project: UUID, name: str, description: str, trace_id: str
+    store: Store,
+    traces: TraceInputs,
+    pins: Pins,
+    project: UUID,
+    name: str,
+    description: str,
+    trace_id: str,
 ) -> Dataset:
     """A new dataset whose draft starts with the trace. The trace is read before the dataset is
     created, so a trace that can't be copied leaves no empty dataset behind."""
@@ -411,6 +452,7 @@ def create_from_trace(
     dataset_id = store.create_dataset(project, name, description.strip())
     with _writing(store, project, dataset_id) as tx:
         _insert_from_trace(tx, trace_id, contents)
+    pin_traces(store, pins, project, [trace_id])
     return get_dataset(store, project, dataset_id)
 
 

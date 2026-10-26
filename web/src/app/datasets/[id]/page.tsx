@@ -124,7 +124,12 @@ async function DatasetView({ params }: Pick<Props, "params">) {
       </section>
 
       <section className="mt-10" aria-label="Versions">
-        <h2 className="font-medium">Published versions</h2>
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h2 className="font-medium">Published versions</h2>
+          <Link href={`/experiments?dataset=${id}`} className="ml-auto text-sm font-medium underline">
+            Experiments on this dataset →
+          </Link>
+        </div>
         {versions.length === 0 ? (
           <p className="mt-2 text-sm text-muted">None yet. Evals run on published versions only.</p>
         ) : (

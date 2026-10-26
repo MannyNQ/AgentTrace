@@ -6,7 +6,7 @@ Open-source observability and evals for LLM agents. Sentry plus pytest for AI ag
 - **Turn failures into tests** with one click.
 - **Grade trajectories in CI**: which tools the agent called, in what order, so a prompt change can't quietly break things.
 
-> **Status: Phase 2 (datasets).** The Python SDK traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. Any trace can be added to a dataset, and a dataset's draft can be published as an immutable version for the Phase 3 eval runner. See [`docs/design.md`](docs/design.md).
+> **Status: Phase 3 (evals).** The Python SDK traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. Any trace can be added to a dataset, and a published version can be run with `agenttrace eval`: it runs your agent over every item, grades outputs and tool-call trajectories, and uploads an experiment you can browse in the UI. Comparing against a baseline and failing CI on regressions come in Phase 4. See [`docs/design.md`](docs/design.md).
 >
 > From Phase 2 on, ingest applies database migrations on startup, so an existing dev stack upgrades in place with `docker compose up -d --build`. A stack from before Phase 1 still needs `docker compose down -v` (this deletes its data).
 >
@@ -38,6 +38,14 @@ uv run demo-agent "Where is order 1042?"
 ```
 
 Each run is traced into the local stack; open http://localhost:3000/traces to see it. The SDK reads `AGENTTRACE_API_KEY` and `AGENTTRACE_ENDPOINT` (see `.env.example`). Click "Add to dataset" on a trace to turn it into a test case at http://localhost:3000/datasets.
+
+Evals: add the demo agent's traces to a dataset named `support`, write each item's expected output or expected tool calls, publish it, then:
+
+```bash
+AGENTTRACE_API_KEY=at-local-dev-key uv run agenttrace eval -c examples/demo-agent/eval.yaml
+```
+
+It runs the agent 3 times per item, scores each run with the scorers in [`eval.yaml`](examples/demo-agent/eval.yaml), and prints a summary; the experiment, with every run's output and tool calls, is at http://localhost:3000/experiments.
 
 ## Development
 

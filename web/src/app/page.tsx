@@ -13,10 +13,11 @@ const STORE_LABELS: Record<StoreName, string> = {
 export default function Home() {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
-      <p className="font-mono text-xs uppercase tracking-widest text-muted">Phase 2</p>
+      <p className="font-mono text-xs uppercase tracking-widest text-muted">Phase 3</p>
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">AgentTrace</h1>
       <p className="mt-3 text-muted">
-        Observability and evals for LLM agents. Eval runs arrive in Phase 3.
+        Observability and evals for LLM agents. Run <code className="font-mono">agenttrace eval</code> to
+        grade your agent on a dataset; regression checks in CI arrive in Phase 4.
       </p>
       <p className="mt-6">
         <Link href="/traces" className="font-medium underline">
@@ -24,6 +25,9 @@ export default function Home() {
         </Link>
         <Link href="/datasets" className="ml-6 font-medium underline">
           Datasets →
+        </Link>
+        <Link href="/experiments" className="ml-6 font-medium underline">
+          Experiments →
         </Link>
       </p>
       <section className="mt-10">

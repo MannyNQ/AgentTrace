@@ -1,15 +1,15 @@
 """Turn validated spans into ClickHouse rows: payload previews and offload (ADR-0009), and cost
-(ADR-0010). Pure apart from the `put_payload` callback, so it's testable without the stores."""
+(ADR-0010, via `agenttrace.pricing`). Pure apart from the `put_payload` callback, so it's
+testable without the stores."""
 
-import bisect
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from agenttrace import Span
+from agenttrace.pricing import PriceTable, as_utc
 
 COLUMNS = [
     "project_id", "trace_id", "span_id", "parent_span_id", "name", "kind", "start_time",
@@ -20,48 +20,6 @@ COLUMNS = [
 ]  # fmt: skip
 
 PutPayload = Callable[[str, bytes], str]  # (object key, bytes) -> uri
-
-
-@dataclass(frozen=True)
-class Price:
-    effective_from: datetime
-    input_per_mtok: float
-    output_per_mtok: float
-    cache_read_per_mtok: float | None = None
-    cache_write_5m_per_mtok: float | None = None
-    cache_write_1h_per_mtok: float | None = None
-
-
-@dataclass
-class PriceTable:
-    by_model: dict[str, list[Price]] = field(default_factory=dict)  # each list sorted by date
-
-    def cost(self, span: Span) -> float | None:
-        """USD at the price in effect at the span's start, or None when it can't be priced."""
-        prices = self.by_model.get(span.model or "")
-        if not prices or span.input_tokens is None or span.output_tokens is None:
-            return None
-        i = bisect.bisect_right([p.effective_from for p in prices], as_utc(span.start_time)) - 1
-        if i < 0:
-            return None
-        p = prices[i]
-        total = span.input_tokens * p.input_per_mtok + span.output_tokens * p.output_per_mtok
-        # input_tokens excludes cached tokens, so cache reads and writes are priced on top.
-        for tokens, price in (
-            (span.cache_read_tokens, p.cache_read_per_mtok),
-            (span.cache_write_5m_tokens, p.cache_write_5m_per_mtok),
-            (span.cache_write_1h_tokens, p.cache_write_1h_per_mtok),
-        ):
-            if tokens:
-                if price is None:
-                    return None  # unknown beats wrong (ADR-0010)
-                total += tokens * price
-        return total / 1e6
-
-
-def as_utc(t: datetime) -> datetime:
-    """The SDK sends UTC; a timestamp without a zone is read as UTC too."""
-    return t.replace(tzinfo=UTC) if t.tzinfo is None else t.astimezone(UTC)
 
 
 def truncate_utf8(data: bytes, limit: int) -> str:
@@ -118,7 +76,7 @@ def to_row(
         span.cache_read_tokens,
         span.cache_write_5m_tokens,
         span.cache_write_1h_tokens,
-        prices.cost(span) if span.kind == "llm" else None,
+        prices.cost(span, span.start_time) if span.kind == "llm" else None,
         input_preview,
         output_preview,
         input_uri,

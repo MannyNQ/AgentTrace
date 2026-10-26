@@ -13,7 +13,8 @@ import psycopg
 import redis
 
 from agenttrace import Span
-from agenttrace_worker.pipeline import COLUMNS, Price, PriceTable
+from agenttrace.pricing import PRICES_SQL, PriceTable
+from agenttrace_worker.pipeline import COLUMNS
 from agenttrace_worker.settings import Settings
 
 # Store failures worth waiting out (the store is down or unreachable), as opposed to a batch the
@@ -59,16 +60,7 @@ class Postgres:
             return conn.execute(sql).fetchall()
 
     def _load_prices(self) -> PriceTable:
-        table = PriceTable()
-        for model, eff, *rates in self._query(
-            "SELECT model, effective_from, input_per_mtok, output_per_mtok, cache_read_per_mtok, "
-            "cache_write_5m_per_mtok, cache_write_1h_per_mtok "
-            "FROM model_prices ORDER BY model, effective_from"
-        ):
-            inp, out, read, w5m, w1h = (None if r is None else float(r) for r in rates)
-            assert inp is not None and out is not None  # NOT NULL columns
-            table.by_model.setdefault(model, []).append(Price(eff, inp, out, read, w5m, w1h))
-        return table
+        return PriceTable.from_rows(self._query(PRICES_SQL))
 
     def _load_retention(self) -> dict[UUID, int]:
         return {pid: days for pid, days in self._query("SELECT id, retention_days FROM projects")}

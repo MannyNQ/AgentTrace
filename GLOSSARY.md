@@ -40,7 +40,9 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Price table**: Versioned prices per model (input, output, cache-read, and 5-minute and 1-hour cache-write per-token prices, effective date).
 
-**Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item or experiment are **pinned** and never expire. See ADR-0011.
+**Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item are **pinned** and never expire; experiment traces expire normally. See ADR-0011 and ADR-0021.
+
+**Pin**: Exempting a trace from retention by rewriting its `retention_days` in `spans` and `traces` so it expires on 2106-01-01, the latest date ClickHouse's `DateTime` holds. Happens when a dataset item gets a `source_trace_id`. Unlinking doesn't unpin. See ADR-0021.
 
 ## Evals
 
@@ -60,17 +62,21 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Add to dataset**: Turning a trace into a draft dataset item. The server copies the root span's full input into the item at that moment (fetching it from object storage if it was offloaded) and sets `source_trace_id`; it leaves `expected_output` and `expected_trajectory` empty to fill in, since the trace's own steps are the failure. A trace can be in a dataset's draft once. _Avoid_: Promote, Capture.
 
-**Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning (Phase 3, ADR-0011) stops this for new links.
+**Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning stops this for items created from Phase 3 on, and ingest's startup pass pins earlier links whose traces still exist (ADR-0021).
 
-**Scorer**: A function that grades one output. Built-ins (exact match, contains, regex, JSON schema, trajectory, LLM judge) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path.
+**Scorer**: A function that grades one sample. Built-ins (exact match, contains, regex, JSON schema, trajectory; LLM judge from Phase 4) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path. A scorer is skipped for an item that lacks the expectation it needs.
 
-**Trajectory scorer**: The built-in scorer that compares a trace's trajectory to an expected trajectory in one of these modes: `exact`, `in_order`, `any_order`, `forbidden`, `max_steps`.
+**Trajectory scorer**: The built-in scorer that compares a trace's trajectory to an expected trajectory in one of these modes: `exact`, `in_order`, `any_order` (against the item's expected trajectory), `forbidden`, `max_steps` (parameters from the scorer config). Scores 1 or 0.
 
-**Eval runner**: The CLI process that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. See ADR-0006.
+**eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their thresholds, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, and `version`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
 
-**Experiment**: One run of one version of the agent over one dataset version with a set of scorers.
+**Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. See ADR-0006.
+
+**Experiment**: One run of one version of the agent over one dataset version with a set of scorers. Status is `running`, `completed`, or `failed`; `failed` means the runner failed, not the agent. See ADR-0023.
 
 **Sample**: One run of the agent on one dataset item within an experiment. Each item runs `samples: k` times (default 3); results report mean and spread across samples.
+
+**Errored sample**: A sample whose agent call raised or exceeded `timeout_s`. Every scorer scores it 0 with a reason naming the error; the experiment still completes.
 
 **Score**: A scorer's result for one sample: a number from 0 to 1 plus an optional `reason`. The sample passes that scorer when the score is at or above the scorer's **pass threshold** (default 1.0).
 

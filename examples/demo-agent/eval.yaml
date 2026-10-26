@@ -1,0 +1,21 @@
+# The demo agent's evals. From the repo root, with the stack running and a published `support`
+# dataset:  uv run agenttrace eval -c examples/demo-agent/eval.yaml
+entry: demo_agent.evals:eval_entry
+dataset: support
+version: latest
+samples: 3
+concurrency: 4
+timeout_s: 120
+scorers:
+  # Items with an expected_output: a phrase the answer must include.
+  - name: answer
+    type: contains
+  # Items with an expected_trajectory: those tool calls, in that order, other calls allowed.
+  - name: steps
+    type: trajectory
+    mode: in_order
+  # Every item: a support question shouldn't take more than 6 tool calls.
+  - name: few-steps
+    type: trajectory
+    mode: max_steps
+    max: 6

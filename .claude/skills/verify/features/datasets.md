@@ -12,6 +12,7 @@ Datasets live behind `/v1/datasets` in the ingest API (ADR-0019); the web app ca
 - `ds-publish` publishes the next version; refuses "nothing to publish" and lists new or changed items without expectations.
 - `ds-version-diff` shows added, changed, removed, and unchanged items versus the previous version, with contents as of that version.
 - `ds-source-expired` shows "source trace expired" when the linked trace is gone.
+- `ds-pin` adding a trace pins it: its `spans` and `traces` rows expire on 2106-01-01 instead of after the project's retention (ADR-0021). Items whose `pinned_at` is null are pinned when ingest starts.
 
 ## How to get to it (user POV)
 
@@ -27,7 +28,7 @@ Preconditions:
 - A healthy run. `ANTHROPIC_API_KEY` in `.env` for the demo agent journey.
 - The API key the web server and curl send is the one `H` exports (`.env`'s, else `at-local-dev-key`).
 
-- **Migrations.** `docker exec agenttrace-verify-postgres-1 psql -U agenttrace -d agenttrace -tAc "SELECT version, name FROM schema_migrations"` prints `1|0001_datasets.sql`.
+- **Migrations.** `docker exec agenttrace-verify-postgres-1 psql -U agenttrace -d agenttrace -tAc "SELECT version, name FROM schema_migrations"` prints `1|0001_datasets.sql` and `2|0002_experiments.sql`.
 - **Integration tests.** `POSTGRES_DSN=postgresql://agenttrace:agenttrace@127.0.0.1:15432/agenttrace CLICKHOUSE_HOST=127.0.0.1 CLICKHOUSE_PORT=18123 S3_ENDPOINT=http://127.0.0.1:18333 REDIS_URL=redis://127.0.0.1:16379/15 uv run pytest services/ingest -m integration` passes. It covers from-trace with an S3-offloaded input, revisions, deletes, and concurrent publishes. It leaves `it-xxxxxxxx` datasets behind.
 - **Demo agent → dataset.** `H agent "I want a refund for order 1042, it arrived broken"`, then find the trace with `H ch <name> "SELECT trace_id FROM spans WHERE parent_span_id = '' AND name = 'support_agent' FORMAT TSV"`. On its trace page choose "New dataset…", name it `refund-failures`, and click "Add to dataset": "Added. Fill in what should have happened". Choose `refund-failures` and add again: "this trace is already in the draft" with "Open the item".
 - **Publish refused.** On the dataset page, "Publish v1" shows "1 new or changed items have no expected output or expected trajectory".
@@ -37,6 +38,8 @@ Preconditions:
 - **Archive.** "Rename or archive" → "Archive dataset": it leaves `/datasets` and the trace page picker; "Show archived" (`/datasets?archived=1`) lists it marked `archived`; its page offers "Unarchive"; `POST .../items` answers 422 "archived". Creating a dataset with the archived one's name says "already exists" and links to it ("Open that dataset").
 - **New dataset from an uncopyable trace.** On the `verify.oversized` trace (SDK-truncated input), choose "New dataset…", name it, and add: "the trace's input can't be copied…" or "the SDK cut…", and no dataset of that name appears, even under "Show archived".
 - **JSON jsonb can't hold.** `curl -H "Authorization: Bearer $AGENTTRACE_API_KEY" -H 'Content-Type: application/json' -d '{"input": NaN}' http://127.0.0.1:18000/v1/datasets/<id>/items` answers 422 with `fields.input` naming NaN.
+- **Pinned on add.** Before adding a trace, `H ch pin-before "SELECT toDateTime(start_time) + toIntervalDay(retention_days) FROM spans WHERE trace_id = '<trace_id>'"` shows 30 days out. After "Add to dataset", the same query (and the same on `traces`) shows `2106-01-01 …`, `system.mutations` has two `UPDATE retention_days = …` rows with `is_done = 1`, and `SELECT pinned_at IS NOT NULL FROM dataset_items WHERE source_trace_id = '<trace_id>'` is `t`.
+- **Pin backfill on startup.** Stand in for a Phase 2 item: `UPDATE dataset_items SET pinned_at = NULL WHERE source_trace_id = '<trace_id>'` in Postgres, and `ALTER TABLE spans UPDATE retention_days = 30 WHERE trace_id = '<trace_id>' SETTINGS mutations_sync = 1` (and the same on `traces`). `docker restart agenttrace-verify-ingest-1`, wait for `/health`: the expiry is back to 2106 and `pinned_at` is set.
 - **ClickHouse down.** `H store-stop clickhouse`, then open a dataset page: it renders, with source traces shown as plain links instead of "source trace expired". `H store-start clickhouse` and `H doctor` afterwards.
 - **Source expired.** `H ch <name> "ALTER TABLE traces DELETE WHERE trace_id = '<trace_id>' SETTINGS mutations_sync = 1"` stands in for retention: the dataset page shows "source trace expired" for that item, and the item page says the item keeps its copy of the input.
 
@@ -46,4 +49,6 @@ Preconditions:
 - React resets a form after its action runs. The forms echo the submitted values back on refusal, so a test reading textarea values after a refusal is checking exactly that.
 - Dataset pages are addressed by dataset id (UUID), not by name, because names can change.
 - Not-found pages (`/datasets/<unknown id>`) stream a 404 page with HTTP 200, like `/traces/<unknown>`. Check the body, not the status.
-- Ingest logs nothing about migrations at uvicorn's default log level. Check `schema_migrations` instead.
+- Ingest logs nothing about migrations or the startup pin pass at uvicorn's default log level. Check `schema_migrations` and `pinned_at` instead.
+- Don't prove pinning by backdating a trace past its retention and expecting it to survive. ClickHouse may drop an expired row in any background merge before the pin's mutation runs, and `SYSTEM STOP TTL MERGES` doesn't prevent it. Check the computed expiry instead.
+- The emit scenarios whose root span has an input are `verify.nested` and `verify.large-payload`. Adding any other emitted trace is refused with 422 (no input to copy).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Drive an isolated AgentTrace instance for verification. Run from anywhere inside the repo.
 # Usage: agenttrace-verify <up|doctor|health|page|store-stop SVC|store-start SVC|agent "Q" [name]
-#        |emit [name]|post NAME KEY FILE|ch NAME SQL|traces [TRACE_ID] [name]|down>
+#        |emit [name]|post NAME KEY FILE|ch NAME SQL|traces [TRACE_ID] [name]|web-restart|down>
 set -euo pipefail
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.orbstack/bin:$HOME/.local/bin:$PATH"
@@ -47,22 +47,8 @@ capture() {
   return 0
 }
 
-cmd_up() {
-  [[ -f "$STATE/run_id" ]] && die "a run is already active ($(cat "$STATE/run_id")); run 'agenttrace-verify down' first"
-  for p in $ALL_PORTS; do
-    [[ -z "$(listener "$p")" ]] || die "port $p is already in use (pid $(listener "$p")); not starting a second instance"
-  done
-  [[ -f "$ROOT/.env" ]] || cp "$ROOT/.env.example" "$ROOT/.env"
-
-  local run_id; run_id="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
-  mkdir -p "$STATE" "$ART_ROOT/$run_id"
-  echo "$run_id" >"$STATE/run_id"
-  git -C "$ROOT" rev-parse --short HEAD >"$ART_ROOT/$run_id/git-sha"
-
-  echo "== stack: docker compose -p $PROJECT (fresh volumes) =="
-  compose up -d --build --wait --wait-timeout 240 >"$ART_ROOT/$run_id/compose-up.log" 2>&1 \
-    || { tail -20 "$ART_ROOT/$run_id/compose-up.log"; die "stack did not become healthy"; }
-
+start_web() {
+  local run_id="$1"
   echo "== web: next build + next start on :$WEB_PORT =="
   # next build rewrites tsconfig.json to include its distDir's types; keep the checkout clean.
   cp "$ROOT/web/tsconfig.json" "$STATE/tsconfig.json.bak"
@@ -85,6 +71,25 @@ cmd_up() {
     sleep 1
   done
   curl -sf -o /dev/null "$WEB/" || { tail -20 "$ART_ROOT/$run_id/web.log"; die "web never answered on $WEB"; }
+}
+
+cmd_up() {
+  [[ -f "$STATE/run_id" ]] && die "a run is already active ($(cat "$STATE/run_id")); run 'agenttrace-verify down' first"
+  for p in $ALL_PORTS; do
+    [[ -z "$(listener "$p")" ]] || die "port $p is already in use (pid $(listener "$p")); not starting a second instance"
+  done
+  [[ -f "$ROOT/.env" ]] || cp "$ROOT/.env.example" "$ROOT/.env"
+
+  local run_id; run_id="${RUN_ID:-$(date +%Y%m%d-%H%M%S)}"
+  mkdir -p "$STATE" "$ART_ROOT/$run_id"
+  echo "$run_id" >"$STATE/run_id"
+  git -C "$ROOT" rev-parse --short HEAD >"$ART_ROOT/$run_id/git-sha"
+
+  echo "== stack: docker compose -p $PROJECT (fresh volumes) =="
+  compose up -d --build --wait --wait-timeout 240 >"$ART_ROOT/$run_id/compose-up.log" 2>&1 \
+    || { tail -20 "$ART_ROOT/$run_id/compose-up.log"; die "stack did not become healthy"; }
+
+  start_web "$run_id"
   echo "READY run=$run_id ingest=$INGEST web=$WEB artifacts=$ART_ROOT/$run_id"
 }
 
@@ -210,6 +215,17 @@ if not rows and "TRACE" not in page and "data-span-id" not in page:
 PY
 }
 
+# Rebuild and restart only the web app, keeping the stack and its data: for UI changes.
+cmd_web_restart() {
+  local run_id; run_id="$(basename "$(run_dir)")"
+  [[ -f "$STATE/web.pgid" ]] && kill -TERM -- "-$(cat "$STATE/web.pgid")" 2>/dev/null || true
+  for _ in $(seq 20); do [[ -z "$(listener "$WEB_PORT")" ]] && break; sleep 0.5; done
+  [[ -z "$(listener "$WEB_PORT")" ]] || die "port $WEB_PORT still in use after stopping our web server"
+  git -C "$ROOT" rev-parse --short HEAD >"$ART_ROOT/$run_id/git-sha"
+  start_web "$run_id"
+  echo "READY run=$run_id web=$WEB (rebuilt from the working tree)"
+}
+
 cmd_down() {
   if [[ -f "$STATE/web.pgid" ]]; then
     kill -TERM -- "-$(cat "$STATE/web.pgid")" 2>/dev/null || true
@@ -231,6 +247,7 @@ case "${1:-}" in
   post) shift; cmd_post "$@" ;;
   ch) shift; cmd_ch "$@" ;;
   traces) shift; cmd_traces "$@" ;;
+  web-restart) cmd_web_restart ;;
   down) cmd_down ;;
   *) sed -n '2,4p' "$0"; exit 2 ;;
 esac
