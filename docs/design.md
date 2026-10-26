@@ -177,13 +177,14 @@ Also settled:
 - The trace list hides replay traces unless "Show replays" is on.
 - The trace page gets a "Replays" panel (time, commit and dirty flag, pass counts if scored) and a "Replay" button that shows the CLI command to copy, since the server can't run it (ADR-0006). A replay page shows the original and the k runs side by side with the Phase 4 side-by-side component, the first difference marked, and scorer reasons. There is no top-level replays list.
 - The server computes each run's cost on arrival, and the CLI reuses the byte-bounded uploader.
+- ClickHouse schema changes are migrations too. Ingest applies numbered SQL files from `agenttrace_ingest/migrations/clickhouse/` on startup and records each in a ClickHouse `schema_migrations` table, as it does for Postgres. The init SQL stays as it is, so existing stacks upgrade in place. Phase 5's file adds `replay_of` to `traces` and recreates `traces_mv`; traces already stored get `''`, which is right, since none of them are replays.
 - Phase 6 is still auth.
 
 ## Phase 5 plan
 
 A failed trace is re-run against a fix, and the result is compared with the original and scored against the item's expectation:
 
-1. Ingest: a replays migration (the `replays` table and its runs, and a `replay_of` column on `traces` filled from the root span by `traces_mv`), `/v1/replays` (create, upsert runs, finish, list, read) with cost on arrival, and `GET /v1/traces/{trace_id}/input`.
+1. Ingest: a ClickHouse migration runner, a replays migration (the `replays` table and its runs, and a `replay_of` column on `traces` filled from the root span by `traces_mv`), `/v1/replays` (create, upsert runs, finish, list, read) with cost on arrival, and `GET /v1/traces/{trace_id}/input`.
 2. SDK and CLI: `agenttrace replay` with `--config`, `--entry`, `--samples`, and `--require-pass`; `replay_of` on each run's root span; root resolution for replays of replays; the draft-item lookup and scoring; git and dirty-flag capture; the pass-count printout; exit codes 0, 1, 2, and 3.
 3. Web: the "Replays" panel and "Replay" button on the trace page, the "Show replays" toggle on the trace list, and the replay page with the original and the runs side by side, the first difference marked, and scorer reasons.
 4. Proof: unit tests for the first difference and replay scoring; CLI tests with a scripted fake agent for exits 0, 2, and 3 and for chain flattening; integration tests for `/v1/replays` and `/v1/traces/{id}/input`, with offloaded and truncated input; and a `replay` entry in the verify skill that breaks the demo agent, adds the trace to a dataset, sets an expectation, replays (fails), fixes the agent, replays (3/3), and checks the replay page. No new CI workflow.
