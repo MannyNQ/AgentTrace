@@ -1,6 +1,6 @@
 # 19. Dataset writes go through the ingest API
 
-Status: accepted. Amends ADR-0018 for writes.
+Status: accepted. Amends ADR-0018 for writes; amended by ADR-0031 (the web app no longer holds an API key).
 
 ## Context
 

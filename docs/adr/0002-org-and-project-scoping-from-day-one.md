@@ -1,6 +1,6 @@
 # 2. Org and project scoping from day one, auth later
 
-Status: accepted
+Status: accepted. Phase 6 auth: ADR-0031 to ADR-0034.
 
 ## Context
 
