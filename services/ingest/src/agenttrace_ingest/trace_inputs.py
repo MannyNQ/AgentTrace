@@ -30,6 +30,10 @@ class TraceRoots(Protocol):
         """Raises NotFound or Refused, as `root_input` does."""
         ...
 
+    def exists(self, project: UUID, trace_id: str) -> bool:
+        """Whether the project holds this trace, without reading its spans or payloads."""
+        ...
+
 
 def parse_ref(value: str) -> SpanRef | None:
     """`<trace_id>:<span_id>` as the runner writes it, or None when unset or malformed."""
@@ -67,6 +71,16 @@ class StoredTraceInputs:
 
     def root_input(self, project: UUID, trace_id: str) -> Any:
         return self.root(project, trace_id).input
+
+    def exists(self, project: UUID, trace_id: str) -> bool:
+        return bool(
+            self._clickhouse.query(
+                """SELECT 1 FROM traces
+                   WHERE project_id = {project:UUID} AND trace_id = {trace:FixedString(32)}
+                   LIMIT 1""",
+                parameters={"project": str(project), "trace": trace_id},
+            ).result_rows
+        )
 
     def root(self, project: UUID, trace_id: str) -> RootInput:
         ch = self._clickhouse

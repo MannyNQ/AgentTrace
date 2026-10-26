@@ -20,6 +20,7 @@ def emit_root(
     age: timedelta = timedelta(seconds=1),
     retention_days=30,
     attributes: dict[str, str] | None = None,
+    project_id: UUID = DEFAULT_PROJECT_ID,
 ) -> str:
     """Store a one-span trace the way the worker does, offloading a large input to S3. `age`
     backdates it, so a test can make it older than its retention."""
@@ -36,7 +37,7 @@ def emit_root(
         input=input_value,
         attributes=attributes or {},
     )
-    row = to_row(span, DEFAULT_PROJECT_ID, retention_days, PriceTable(), Payloads(ws).put)
+    row = to_row(span, project_id, retention_days, PriceTable(), Payloads(ws).put)
     ClickHouse(ws).insert_spans([row])
     return trace_id
 

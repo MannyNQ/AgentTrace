@@ -155,7 +155,11 @@ def create_app(
     app.include_router(project_api.router(a, locations or StoredLocations(s)))
     app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, a))
     app.include_router(experiment_api.router(experiment_store or PostgresExperiments(s), prices, a))
-    app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, a))
+    app.include_router(
+        replay_api.router(
+            replay_store or PostgresReplays(s), trace_roots or stored_inputs, prices, a
+        )
+    )
     trace_reads = Traces(
         trace_store or ClickHouseTraces(s),
         timedelta(seconds=s.trace_quiet_period_s),

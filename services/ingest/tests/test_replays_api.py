@@ -39,7 +39,9 @@ class Api:
                 UNRELATED: {"question": "hi"},
             },
             replay_of={REPLAY_RUN: SpanRef(trace_id=FAILED, span_id=FAILED[:16])},
+            project=PROJECT,
         )
+        self.traces = traces
         app = create_app(
             Settings(),
             checks={},
@@ -227,3 +229,28 @@ def test_deleting_the_draft_item_keeps_the_replay_and_what_it_was_scored_against
     api.call("DELETE", f"/v1/datasets/{api.dataset}/items/{api.item}?rev=2", status=204)
     detail = api.call("GET", f"/v1/replays/{replay['id']}", status=200)
     assert (detail["item_id"], detail["item_rev"], detail["item"]) == (api.item, 2, None)
+
+
+def test_a_replay_of_another_projects_trace_is_not_found():
+    api = Api()
+    body = api.new(scored=False)
+    assert api.call("POST", "/v1/replays", body, key="other", status=404) == {
+        "detail": {"error": "trace not found; it may have expired"}
+    }
+    assert api.call("GET", "/v1/replays", params={"trace_id": FAILED}, key="other")["replays"] == []
+
+
+def test_an_expired_original_can_be_replayed_again_through_its_replay_runs():
+    api = Api()
+    api.call("POST", "/v1/replays", api.new(scored=False), status=201)
+    del api.traces.inputs[FAILED]  # retention expired the original; its replay runs are newer
+    api.call("POST", "/v1/replays", api.new(scored=False), status=201)
+    # Another project has no replay of it to vouch for it.
+    api.call("POST", "/v1/replays", api.new(scored=False), key="other", status=404)
+
+
+def test_an_expired_trace_never_replayed_is_not_found():
+    api = Api()
+    del api.traces.inputs[UNRELATED]
+    gone = {"trace_id": UNRELATED, "span_id": UNRELATED[:16]}
+    api.call("POST", "/v1/replays", api.new(scored=False, replay_of=gone), status=404)

@@ -13,6 +13,7 @@ from agenttrace_ingest import replays as rp
 from agenttrace_ingest.auth import Auth, ProjectAccess
 from agenttrace_ingest.datasets import TraceId
 from agenttrace_ingest.experiments import Prices
+from agenttrace_ingest.trace_inputs import TraceRoots
 
 PREFIX = "/v1/replays"
 
@@ -25,7 +26,7 @@ class Uploaded(BaseModel):
     uploaded: int
 
 
-def router(store: rp.Store, prices: Prices, a: Auth) -> APIRouter:
+def router(store: rp.Store, roots: TraceRoots, prices: Prices, a: Auth) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
     auth = Depends(ProjectAccess(a))
 
@@ -38,7 +39,7 @@ def router(store: rp.Store, prices: Prices, a: Auth) -> APIRouter:
     def create(
         project: Annotated[UUID, auth], body: NewReplay, response: Response
     ) -> rp.ReplayInfo:
-        replay, created = rp.create(store, project, body)
+        replay, created = rp.create(store, roots, project, body)
         if not created:
             response.status_code = 200
         return replay

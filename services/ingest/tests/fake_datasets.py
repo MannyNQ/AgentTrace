@@ -196,10 +196,20 @@ class FakeDatasets:
 
 class FakeTraces:
     """Root inputs by trace ID; a NotFound or Refused value is raised instead. A trace's root span
-    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs."""
+    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs. With
+    `project`, every trace belongs to that project only; without it, to every project."""
 
-    def __init__(self, inputs: dict[str, Any], replay_of: dict[str, SpanRef] | None = None):
-        self.inputs, self.replay_of = inputs, replay_of or {}
+    def __init__(
+        self,
+        inputs: dict[str, Any],
+        replay_of: dict[str, SpanRef] | None = None,
+        project: UUID | None = None,
+    ):
+        self.inputs, self.replay_of, self.project = inputs, replay_of or {}, project
+
+    def exists(self, project: UUID, trace_id: str) -> bool:
+        mine = self.project is None or project == self.project
+        return mine and not isinstance(self.inputs.get(trace_id, NotFound("")), NotFound)
 
     def root_input(self, project: UUID, trace_id: str) -> Any:
         value = self.inputs.get(trace_id, NotFound("trace not found; it may have expired"))
