@@ -46,6 +46,7 @@ export type ReplayRun = {
   scores: StoredScore[];
 };
 
+/** `item` is null when unscored, or when the draft item was deleted after the replay ran. */
 export type ReplayDetail = ReplayInfo & { item: Item | null; replay_runs: ReplayRun[] };
 
 const id = (s: string) => encodeURIComponent(s);

@@ -176,8 +176,10 @@ class ReplayRunner(AgentRunner):
 
 def all_pass(detail: dict[str, Any]) -> bool:
     """Every scored run passed every scorer that graded it. An errored run scores 0, so it
-    fails."""
-    return all(c["passed"] == c["scored"] for c in detail["pass_counts"])
+    fails. A replay where every scorer skipped every run (a custom scorer returning None, the
+    judge unreachable) graded nothing, so it doesn't pass: a gate mustn't pass on nothing."""
+    counts = detail["pass_counts"]
+    return bool(counts) and all(c["passed"] == c["scored"] for c in counts)
 
 
 def summary(detail: dict[str, Any], web_url: str | None) -> str:
@@ -193,6 +195,8 @@ def summary(detail: dict[str, Any], web_url: str | None) -> str:
         for c in detail["pass_counts"]:
             mark = "pass" if c["passed"] == c["scored"] else "FAIL"
             lines.append(f"  {c['scorer']:<{width}}  {c['passed']}/{c['scored']}  {mark}")
+        if not detail["pass_counts"]:
+            lines.append("  no run was graded: every scorer skipped every run")
     if detail["errored"]:
         lines.append(f"{detail['errored']} runs errored (the agent raised or timed out)")
     where = f"{web_url.rstrip('/')}/replays/{detail['id']}" if web_url else None

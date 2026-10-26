@@ -38,6 +38,32 @@ def _pin_pending(datasets: Store, pins: Pins) -> None:
         log.info("pinned %d dataset source traces", n)
 
 
+# Backoff between ClickHouse migration attempts while ClickHouse is unreachable.
+CLICKHOUSE_RETRY_FIRST_S = 1.0
+CLICKHOUSE_RETRY_MAX_S = 30.0
+
+
+async def migrate_clickhouse_until_done(s: Settings) -> None:
+    """Applies ClickHouse migrations, retrying with backoff until ClickHouse answers. It runs
+    beside the app rather than before it: ingest must take spans into Redis while ClickHouse is
+    down (ADR-0015), so a ClickHouse outage can't stop it starting. Reads of a column a pending
+    migration adds fail until then, as they would while ClickHouse is down anyway."""
+    delay = CLICKHOUSE_RETRY_FIRST_S
+    while True:
+        try:
+            names = await asyncio.to_thread(
+                migrate_clickhouse, s.postgres_dsn, clickhouse_client(s)
+            )
+        except Exception:
+            log.exception("clickhouse migrations not applied; retrying in %g s", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, CLICKHOUSE_RETRY_MAX_S)
+            continue
+        for name in names:
+            log.info("clickhouse migration applied: %s", name)
+        return
+
+
 def create_app(
     settings: Settings | None = None,
     checks=CHECKS,
@@ -61,12 +87,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # A failed migration stops startup: serving on a half-upgraded schema is worse.
+        # A failed Postgres migration stops startup: serving on a half-upgraded schema is worse.
         for name in await asyncio.to_thread(migrate, s.postgres_dsn):
             log.info("schema migration applied: %s", name)
-        ch = clickhouse_client(s)
-        for name in await asyncio.to_thread(migrate_clickhouse, s.postgres_dsn, ch):
-            log.info("clickhouse migration applied: %s", name)
+        clickhouse = asyncio.create_task(migrate_clickhouse_until_done(s))
         try:
             await asyncio.to_thread(ensure_bucket, s)
         except Exception:
@@ -81,6 +105,7 @@ def create_app(
         background.add(task)
         task.add_done_callback(background.discard)
         yield
+        clickhouse.cancel()  # still retrying at shutdown: ClickHouse never came back
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)

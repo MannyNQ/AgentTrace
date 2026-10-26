@@ -220,3 +220,11 @@ def test_replays_are_listed_by_original_trace_newest_first_and_per_project():
     assert api.call("GET", "/v1/replays", params={"trace_id": UNRELATED})["replays"] == []
     assert api.call("GET", "/v1/replays", params={"trace_id": FAILED}, key="other")["replays"] == []
     api.call("GET", f"/v1/replays/{older['id']}", key="other", status=404)
+
+
+def test_deleting_the_draft_item_keeps_the_replay_and_what_it_was_scored_against():
+    api = Api()
+    replay = api.create()
+    api.call("DELETE", f"/v1/datasets/{api.dataset}/items/{api.item}?rev=2", status=204)
+    detail = api.call("GET", f"/v1/replays/{replay['id']}", status=200)
+    assert (detail["item_id"], detail["item_rev"], detail["item"]) == (api.item, 2, None)

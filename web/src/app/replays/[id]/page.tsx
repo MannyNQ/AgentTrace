@@ -77,6 +77,7 @@ async function ReplayView({ params }: Pick<Props, "params">) {
           <dt className="text-xs text-muted">Scored against</dt>
           <dd className="font-mono text-xs" data-scored-item={r.item_id ?? undefined}>
             {r.item_id ? `item ${r.item_id.slice(0, 8)} rev ${r.item_rev}` : "nothing (unscored)"}
+            {r.item_id && !r.item && <span className="text-muted"> (deleted from the draft since)</span>}
           </dd>
         </div>
         <div>

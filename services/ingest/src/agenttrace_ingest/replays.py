@@ -57,7 +57,7 @@ class StoredReplayRun(StoredRun):
 
 
 class ReplayDetail(ReplayInfo):
-    item: Item | None  # the revision it was scored against
+    item: Item | None  # the revision it was scored against; None when unscored or deleted since
     replay_runs: list[StoredReplayRun]  # in run_index order
 
 

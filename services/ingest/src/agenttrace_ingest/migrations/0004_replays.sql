@@ -8,7 +8,9 @@ CREATE TABLE replays (
                         CHECK (status IN ('running', 'completed', 'failed')),
     error               TEXT,                       -- why the CLI failed
     runs                INT NOT NULL CHECK (runs >= 1),
-    -- ADR-0030: a scored replay names the draft revision it was scored against.
+    -- ADR-0030: a scored replay names the draft revision it was scored against. Not a foreign
+    -- key: a draft item that was never published is deleted outright, revisions and all, and the
+    -- replay must keep saying what it was scored against.
     item_id             UUID,
     item_rev            INT,
     scorers             JSONB NOT NULL,             -- [] when unscored
@@ -19,7 +21,6 @@ CREATE TABLE replays (
     git_dirty           BOOLEAN,
     started_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     finished_at         TIMESTAMPTZ,
-    FOREIGN KEY (item_id, item_rev) REFERENCES item_revisions (item_id, rev),
     CHECK ((item_id IS NULL) = (item_rev IS NULL))
 );
 CREATE INDEX replays_by_original ON replays (project_id, original_trace_id, started_at DESC);

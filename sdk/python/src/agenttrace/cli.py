@@ -173,8 +173,8 @@ def _dirty() -> bool | None:
 
 def run_replay(args: argparse.Namespace) -> int:
     """Exit codes as `eval`'s: 0 when the replay completed, 1 when it failed, 2 when it couldn't
-    start (nothing recorded). With `--require-pass`, 3 when a scored run didn't pass, and 2
-    before running when there's nothing to score (ADR-0030)."""
+    start (nothing recorded). With `--require-pass`, 3 when a scored run didn't pass or no run
+    was graded, and 2 before running when there's nothing to score (ADR-0030)."""
     from agenttrace.eval import config, scorers
     from agenttrace.eval import replay as rp
     from agenttrace.eval.client import ApiError, Client

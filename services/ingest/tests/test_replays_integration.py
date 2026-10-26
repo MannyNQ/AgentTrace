@@ -138,3 +138,25 @@ def test_an_unscored_replay_needs_no_item(api: TestClient):
     assert api.post(f"/v1/replays/{replay}/runs", json={"runs": [run]}).status_code == 200
     done = api.post(f"/v1/replays/{replay}/finish", json={"status": "completed"}).json()
     assert (done["status"], done["item_id"], done["pass_counts"]) == ("completed", None, [])
+
+
+def test_a_never_published_item_can_be_deleted_after_a_scored_replay(api: TestClient):
+    trace = emit_root({"question": "refund order 7"})
+    root = api.get(f"/v1/traces/{trace}/input").json()["span_id"]
+    name = f"it-{uuid.uuid4().hex[:8]}"
+    ds = api.post("/v1/datasets", json={"name": name, "trace_id": trace}).json()["id"]
+    [item] = api.get(f"/v1/datasets/{ds}/items").json()["items"]
+    replay = str(uuid.uuid4())
+    body = {
+        "id": replay,
+        "replay_of": {"trace_id": trace, "span_id": root},
+        "item_id": item["item_id"],
+        "item_rev": item["rev"],
+        "scorers": [{"name": "steps", "type": "trajectory", "config": {"mode": "max_steps"}}],
+    }
+    assert api.post("/v1/replays", json=body).status_code == 201
+    # Never published, so the item and its revisions are deleted outright.
+    r = api.delete(f"/v1/datasets/{ds}/items/{item['item_id']}?rev={item['rev']}")
+    assert r.status_code == 204, r.text
+    detail = api.get(f"/v1/replays/{replay}").json()
+    assert (detail["item_id"], detail["item_rev"], detail["item"]) == (item["item_id"], 1, None)

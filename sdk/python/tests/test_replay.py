@@ -202,3 +202,15 @@ def test_problems_before_the_run_exit_2_and_record_nothing(api, tmp_path, capsys
     assert replay(FAILED) == 2
     assert "pass --entry" in capsys.readouterr().err
     assert api.created == []
+
+
+def test_require_pass_fails_when_every_scorer_skips_every_run(api, tmp_path, capsys):
+    (tmp_path / "skipper.py").write_text("def never(case):\n    return None\n")
+    (tmp_path / "eval.yaml").write_text(
+        "entry: replay_agent:entry\ndataset: support\nsamples: 2\n"
+        "scorers: [{name: judge, type: custom, function: 'skipper:never'}]\n"
+    )
+    agent(tmp_path, broken=True)
+    assert replay(FAILED) == 0
+    assert "no run was graded" in capsys.readouterr().out
+    assert replay(FAILED, "--require-pass") == 3
