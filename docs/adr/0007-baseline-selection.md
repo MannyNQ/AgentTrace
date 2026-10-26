@@ -1,6 +1,6 @@
 # 7. Baseline selection: merge-base first
 
-Status: accepted
+Status: accepted. Refined by ADR-0026.
 
 ## Context
 

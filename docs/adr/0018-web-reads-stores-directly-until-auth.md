@@ -1,6 +1,6 @@
 # 18. The web app reads ClickHouse and S3 directly until auth exists
 
-Status: accepted
+Status: accepted. Amended by ADR-0024.
 
 ## Context
 

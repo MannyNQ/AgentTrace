@@ -64,11 +64,11 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning stops this for items created from Phase 3 on, and ingest's startup pass pins earlier links whose traces still exist (ADR-0021).
 
-**Scorer**: A function that grades one sample. Built-ins (exact match, contains, regex, JSON schema, trajectory; LLM judge from Phase 4) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path. A scorer is skipped for an item that lacks the expectation it needs.
+**Scorer**: A function that grades one sample. Built-ins (exact match, contains, regex, JSON schema, trajectory, LLM judge) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path. A scorer is skipped for an item that lacks the expectation it needs.
 
 **Trajectory scorer**: The built-in scorer that compares a trace's trajectory to an expected trajectory in one of these modes: `exact`, `in_order`, `any_order` (against the item's expected trajectory), `forbidden`, `max_steps` (parameters from the scorer config). Scores 1 or 0.
 
-**eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their thresholds, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, and `version`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
+**eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their pass thresholds and `max_drop`, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, `version`, and `max_drop`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
 
 **Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. See ADR-0006.
 
@@ -80,8 +80,20 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Score**: A scorer's result for one sample: a number from 0 to 1 plus an optional `reason`. The sample passes that scorer when the score is at or above the scorer's **pass threshold** (default 1.0).
 
-**Baseline**: The experiment a pull request's experiment is compared against: the newest completed experiment at the merge-base commit with the same `eval.yaml` hash, else the newest on `main` with that hash, else none. See ADR-0007.
+**Baseline**: The experiment a pull request's experiment is compared against: the newest completed experiment at the merge-base commit with the same `eval.yaml` hash, else the newest on the PR's base branch with that hash, else none. The CLI records the merge-base and base branch, since the server has no git repo. See ADR-0007 and ADR-0026.
 
-**Regression**: A metric whose drop versus the baseline is both statistically real (the 95% bootstrap CI of the change excludes zero) and larger than its `eval.yaml` threshold. Fails the CI check. See ADR-0008. _Avoid_: calling any score drop a regression.
+**Comparison**: An experiment set against its baseline, computed by ingest so the PR comment and the UI agree: per-scorer pass rates with the change and its 95% bootstrap CI, regressions, item regressions, cost and latency, and items added or removed. Both experiments must be `completed` with the same `eval.yaml` hash. See ADR-0024.
 
-**Item regression**: A dataset item where most samples passed in the baseline and most fail now. Listed in the PR comment; doesn't fail the check by default.
+**Metric**: One scorer's pass rate over the items scored in both runs of a comparison. Cost and latency are compared but aren't metrics: they never gate. See ADR-0025.
+
+**max_drop**: A scorer's largest tolerated pass-rate drop, in absolute points (default 0.05). Set per scorer in `eval.yaml`, outside the hash. _Avoid_: threshold, which means the pass threshold.
+
+**Regression**: A metric whose drop versus the baseline is both statistically real (the 95% paired item-level bootstrap CI of the change lies below zero) and larger than its `max_drop`. Fails the CI check under `--fail-on-regression` (exit 3). See ADR-0008 and ADR-0025. _Avoid_: calling any score drop a regression.
+
+**Underpowered**: A metric whose CI half-width is larger than its `max_drop`, so a drop of exactly `max_drop` couldn't be detected. Flagged in the comparison; doesn't change the gate.
+
+**Item regression**: A dataset item and scorer where more than half the item's samples passed that scorer in the baseline and more than half fail it now. Listed in the PR comment; doesn't fail the check by default.
+
+**LLM judge**: The `llm_judge` scorer: an Anthropic model, named in `model`, grades a sample against plain-language `criteria` and returns pass or fail with a reason. Runs in the eval runner, outside the sample's trace; after 3 failed retries it skips the sample rather than scoring 0. See ADR-0027.
+
+**Judge cost**: `judge_cost_usd` on a sample, computed by the server from the judge's token counts, kept apart from the agent's cost. See ADR-0027.
