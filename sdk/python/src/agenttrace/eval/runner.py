@@ -37,6 +37,7 @@ from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
 from agenttrace.eval.config import EvalConfig
 from agenttrace.eval.results import (
     MAX_SAMPLES_PER_REQUEST,
+    AgentRun,
     Finish,
     ModelUsage,
     NewExperiment,
@@ -205,10 +206,10 @@ class UploadBuffer:
 
     def __init__(self, max_count: int = UPLOAD_BATCH, max_bytes: int = MAX_UPLOAD_BYTES):
         self.max_count, self.max_bytes = max_count, max_bytes
-        self.pending: list[SampleResult] = []
+        self.pending: list[AgentRun] = []
         self.size = 0
 
-    def add(self, r: SampleResult) -> list[SampleResult] | None:
+    def add(self, r: AgentRun) -> list[AgentRun] | None:
         """Adds a sample; returns a full batch to upload first, if adding it would overflow."""
         size = len(r.model_dump_json().encode()) + 1
         ready = None
@@ -220,7 +221,7 @@ class UploadBuffer:
         self.size += size
         return ready
 
-    def rest(self) -> list[SampleResult]:
+    def rest(self) -> list[AgentRun]:
         batch, self.pending, self.size = self.pending, [], 0
         return batch
 
@@ -326,31 +327,67 @@ def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> Scored:
     return out
 
 
-class Runner:
+class AgentRunner:
+    """Runs the entry point over jobs (an item and a repeat index), scores each run, and uploads
+    the results in batches. Subclasses say what each run's root span carries, what record a run
+    becomes, and where records go: `Runner` for experiments, `ReplayRunner` for replays."""
+
+    root_span = SAMPLE_SPAN
+    tag = EVAL_TAG
+
     def __init__(
         self,
-        cfg: EvalConfig,
-        client: Client,
+        concurrency: int,
+        timeout_s: float,
         entry: Callable[[Any], Any],
         scorers: list[sc.Scorer],
+        thresholds: dict[str, float],
         report: Callable[[str], None] = print,
     ):
-        self.cfg, self.client, self.entry, self.scorers = cfg, client, entry, scorers
+        self.concurrency, self.timeout_s = concurrency, timeout_s
+        self.entry, self.scorers, self.thresholds = entry, scorers, thresholds
         self.report = report
         self.capture = Capture()
         self.is_async = inspect.iscoroutinefunction(entry)
 
+    # --- What subclasses decide ---
+
+    def _metadata(self, run_id: str, item: VersionItem, index: int) -> dict[str, str]:
+        raise NotImplementedError
+
+    def _attributes(self) -> dict[str, str] | None:
+        return None
+
+    def _record(self, s: _Sample, fields: dict[str, Any]) -> AgentRun:
+        """The uploaded record: `fields` are the ones every agent run has."""
+        raise NotImplementedError
+
+    def _upload(self, run_id: str, batch: list[Any]) -> None:
+        raise NotImplementedError
+
+    def _label(self, s: _Sample) -> str:
+        return f"item {s.item.item_id[:8]} #{s.index}"
+
+    # --- Shared ---
+
     async def _run_one(
-        self, experiment_id: str, item: VersionItem, index: int, sem: asyncio.Semaphore,
+        self, run_id: str, item: VersionItem, index: int, sem: asyncio.Semaphore,
         pool: ThreadPoolExecutor, scoring: ThreadPoolExecutor,
-    ) -> tuple[_Sample, SampleResult, list[str]]:  # fmt: skip
+    ) -> tuple[_Sample, AgentRun, list[str]]:  # fmt: skip
         """Runs one sample and scores it, both within one `concurrency` slot."""
         async with sem:
-            meta = {"experiment_id": experiment_id, "item_id": item.item_id, "sample": str(index)}
+            meta = self._metadata(run_id, item, index)
             started_at, t0 = datetime.now(UTC), time.monotonic()
             error, output, abandoned = None, None, False
             inp = item.contents["input"]
-            with span(SAMPLE_SPAN, "agent", input=inp, tags=[EVAL_TAG], metadata=meta) as root:
+            with span(
+                self.root_span,
+                "agent",
+                input=inp,
+                tags=[self.tag],
+                metadata=meta,
+                attributes=self._attributes(),
+            ) as root:
                 self.capture.watch(root.trace_id)
                 try:
                     if self.is_async:
@@ -359,10 +396,10 @@ class Runner:
                         ctx = contextvars.copy_context()  # the agent's spans nest under root
                         loop = asyncio.get_running_loop()
                         call = loop.run_in_executor(pool, _run_in, ctx, self.entry, inp)
-                    output = await asyncio.wait_for(call, self.cfg.timeout_s)
+                    output = await asyncio.wait_for(call, self.timeout_s)
                     root.set_output(output)
                 except TimeoutError:
-                    error = f"TimeoutError: no result after {self.cfg.timeout_s:g} s"
+                    error = f"TimeoutError: no result after {self.timeout_s:g} s"
                     abandoned = not self.is_async
                     root.set_error("TimeoutError")
                 except Exception as e:
@@ -384,13 +421,11 @@ class Runner:
             )
             return s, result, skipped
 
-    def _result(self, s: _Sample) -> tuple[SampleResult, list[str]]:
+    def _result(self, s: _Sample) -> tuple[AgentRun, list[str]]:
         calls = trajectory(s.spans)
         scored = score(self.scorers, _case(s.item, s, calls), s.error)
         output, truncated = (None, False) if s.error else storable_output(s.output)
-        return SampleResult(
-            item_id=uuid.UUID(s.item.item_id),
-            sample_index=s.index,
+        fields = dict(
             trace_id=s.trace_id,
             started_at=s.started_at,
             latency_ms=s.latency_ms,
@@ -401,74 +436,105 @@ class Runner:
             usage=usage(s.spans),
             judge_usage=scored.judge_usage,
             scores=scored.scores,
-        ), scored.skipped
+        )
+        return self._record(s, fields), scored.skipped
 
-    def _line(self, done: int, total: int, s: _Sample, r: SampleResult, skipped: list[str]) -> str:
+    def _line(self, done: int, total: int, s: _Sample, r: AgentRun, skipped: list[str]) -> str:
         marks = " ".join(
-            f"{x.scorer}:{'pass' if x.score >= self._threshold(x.scorer) else 'FAIL'}"
+            f"{x.scorer}:{'pass' if x.score >= self.thresholds[x.scorer] else 'FAIL'}"
             for x in r.scores
         )
         status = f"error ({s.error})" if s.error else marks or "no scorer applies"
         skips = "".join(f"  (skipped {x})" for x in skipped)
-        return f"[{done}/{total}] item {s.item.item_id[:8]} #{s.index}  {status}{skips}"
+        return f"[{done}/{total}] {self._label(s)}  {status}{skips}"
 
-    def _threshold(self, name: str) -> float:
-        return next(x.threshold for x in self.cfg.scorers if x.name == name)
-
-    async def _samples(self, experiment_id: str, version: DatasetVersion) -> bool:
-        """Runs and uploads every sample; returns whether a sync sample's thread was abandoned.
-        If this raises, samples still running are left to finish on their own."""
-        sem = asyncio.Semaphore(self.cfg.concurrency)
+    async def _runs(self, run_id: str, jobs: list[tuple[VersionItem, int]]) -> bool:
+        """Runs and uploads every job; returns whether a sync run's thread was abandoned. If
+        this raises, runs still going are left to finish on their own."""
+        sem = asyncio.Semaphore(self.concurrency)
         uploads = UploadBuffer()
         abandoned, finished = False, False
-        jobs = [(item, i) for item in version.items for i in range(self.cfg.samples)]
         # Not a `with` block: leaving one waits for every thread, abandoned ones included.
-        pool = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-eval")
+        pool = ThreadPoolExecutor(self.concurrency, thread_name_prefix="agenttrace-eval")
         # Scorers get their own threads, so an abandoned agent thread can't hold up scoring.
-        scoring = ThreadPoolExecutor(self.cfg.concurrency, thread_name_prefix="agenttrace-score")
+        scoring = ThreadPoolExecutor(self.concurrency, thread_name_prefix="agenttrace-score")
         tasks = [
-            asyncio.ensure_future(self._run_one(experiment_id, item, i, sem, pool, scoring))
+            asyncio.ensure_future(self._run_one(run_id, item, i, sem, pool, scoring))
             for item, i in jobs
         ]
         try:
-            for done, next_sample in enumerate(asyncio.as_completed(tasks), 1):
-                s, r, skipped = await next_sample
+            for done, next_run in enumerate(asyncio.as_completed(tasks), 1):
+                s, r, skipped = await next_run
                 abandoned |= s.timed_out_thread
                 self.report(self._line(done, len(jobs), s, r, skipped))
                 batch = uploads.add(r)
                 if batch:
-                    await asyncio.to_thread(self.client.upload_samples, experiment_id, batch)
+                    await asyncio.to_thread(self._upload, run_id, batch)
             if uploads.pending:
-                await asyncio.to_thread(self.client.upload_samples, experiment_id, uploads.rest())
+                await asyncio.to_thread(self._upload, run_id, uploads.rest())
             finished = True
         finally:
             for t in tasks:
                 t.cancel()
-            # Waiting is only safe when every sample has returned or timed out cleanly.
+            # Waiting is only safe when every run has returned or timed out cleanly.
             pool.shutdown(wait=finished and not abandoned, cancel_futures=True)
             scoring.shutdown(wait=finished, cancel_futures=True)
         return abandoned
 
-    def run(self, version: DatasetVersion, git: Git, name: str | None = None) -> RunResult:
-        """Creates the experiment, runs it, and finishes it. Anything that stops the run after
-        the experiment exists finishes it as `failed` and raises RunError."""
+    def _execute(
+        self, run_id: str, jobs: list[tuple[VersionItem, int]], fail: Callable[[str], None]
+    ) -> bool:
+        """Runs the jobs with spans captured, then flushes them so each run's trace is there to
+        open from the results. Anything that stops the run calls `fail` and raises RunError."""
         assert UPLOAD_BATCH <= MAX_SAMPLES_PER_REQUEST
         # A truncated output's text doubles at worst when encoded again (escaped quotes).
         assert 2 * MAX_OUTPUT_BYTES + MAX_TRAJECTORY_BYTES < MAX_UPLOAD_BYTES
+        remove = add_span_processor(self.capture)
+        try:
+            abandoned = asyncio.run(self._runs(run_id, jobs))
+        except BaseException as e:  # Ctrl-C included: the record mustn't stay `running`
+            fail(f"{type(e).__name__}: {e}")
+            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
+        finally:
+            remove()
+        flush(timeout_s=10)
+        return abandoned
+
+
+class Runner(AgentRunner):
+    """Runs an experiment: every item of a dataset version, `samples` times."""
+
+    def __init__(
+        self,
+        cfg: EvalConfig,
+        client: Client,
+        entry: Callable[[Any], Any],
+        scorers: list[sc.Scorer],
+        report: Callable[[str], None] = print,
+    ):
+        thresholds = {s.name: s.threshold for s in cfg.scorers}
+        super().__init__(cfg.concurrency, cfg.timeout_s, entry, scorers, thresholds, report)
+        self.cfg, self.client = cfg, client
+
+    def _metadata(self, run_id: str, item: VersionItem, index: int) -> dict[str, str]:
+        return {"experiment_id": run_id, "item_id": item.item_id, "sample": str(index)}
+
+    def _record(self, s: _Sample, fields: dict[str, Any]) -> SampleResult:
+        return SampleResult(item_id=uuid.UUID(s.item.item_id), sample_index=s.index, **fields)
+
+    def _upload(self, run_id: str, batch: list[Any]) -> None:
+        self.client.upload_samples(run_id, batch)
+
+    def run(self, version: DatasetVersion, git: Git, name: str | None = None) -> RunResult:
+        """Creates the experiment, runs it, and finishes it. Anything that stops the run after
+        the experiment exists finishes it as `failed` and raises RunError."""
         experiment_id = str(uuid.uuid4())
         try:
             self._create(experiment_id, version, git, name)
         except ApiError as e:
             raise StartError(f"couldn't create the experiment: {e}") from e
-        remove = add_span_processor(self.capture)
-        try:
-            abandoned = asyncio.run(self._samples(experiment_id, version))
-        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
-            self._fail(experiment_id, f"{type(e).__name__}: {e}")
-            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
-        finally:
-            remove()
-        flush(timeout_s=10)  # so each sample's trace is there to open from the results
+        jobs = [(item, i) for item in version.items for i in range(self.cfg.samples)]
+        abandoned = self._execute(experiment_id, jobs, lambda e: self._fail(experiment_id, e))
         self.client.finish(experiment_id, Finish(status="completed"))
         return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
 

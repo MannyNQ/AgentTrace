@@ -6,6 +6,8 @@ import { flattenTree, getTrace, type SpanRow, type TraceSummary } from "@/lib/tr
 import { formatCost, formatDuration, formatTime, prettyPayload } from "@/lib/format";
 import { listDatasets } from "@/lib/datasets";
 import { AddToDatasetForm } from "@/app/datasets/forms";
+import { listReplays } from "@/lib/replays";
+import { ReplayCommand, ReplayList } from "@/app/replays/ui";
 import { KindBadge, StatusBadge } from "../ui";
 
 type Props = PageProps<"/traces/[traceId]">;
@@ -41,6 +43,9 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
       <Header summary={summary} />
       <Suspense>
         <DatasetLinks traceId={traceId} />
+      </Suspense>
+      <Suspense>
+        <Replays traceId={traceId} replayOf={summary.replayOf} />
       </Suspense>
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <ol className="divide-y divide-line rounded-md border border-line" aria-label="Span tree">
@@ -125,6 +130,42 @@ async function DatasetLinks({ traceId }: { traceId: string }) {
   return (
     <section className="mt-4" aria-label="Datasets">
       <AddToDatasetForm traceId={traceId} datasets={datasets.map((d) => ({ id: d.id, name: d.name }))} />
+    </section>
+  );
+}
+
+/** A replay run links to its original; any other trace lists its replays (ADR-0029). */
+async function Replays({ traceId, replayOf }: { traceId: string; replayOf: string }) {
+  if (replayOf) {
+    return (
+      <p className="mt-4 text-sm" data-replay-of={replayOf}>
+        A replay run of{" "}
+        <Link href={`/traces/${replayOf}`} className="font-mono underline">
+          trace {replayOf.slice(0, 8)}…
+        </Link>
+        . Replaying it replays that trace.
+      </p>
+    );
+  }
+  let replays;
+  try {
+    replays = await listReplays(traceId);
+  } catch (e) {
+    return (
+      <p className="mt-4 text-sm text-muted">Replays unavailable: {e instanceof Error ? e.message : String(e)}</p>
+    );
+  }
+  return (
+    <section className="mt-6" aria-label="Replays">
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <h2 className="text-sm font-medium">Replays</h2>
+        <ReplayCommand traceId={traceId} />
+      </div>
+      {replays.length === 0 ? (
+        <p className="mt-2 text-xs text-muted">Not replayed yet.</p>
+      ) : (
+        <ReplayList replays={replays} />
+      )}
     </section>
   );
 }

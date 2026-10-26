@@ -20,8 +20,8 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Surface | Where | Driven by |
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
-| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets`, `/v1/experiments` (with `/comparison`) | `health`, `post` (curl), `emit` (real SDK) |
-| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets`, experiments at `/experiments`, comparisons at `/experiments/<id>/compare/<baseline>` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
+| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input` | `health`, `post` (curl), `emit` (real SDK) |
+| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets`, experiments at `/experiments`, comparisons at `/experiments/<id>/compare/<baseline>`, replays at `/replays/<id>` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 

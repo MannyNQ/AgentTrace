@@ -11,7 +11,12 @@ from agenttrace_worker.settings import Settings as WorkerSettings
 from agenttrace_worker.stores import ClickHouse, Payloads
 
 
-def emit_root(input_value: Any, age: timedelta = timedelta(seconds=1), retention_days=30) -> str:
+def emit_root(
+    input_value: Any,
+    age: timedelta = timedelta(seconds=1),
+    retention_days=30,
+    attributes: dict[str, str] | None = None,
+) -> str:
     """Store a one-span trace the way the worker does, offloading a large input to S3. `age`
     backdates it, so a test can make it older than its retention."""
     ws = WorkerSettings()
@@ -25,6 +30,7 @@ def emit_root(input_value: Any, age: timedelta = timedelta(seconds=1), retention
         start_time=start,
         end_time=start + timedelta(milliseconds=5),
         input=input_value,
+        attributes=attributes or {},
     )
     row = to_row(span, DEFAULT_PROJECT_ID, retention_days, PriceTable(), Payloads(ws).put)
     ClickHouse(ws).insert_spans([row])

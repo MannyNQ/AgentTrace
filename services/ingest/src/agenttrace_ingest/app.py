@@ -5,16 +5,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
-from agenttrace_ingest import dataset_api, experiment_api, experiments, spans
+from agenttrace_ingest import dataset_api, experiment_api, experiments, replay_api, replays, spans
 from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Pins, Store, TraceInputs, pin_pending
 from agenttrace_ingest.experiment_store import PostgresExperiments, PostgresPrices
-from agenttrace_ingest.migrate import migrate
+from agenttrace_ingest.migrate import migrate, migrate_clickhouse
 from agenttrace_ingest.pins import ClickHousePins
+from agenttrace_ingest.replay_store import PostgresReplays
 from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import CHECKS, ensure_bucket
-from agenttrace_ingest.trace_inputs import StoredTraceInputs
+from agenttrace_ingest.stores import CHECKS, clickhouse_client, ensure_bucket
+from agenttrace_ingest.trace_inputs import StoredTraceInputs, TraceRoots
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +38,32 @@ def _pin_pending(datasets: Store, pins: Pins) -> None:
         log.info("pinned %d dataset source traces", n)
 
 
+# Backoff between ClickHouse migration attempts while ClickHouse is unreachable.
+CLICKHOUSE_RETRY_FIRST_S = 1.0
+CLICKHOUSE_RETRY_MAX_S = 30.0
+
+
+async def migrate_clickhouse_until_done(s: Settings) -> None:
+    """Applies ClickHouse migrations, retrying with backoff until ClickHouse answers. It runs
+    beside the app rather than before it: ingest must take spans into Redis while ClickHouse is
+    down (ADR-0015), so a ClickHouse outage can't stop it starting. Reads of a column a pending
+    migration adds fail until then, as they would while ClickHouse is down anyway."""
+    delay = CLICKHOUSE_RETRY_FIRST_S
+    while True:
+        try:
+            names = await asyncio.to_thread(
+                migrate_clickhouse, s.postgres_dsn, clickhouse_client(s)
+            )
+        except Exception:
+            log.exception("clickhouse migrations not applied; retrying in %g s", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, CLICKHOUSE_RETRY_MAX_S)
+            continue
+        for name in names:
+            log.info("clickhouse migration applied: %s", name)
+        return
+
+
 def create_app(
     settings: Settings | None = None,
     checks=CHECKS,
@@ -47,18 +74,23 @@ def create_app(
     pins: Pins | None = None,
     experiment_store: experiments.Store | None = None,
     prices: experiments.Prices | None = None,
+    replay_store: replays.Store | None = None,
+    trace_roots: TraceRoots | None = None,
 ) -> FastAPI:
     s = settings or Settings()
     keys = keys or spans.PostgresKeys(s)
     datasets = datasets or PostgresDatasets(s)
     pins = pins or ClickHousePins(s)
+    prices = prices or PostgresPrices(s)
+    stored_inputs = StoredTraceInputs(s)
     background: set[asyncio.Task] = set()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # A failed migration stops startup: serving on a half-upgraded schema is worse.
+        # A failed Postgres migration stops startup: serving on a half-upgraded schema is worse.
         for name in await asyncio.to_thread(migrate, s.postgres_dsn):
             log.info("schema migration applied: %s", name)
+        clickhouse = asyncio.create_task(migrate_clickhouse_until_done(s))
         try:
             await asyncio.to_thread(ensure_bucket, s)
         except Exception:
@@ -73,19 +105,21 @@ def create_app(
         background.add(task)
         task.add_done_callback(background.discard)
         yield
+        clickhouse.cancel()  # still retrying at shutdown: ClickHouse never came back
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
     app.include_router(spans.router(s, keys, queue or spans.RedisQueue(s)))
+    app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, keys))
     app.include_router(
-        dataset_api.router(datasets, trace_inputs or StoredTraceInputs(s), pins, keys)
+        experiment_api.router(experiment_store or PostgresExperiments(s), prices, keys)
     )
-    app.include_router(
-        experiment_api.router(
-            experiment_store or PostgresExperiments(s), prices or PostgresPrices(s), keys
-        )
+    app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, keys))
+    app.include_router(replay_api.traces_router(trace_roots or stored_inputs, keys))
+    dataset_api.install_error_handlers(
+        app,
+        (dataset_api.PREFIX, experiment_api.PREFIX, replay_api.PREFIX, replay_api.TRACES_PREFIX),
     )
-    dataset_api.install_error_handlers(app, (dataset_api.PREFIX, experiment_api.PREFIX))
 
     @app.get("/health")
     async def health(response: Response) -> dict:

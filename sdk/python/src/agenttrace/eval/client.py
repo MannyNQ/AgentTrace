@@ -1,5 +1,6 @@
-"""The runner's view of the ingest API: datasets to read, and `/v1/experiments` to write
-(ADR-0019, ADR-0023). Every write is idempotent, so a failed request is retried as is."""
+"""The runner's view of the ingest API: datasets and traces to read, and `/v1/experiments` and
+`/v1/replays` to write (ADR-0019, ADR-0023, ADR-0029). Every write is idempotent, so a failed
+request is retried as is."""
 
 import json
 import time
@@ -10,7 +11,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from agenttrace.eval.results import Finish, NewExperiment, SampleResult
+from agenttrace.eval.results import (
+    Finish,
+    NewExperiment,
+    NewReplay,
+    ReplayRunResult,
+    SampleResult,
+)
 
 
 class ApiError(Exception):
@@ -81,17 +88,22 @@ class Client:
                 error = str(getattr(e, "reason", e))
         raise ApiError(f"{method} {path}: couldn't reach {self.base} ({error})")
 
-    def dataset_version(self, dataset: str, version: int | str) -> DatasetVersion:
-        """`dataset` is a name or an id; `version` a number or "latest". Archived datasets can
-        still be run, since their versions stay readable."""
+    def dataset(self, dataset: str) -> dict[str, Any]:
+        """`dataset` is a name or an id. Archived datasets are found too."""
         try:
             UUID(dataset)
-            found = self.request("GET", f"/v1/datasets/{dataset}")
+            return self.request("GET", f"/v1/datasets/{dataset}")
         except ValueError:
             listed = self.request("GET", "/v1/datasets?include_archived=true")["datasets"]
             found = next((d for d in listed if d["name"] == dataset), None)
             if found is None:
                 raise ApiError(f'no dataset named "{dataset}" in this project') from None
+            return found
+
+    def dataset_version(self, dataset: str, version: int | str) -> DatasetVersion:
+        """`dataset` is a name or an id; `version` a number or "latest". Archived datasets can
+        still be run, since their versions stay readable."""
+        found = self.dataset(dataset)
         if version == "latest":
             if found["latest_version"] is None:
                 raise ApiError(f'dataset "{found["name"]}" has no published version; publish one')
@@ -124,3 +136,34 @@ class Client:
         """Against the baseline ingest selects (ADR-0024)."""
         path = f"/v1/experiments/{urllib.parse.quote(experiment_id)}/comparison"
         return self.request("GET", path)
+
+    def draft_item_for_trace(self, dataset_id: str, trace_id: str) -> VersionItem | None:
+        """The dataset's draft item made from `trace_id`, at its current revision. A trace is in
+        a dataset's draft at most once."""
+        items = self.request("GET", f"/v1/datasets/{dataset_id}/items")["items"]
+        found = next((i for i in items if i["source_trace_id"] == trace_id), None)
+        return (
+            None
+            if found is None
+            else VersionItem(found["item_id"], found["rev"], found["contents"])
+        )
+
+    def trace_input(self, trace_id: str) -> dict[str, Any]:
+        """The trace's root span and its full input, and the original it re-ran if it's a
+        replay run (ADR-0028)."""
+        return self.request("GET", f"/v1/traces/{urllib.parse.quote(trace_id)}/input")
+
+    def create_replay(self, r: NewReplay) -> dict[str, Any]:
+        return self.request("POST", "/v1/replays", r.model_dump(mode="json", exclude_defaults=True))
+
+    def upload_replay_runs(self, replay_id: str, runs: list[ReplayRunResult]) -> None:
+        body = {"runs": [r.model_dump(mode="json", exclude_defaults=True) for r in runs]}
+        self.request("POST", f"/v1/replays/{replay_id}/runs", body)
+
+    def finish_replay(self, replay_id: str, finish: Finish) -> dict[str, Any]:
+        return self.request(
+            "POST", f"/v1/replays/{replay_id}/finish", finish.model_dump(mode="json")
+        )
+
+    def replay(self, replay_id: str) -> dict[str, Any]:
+        return self.request("GET", f"/v1/replays/{urllib.parse.quote(replay_id)}")

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from agenttrace.eval.results import SpanRef
 from agenttrace_ingest.datasets import (
     Conflict,
     Contents,
@@ -17,6 +18,7 @@ from agenttrace_ingest.datasets import (
     Refused,
     VersionInfo,
 )
+from agenttrace_ingest.trace_inputs import RootInput
 
 
 @dataclass
@@ -193,16 +195,25 @@ class FakeDatasets:
 
 
 class FakeTraces:
-    """Root inputs by trace ID; a NotFound or Refused value is raised instead."""
+    """Root inputs by trace ID; a NotFound or Refused value is raised instead. A trace's root span
+    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs."""
 
-    def __init__(self, inputs: dict[str, Any]):
-        self.inputs = inputs
+    def __init__(self, inputs: dict[str, Any], replay_of: dict[str, SpanRef] | None = None):
+        self.inputs, self.replay_of = inputs, replay_of or {}
 
     def root_input(self, project: UUID, trace_id: str) -> Any:
         value = self.inputs.get(trace_id, NotFound("trace not found; it may have expired"))
         if isinstance(value, NotFound | Refused):
             raise value
         return value
+
+    def root(self, project: UUID, trace_id: str) -> RootInput:
+        return RootInput(
+            trace_id=trace_id,
+            span_id=trace_id[:16],
+            input=self.root_input(project, trace_id),
+            replay_of=self.replay_of.get(trace_id),
+        )
 
 
 class FakePins:
