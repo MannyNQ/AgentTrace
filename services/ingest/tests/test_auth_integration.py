@@ -22,11 +22,21 @@ NOW = datetime.now(UTC)
 LATER = NOW + timedelta(days=7)
 
 
+def user_count() -> int:
+    with psycopg.connect(Settings().postgres_dsn) as conn:
+        row = conn.execute("SELECT count(*) FROM users").fetchone()
+    return row[0] if row else 0
+
+
+USERS_BEFORE: list[int] = []
+
+
 @pytest.fixture(scope="module")
 def store() -> PostgresAuth:
     s = Settings()
     with TestClient(create_app(s)):  # lifespan applies the migrations
         pass
+    USERS_BEFORE.append(user_count())
     return PostgresAuth(s)
 
 
@@ -216,6 +226,4 @@ def test_failed_logins_count_in_redis_and_clear():
 
 def test_the_tests_leave_the_install_as_they_found_it(store):
     """Runs last in this module: the org fixture's cleanup left no test users behind."""
-    with psycopg.connect(Settings().postgres_dsn) as conn:
-        row = conn.execute("SELECT count(*) FROM users WHERE email LIKE '%%@example.com'")
-        assert row.fetchone() == (0,)
+    assert user_count() == USERS_BEFORE[0]

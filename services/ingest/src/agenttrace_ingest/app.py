@@ -12,6 +12,7 @@ from agenttrace_ingest import (
     dataset_api,
     experiment_api,
     experiments,
+    locate,
     project_api,
     replay_api,
     replays,
@@ -24,6 +25,7 @@ from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Pins, Store, TraceInputs, pin_pending
 from agenttrace_ingest.experiment_store import PostgresExperiments, PostgresPrices
+from agenttrace_ingest.locate import StoredLocations
 from agenttrace_ingest.migrate import migrate, migrate_clickhouse
 from agenttrace_ingest.pins import ClickHousePins
 from agenttrace_ingest.replay_store import PostgresReplays
@@ -94,6 +96,7 @@ def create_app(
     replay_store: replays.Store | None = None,
     trace_roots: TraceRoots | None = None,
     trace_store: traces.Store | None = None,
+    locations: locate.Store | None = None,
 ) -> FastAPI:
     s = settings or Settings()
     a = auth.Auth(
@@ -149,7 +152,7 @@ def create_app(
     app.include_router(auth_api.router(a))
     app.include_router(auth_api.members_router(a))
     app.include_router(auth_api.keys_router(a))
-    app.include_router(project_api.router(a))
+    app.include_router(project_api.router(a, locations or StoredLocations(s)))
     app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, a))
     app.include_router(experiment_api.router(experiment_store or PostgresExperiments(s), prices, a))
     app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, a))
@@ -171,6 +174,7 @@ def create_app(
             auth_api.KEYS_PREFIX,
             project_api.PREFIX,
             project_api.CURRENT,
+            project_api.LOCATE,
         ),
     )
 

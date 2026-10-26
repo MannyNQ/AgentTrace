@@ -59,9 +59,8 @@ start_web() {
   cp "$STATE/tsconfig.json.bak" "$ROOT/web/tsconfig.json"
   [[ $built == 0 ]] || { tail -20 "$ART_ROOT/$run_id/web-build.log"; die "web build failed"; }
   set -m  # own process group, so 'down' can stop exactly what we started
-  (cd "$ROOT/web" && NEXT_DIST_DIR=$DIST INGEST_URL="$INGEST" \
-    CLICKHOUSE_URL="http://127.0.0.1:$AGENTTRACE_CLICKHOUSE_HTTP_PORT" \
-    S3_ENDPOINT="http://127.0.0.1:$AGENTTRACE_S3_PORT" TRACE_QUIET_PERIOD_S=$QUIET_PERIOD_S \
+  # ADR-0031: the web app talks only to ingest; it gets no store URLs or credentials.
+  (cd "$ROOT/web" && NEXT_DIST_DIR=$DIST INGEST_URL="$INGEST" AGENTTRACE_PUBLIC_URL="$WEB" \
     exec ./node_modules/.bin/next start -p "$WEB_PORT" -H 127.0.0.1) \
     >"$ART_ROOT/$run_id/web.log" 2>&1 &
   echo $! >"$STATE/web.pgid"
@@ -90,6 +89,7 @@ cmd_up() {
   compose up -d --build --wait --wait-timeout 240 >"$ART_ROOT/$run_id/compose-up.log" 2>&1 \
     || { tail -20 "$ART_ROOT/$run_id/compose-up.log"; die "stack did not become healthy"; }
 
+  [[ "${CLAIM:-1}" == 0 ]] || claim
   start_web "$run_id"
   echo "READY run=$run_id ingest=$INGEST web=$WEB artifacts=$ART_ROOT/$run_id"
 }
@@ -124,9 +124,27 @@ cmd_health() {
 
 # Server-rendered HTML of the health page. The store rows stream in after the shell, so the
 # full response (not a browser's first paint) is the reliable text proof.
+# The owner `up` creates by claiming the install (ADR-0034), and the web session it keeps.
+OWNER_EMAIL=verify-owner@example.com
+OWNER_PASSWORD=verify-owner-password
+JAR="$STATE/cookies.txt"
+
+claim() {
+  local token
+  token="$(docker logs "$PROJECT-ingest-1" 2>&1 | sed -n 's/.*setup token //p' | tail -1)"
+  [[ -n "$token" ]] || die "no setup token in ingest's logs"
+  local body; body="$(curl -sf -X POST "$INGEST/v1/auth/setup" -H 'content-type: application/json' \
+    -d "{\"token\":\"$token\",\"email\":\"$OWNER_EMAIL\",\"password\":\"$OWNER_PASSWORD\"}")" \
+    || die "claiming the install failed"
+  local session; session="$(python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])' <<<"$body")"
+  # A Netscape cookie jar for curl, holding the web app's httpOnly session cookie.
+  printf '127.0.0.1\tFALSE\t/\tFALSE\t0\tagenttrace_session\t%s\n' "$session" >"$JAR"
+  echo "claimed: owner $OWNER_EMAIL / $OWNER_PASSWORD (session in $JAR)"
+}
+
 cmd_page() {
   local dir name="${1:-page}"; dir="$(run_dir)"
-  capture "$name" curl -s -m 20 "$WEB/"
+  capture "$name" curl -s -m 20 "$WEB/status"
   # Each rendered row is <p>{label}</p><p class=...>{result}</p>; print "label => result".
   python3 - "$dir/$name.out" <<'PY' | tee "$dir/$name.summary"
 import html, re, sys
@@ -191,7 +209,8 @@ cmd_ch() {
 # Server-rendered trace list (or one trace with an ID) as text: one line per trace or span.
 cmd_traces() {
   local trace_id="${1:-}" name="${2:-traces}" dir; dir="$(run_dir)"
-  capture "$name" curl -s -m 20 "$WEB/traces${trace_id:+/$trace_id}"
+  [[ -f "$JAR" ]] || die "no web session: this run was started with CLAIM=0"
+  capture "$name" curl -s -m 20 -b "$JAR" "$WEB/p/default/traces${trace_id:+/$trace_id}"
   python3 - "$dir/$name.out" <<'PY' | tee "$dir/$name.summary"
 import html, re, sys
 page = open(sys.argv[1], encoding="utf-8").read()

@@ -1,5 +1,6 @@
-"""/v1/projects (the org's projects; owners create them) and /v1/project (the project a request
-acts on; owners rename it or change its retention). Each route parses, calls one rule in
+"""/v1/projects (the org's projects; owners create them), /v1/project (the project a request
+acts on; owners rename it or change its retention), and /v1/locate (which project holds a
+trace, dataset, experiment, or replay). Each route parses, calls one rule in
 `projects`, and returns its record."""
 
 from typing import Annotated
@@ -9,11 +10,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from agenttrace_ingest import auth as au
+from agenttrace_ingest import locate as lc
 from agenttrace_ingest import projects as pr
 from agenttrace_ingest.dataset_api import Body
 
 PREFIX = "/v1/projects"
 CURRENT = "/v1/project"
+LOCATE = "/v1/locate"
 
 Name = Annotated[str, Field(max_length=100)]
 
@@ -31,7 +34,7 @@ class ProjectPatch(Body):
     retention_days: int | None = None
 
 
-def router(a: au.Auth) -> APIRouter:
+def router(a: au.Auth, locations: lc.Store) -> APIRouter:
     r = APIRouter()
     signed_in = Depends(au.SignedIn(a))
     owner = Depends(au.SignedIn(a, owner=True))
@@ -57,5 +60,12 @@ def router(a: au.Auth) -> APIRouter:
         caller: Annotated[tuple[au.User, UUID], owner_project], body: ProjectPatch
     ) -> au.Project:
         return pr.update(a.store, caller[1], body.name, body.retention_days)
+
+    @r.get(LOCATE + "/{kind}/{entity_id}")
+    def locate(
+        session: Annotated[tuple[au.User, str], signed_in], kind: lc.Kind, entity_id: str
+    ) -> lc.Located:
+        """The slug of the project in the user's org that holds this entity."""
+        return lc.locate(a.store, locations, session[0], kind, entity_id)
 
     return r

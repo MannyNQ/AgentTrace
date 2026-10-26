@@ -1,6 +1,9 @@
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import "server-only";
 import type { ToolCall } from "@/lib/datasets";
-import { DEFAULT_PROJECT_ID, QUIET_PERIOD_S, S3_BUCKET, getClickHouse, getS3 } from "@/lib/stores";
+import { ingest } from "@/lib/ingest";
+
+// ADR-0031: traces are read through ingest's /v1/traces, which decides completion and status
+// (ADR-0013) and checks the project. These map its records to the shapes the pages use.
 
 export type SpanKind = "llm" | "tool" | "agent" | "retrieval" | "custom";
 export type TraceStatus = "ok" | "error" | "running";
@@ -40,101 +43,100 @@ export type SpanRow = {
   costUsd: number | null;
   inputPreview: string;
   outputPreview: string;
-  inputUri: string;
-  outputUri: string;
+  /** The full payload is in object storage and the preview is its first 1 KB (ADR-0009). */
+  inputOffloaded: boolean;
+  outputOffloaded: boolean;
   attributes: Record<string, string>;
 };
 
-// traces is an AggregatingMergeTree (ADR-0013): merge unmerged parts with the same aggregates
-// the materialized view used. Aliases differ from column names so HAVING can't confuse them.
-const SUMMARY_SELECT = `
-  SELECT
-    trace_id,
-    min(start_time) AS t_start,
-    max(last_end_time) AS t_last_end,
-    max(last_ingested_at) AS t_last_ingested,
-    sum(span_count) AS t_span_count,
-    sum(cost_usd) AS t_cost,
-    sum(llm_spans) AS t_llm_spans,
-    sum(unpriced_llm_spans) AS t_unpriced,
-    max(has_root) AS t_has_root,
-    max(root_ended) AS t_root_ended,
-    max(root_error) AS t_root_error,
-    max(root_end_time) AS t_root_end,
-    max(root_name) AS t_root_name,
-    max(session_id) AS t_session_id,
-    max(user_id) AS t_user_id,
-    groupUniqArrayArray(tags) AS t_tags,
-    max(replay_of) AS t_replay_of,
-    sum(llm_errors) + sum(tool_errors) + sum(agent_errors) + sum(retrieval_errors)
-      + sum(custom_errors) AS t_errors
-  FROM traces
-  WHERE project_id = {project:UUID}`;
-
-type SummaryRow = {
+type ApiSummary = {
   trace_id: string;
-  t_start: string;
-  t_last_end: string;
-  t_last_ingested: string;
-  t_span_count: number;
-  t_cost: number;
-  t_llm_spans: number;
-  t_unpriced: number;
-  t_has_root: number;
-  t_root_ended: number;
-  t_root_error: number;
-  t_root_end: string;
-  t_root_name: string;
-  t_session_id: string;
-  t_user_id: string;
-  t_tags: string[];
-  t_replay_of: string;
-  t_errors: number;
+  start_time: string;
+  root_name: string;
+  status: TraceStatus;
+  latency_ms: number;
+  span_count: number;
+  cost_usd: number | null;
+  unpriced_llm_spans: number;
+  error_count: number;
+  tags: string[];
+  user_id: string;
+  session_id: string;
+  last_end_time: string;
+  replay_of: string;
 };
 
-// ClickHouse returns DateTime64 in ISO form without a zone; the columns are UTC.
-function utc(s: string): Date {
-  return new Date(s.endsWith("Z") ? s : `${s}Z`);
-}
+type ApiSpan = {
+  span_id: string;
+  parent_span_id: string;
+  name: string;
+  kind: SpanKind;
+  start_time: string;
+  end_time: string | null;
+  status: "ok" | "error";
+  error_type: string;
+  model: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  cost_usd: number | null;
+  input_preview: string;
+  output_preview: string;
+  input_offloaded: boolean;
+  output_offloaded: boolean;
+  attributes: Record<string, string>;
+};
 
-/** Trace completion and status are decided when a trace is read (ADR-0013, GLOSSARY.md). */
-function toSummary(r: SummaryRow, now: Date): TraceSummary {
-  const start = utc(r.t_start);
-  const lastEnd = utc(r.t_last_end);
-  const rootEnded = r.t_root_ended === 1;
-  const quiet = now.getTime() - utc(r.t_last_ingested).getTime() > QUIET_PERIOD_S * 1000;
-  const complete = rootEnded || quiet;
-  const status: TraceStatus = !complete
-    ? "running"
-    : r.t_root_error === 1 || !rootEnded
-      ? "error"
-      : "ok";
-  const end = rootEnded ? utc(r.t_root_end) : lastEnd;
+const api = ingest("/v1/traces");
+
+function toSummary(r: ApiSummary): TraceSummary {
   return {
     traceId: r.trace_id,
-    startTime: start,
-    rootName: r.t_root_name || (r.t_has_root ? "(unnamed)" : "(root span missing)"),
-    status,
-    latencyMs: end.getTime() - start.getTime(),
-    spanCount: r.t_span_count,
-    // Null when nothing in the trace was priced: no LLM spans, or none with a known price.
-    costUsd: r.t_llm_spans > r.t_unpriced ? r.t_cost : null,
-    unpricedLlmSpans: r.t_unpriced,
-    errorCount: r.t_errors,
-    tags: r.t_tags,
-    userId: r.t_user_id,
-    sessionId: r.t_session_id,
-    lastEndTime: lastEnd,
-    replayOf: r.t_replay_of,
+    startTime: new Date(r.start_time),
+    rootName: r.root_name,
+    status: r.status,
+    latencyMs: r.latency_ms,
+    spanCount: r.span_count,
+    costUsd: r.cost_usd,
+    unpricedLlmSpans: r.unpriced_llm_spans,
+    errorCount: r.error_count,
+    tags: r.tags,
+    userId: r.user_id,
+    sessionId: r.session_id,
+    lastEndTime: new Date(r.last_end_time),
+    replayOf: r.replay_of,
   };
 }
 
-/** A ClickHouse read failure as a page shows it. Columns a ClickHouse migration adds (Phase 5's
- * `replay_of`) are missing until ingest runs on the new code: it applies them when it starts. */
+function toSpan(r: ApiSpan): SpanRow {
+  return {
+    spanId: r.span_id,
+    parentSpanId: r.parent_span_id,
+    name: r.name,
+    kind: r.kind,
+    startTime: new Date(r.start_time),
+    endTime: r.end_time ? new Date(r.end_time) : null,
+    status: r.status,
+    errorType: r.error_type,
+    model: r.model,
+    inputTokens: r.input_tokens,
+    outputTokens: r.output_tokens,
+    cacheReadTokens: r.cache_read_tokens,
+    cacheWriteTokens: r.cache_write_tokens,
+    costUsd: r.cost_usd,
+    inputPreview: r.input_preview,
+    outputPreview: r.output_preview,
+    inputOffloaded: r.input_offloaded,
+    outputOffloaded: r.output_offloaded,
+    attributes: r.attributes,
+  };
+}
+
+/** A trace read failure as a page shows it. Ingest says which store failed and why, including
+ * when a ClickHouse migration hasn't run yet. */
 export function clickHouseError(e: unknown): string {
-  const message = e instanceof Error ? e.message : String(e);
-  if (!message.includes("replay_of")) return message;
-  return `${message}. Ingest hasn't applied its ClickHouse migrations yet: rebuild and restart it (docker compose up -d --build).`;
+  return e instanceof Error ? e.message : String(e);
 }
 
 export type Cursor = { start: string; traceId: string };
@@ -145,118 +147,25 @@ export async function listTraces(
   before?: Cursor,
   showReplays = false,
 ): Promise<{ traces: TraceSummary[]; next?: Cursor }> {
-  const result = await getClickHouse().query({
-    query: `${SUMMARY_SELECT}
-      GROUP BY trace_id
-      HAVING (t_start, trace_id) < (parseDateTime64BestEffort({before_start:String}, 6, 'UTC'),
-                                    {before_trace:String})
-         AND ({show_replays:UInt8} = 1 OR t_replay_of = '')
-      ORDER BY t_start DESC, trace_id DESC
-      LIMIT {limit:UInt32}`,
-    query_params: {
-      project: DEFAULT_PROJECT_ID,
-      // No cursor: start after every trace. (ClickHouse parses constants even in a dead OR branch,
-      // so an empty cursor can't be special-cased in SQL.)
-      before_start: before?.start ?? "2999-01-01T00:00:00Z",
-      before_trace: before?.traceId ?? "f".repeat(32),
-      show_replays: showReplays ? 1 : 0,
-      limit: limit + 1,
-    },
-    format: "JSONEachRow",
-  });
-  const rows = await result.json<SummaryRow>();
-  const now = new Date();
-  const page = rows.slice(0, limit);
-  const last = page.at(-1);
+  const query = new URLSearchParams({ limit: String(limit), show_replays: String(showReplays) });
+  if (before) {
+    query.set("before_start", before.start);
+    query.set("before_trace", before.traceId);
+  }
+  const page = await api.read<{ traces: ApiSummary[]; next: { start_time: string; trace_id: string } | null }>(
+    `?${query}`,
+  );
+  if (!page) return { traces: [] };
   return {
-    traces: page.map((r) => toSummary(r, now)),
-    next: rows.length > limit && last ? { start: last.t_start, traceId: last.trace_id } : undefined,
+    traces: page.traces.map(toSummary),
+    next: page.next ? { start: page.next.start_time, traceId: page.next.trace_id } : undefined,
   };
 }
 
-export async function getTrace(
-  traceId: string,
-): Promise<{ summary: TraceSummary; spans: SpanRow[] } | null> {
+export async function getTrace(traceId: string): Promise<{ summary: TraceSummary; spans: SpanRow[] } | null> {
   if (!/^[0-9a-f]{32}$/.test(traceId)) return null;
-  const client = getClickHouse();
-  const summaryResult = await client.query({
-    query: `${SUMMARY_SELECT} AND trace_id = {trace:FixedString(32)} GROUP BY trace_id`,
-    query_params: { project: DEFAULT_PROJECT_ID, trace: traceId },
-    format: "JSONEachRow",
-  });
-  const [summaryRow] = await summaryResult.json<SummaryRow>();
-  if (!summaryRow) return null;
-
-  // The summary's time range bounds the scan on the (project_id, start_time, ...) sort key;
-  // FINAL hides duplicates that ReplacingMergeTree hasn't merged yet (ADR-0014).
-  const spansResult = await client.query({
-    query: `
-      SELECT span_id, parent_span_id, name, kind, start_time, end_time, status, error_type,
-             model, input_tokens, output_tokens, cache_read_tokens,
-             if(cache_write_5m_tokens IS NULL AND cache_write_1h_tokens IS NULL, NULL,
-                ifNull(cache_write_5m_tokens, 0) + ifNull(cache_write_1h_tokens, 0))
-               AS cache_write_tokens,
-             cost_usd, input_preview, output_preview,
-             input_uri, output_uri, attributes
-      FROM spans FINAL
-      WHERE project_id = {project:UUID}
-        AND trace_id = {trace:FixedString(32)}
-        AND start_time BETWEEN parseDateTime64BestEffort({from:String}, 6, 'UTC')
-                           AND parseDateTime64BestEffort({to:String}, 6, 'UTC')
-      ORDER BY start_time, span_id`,
-    query_params: {
-      project: DEFAULT_PROJECT_ID,
-      trace: traceId,
-      from: summaryRow.t_start,
-      to: summaryRow.t_last_end,
-    },
-    format: "JSONEachRow",
-  });
-  type Raw = {
-    span_id: string;
-    parent_span_id: string;
-    name: string;
-    kind: SpanKind;
-    start_time: string;
-    end_time: string | null;
-    status: "ok" | "error";
-    error_type: string;
-    model: string;
-    input_tokens: number | null;
-    output_tokens: number | null;
-    cache_read_tokens: number | null;
-    cache_write_tokens: number | null;
-    cost_usd: number | null;
-    input_preview: string;
-    output_preview: string;
-    input_uri: string;
-    output_uri: string;
-    attributes: Record<string, string>;
-  };
-  const spans = (await spansResult.json<Raw>()).map(
-    (r): SpanRow => ({
-      spanId: r.span_id,
-      parentSpanId: r.parent_span_id,
-      name: r.name,
-      kind: r.kind,
-      startTime: utc(r.start_time),
-      endTime: r.end_time ? utc(r.end_time) : null,
-      status: r.status,
-      errorType: r.error_type,
-      model: r.model,
-      inputTokens: r.input_tokens,
-      outputTokens: r.output_tokens,
-      cacheReadTokens: r.cache_read_tokens,
-      cacheWriteTokens: r.cache_write_tokens,
-      costUsd: r.cost_usd,
-      inputPreview: r.input_preview,
-      outputPreview: r.output_preview,
-      inputUri: r.input_uri,
-      outputUri: r.output_uri,
-      attributes: r.attributes,
-    }),
-  );
-  return { summary: toSummary(summaryRow, new Date()), spans };
+  const trace = await api.read<{ summary: ApiSummary; spans: ApiSpan[] }>(`/${traceId}`);
+  return trace && { summary: toSummary(trace.summary), spans: trace.spans.map(toSpan) };
 }
 
 export type TreeNode = { span: SpanRow; depth: number };
@@ -280,64 +189,29 @@ export function flattenTree(spans: SpanRow[]): TreeNode[] {
   return out;
 }
 
-/** Which of these traces still exist, or null when ClickHouse can't be read. A dataset item's
- * source trace expires with retention until pinning lands (ADR-0011, GLOSSARY.md "Source trace
- * expired"). Datasets live in Postgres, so a ClickHouse outage mustn't take their pages down. */
+/** Which of these traces still exist, or null when they can't be read. A dataset item's source
+ * trace can expire with retention (GLOSSARY.md "Source trace expired"). Datasets live in
+ * Postgres, so a ClickHouse outage mustn't take their pages down. */
 export async function liveTraces(traceIds: string[]): Promise<Set<string> | null> {
   const ids = traceIds.filter((t) => /^[0-9a-f]{32}$/.test(t));
   if (ids.length === 0) return new Set();
-  try {
-    const result = await getClickHouse().query({
-      query: `SELECT DISTINCT trace_id FROM traces
-              WHERE project_id = {project:UUID} AND trace_id IN {ids:Array(FixedString(32))}`,
-      query_params: { project: DEFAULT_PROJECT_ID, ids },
-      format: "JSONEachRow",
-    });
-    return new Set((await result.json<{ trace_id: string }>()).map((r) => r.trace_id));
-  } catch {
-    return null;
-  }
+  const r = await api.call<{ trace_ids: string[] }>("POST", "/live", { trace_ids: ids });
+  return r.ok ? new Set(r.data.trace_ids) : null;
 }
 
-/** A span's full input or output: the preview when it's stored whole, else the object storage
- * copy (ADR-0009). The URI comes from the span row, never from a request. */
-export async function readPayload(span: SpanRow, which: "input" | "output"): Promise<string> {
-  const uri = which === "input" ? span.inputUri : span.outputUri;
-  if (!uri) return which === "input" ? span.inputPreview : span.outputPreview;
-  const prefix = `s3://${S3_BUCKET}/`;
-  if (!uri.startsWith(prefix)) throw new Error(`unexpected payload uri: ${uri}`);
-  const object = await getS3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: uri.slice(prefix.length) }));
-  return (await object.Body?.transformToString()) ?? "";
-}
-
-/** A stored payload as a value. The worker stores a string as the bare string and anything else
- * as JSON, so only an object or array is taken as JSON, as ingest's `decode_payload` does. */
-function decodePayload(text: string): unknown {
-  try {
-    const v: unknown = JSON.parse(text);
-    return v !== null && typeof v === "object" ? v : text;
-  } catch {
-    return text;
-  }
+/** A span's full input or output: the preview when it's stored whole, else ingest fetches the
+ * object storage copy (ADR-0009). Null when the trace or span is gone. */
+export async function readPayload(traceId: string, spanId: string, which: "input" | "output"): Promise<string | null> {
+  return (await api.read<{ text: string }>(`/${traceId}/spans/${spanId}/${which}`))?.text ?? null;
 }
 
 /** What a trace did, in the shape a replay run records (sdk `agenttrace.eval.runner`): its tool
- * calls in start order, with a call's arguments when its input is an object, and the root span's
- * output. Null when the trace has expired. */
+ * calls in start order, and the root span's output. Null when the trace has expired. */
 export async function traceOutcome(
   traceId: string,
 ): Promise<{ trajectory: ToolCall[]; output: unknown; rootError: string | null } | null> {
-  const trace = await getTrace(traceId);
-  if (!trace) return null;
-  const tools = trace.spans.filter((s) => s.kind === "tool");
-  const inputs = await Promise.all(tools.map((s) => readPayload(s, "input")));
-  const trajectory = tools.map((s, i): ToolCall => {
-    const args = decodePayload(inputs[i]);
-    return args && typeof args === "object" && !Array.isArray(args)
-      ? { tool: s.name, args: args as Record<string, unknown> }
-      : { tool: s.name };
-  });
-  const root = trace.spans.find((s) => s.parentSpanId === "");
-  const output = root ? decodePayload(await readPayload(root, "output")) : null;
-  return { trajectory, output, rootError: root?.status === "error" ? root.errorType || "error" : null };
+  const outcome = await api.read<{ trajectory: ToolCall[]; output: unknown; root_error: string | null }>(
+    `/${traceId}/outcome`,
+  );
+  return outcome && { trajectory: outcome.trajectory, output: outcome.output, rootError: outcome.root_error };
 }

@@ -46,4 +46,4 @@ Preconditions:
 - Spans arrive about a second after the SDK ends them (exporter flush) plus the worker's read. Poll ClickHouse briefly; don't call a missing row a failure on the first read.
 - The SDK sends nothing without `AGENTTRACE_API_KEY`, and logs a single warning. If the emitter's rows never appear, check `emit.err` for that warning or a 401.
 - `ReplacingMergeTree` may hold a duplicate until a merge, so the dedup check must use `count()` without `FINAL` to prove the worker skipped it.
-- `traces` rows are aggregate states. Always read them with `GROUP BY trace_id` and `sum`/`max`, as the web app does.
+- `traces` rows are aggregate states. Always read them with `GROUP BY trace_id` and `sum`/`max`, as ingest's trace store does.

@@ -21,7 +21,7 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
 | Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input` | `health`, `post` (curl), `emit` (real SDK) |
-| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets`, experiments at `/experiments`, comparisons at `/experiments/<id>/compare/<baseline>`, replays at `/replays/<id>` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
+| Web UI | sign-in at `/login`, `/setup`, `/invite/<token>`, `/reset/<token>`; the public health page at `/status`; per project under `/p/<slug>/`: traces at `traces` and `traces/<id>`, `datasets`, `experiments`, comparisons at `experiments/<id>/compare/<baseline>`, replays at `replays/<id>`, and `settings` (project and API keys); `/projects` and `/members`. Paths without `/p/<slug>/` redirect into the entity's project | `page` (`/status`), `traces` (server HTML, with the owner's session) + the built-in browser pane |
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 
@@ -56,8 +56,9 @@ What it does, in order (about 25 s warm, a few minutes on a first image build):
 2. Copies `.env.example` to `.env` if `.env` is missing.
 3. Creates `verify-artifacts/<run-id>/` and records the git SHA.
 4. Runs `docker compose -p agenttrace-verify up -d --build --wait`. Fresh volumes mean Postgres and ClickHouse run their init SQL. "Healthy" for ingest means its `/health` passed, which requires the default project row, the `spans` table, Redis, and the `payloads` bucket, not just open ports.
+4a. Claims the install (ADR-0034) with the setup token from ingest's logs, as owner `verify-owner@example.com` / `verify-owner-password`, and keeps that session in `verify-artifacts/.state/cookies.txt` for `traces`. Sign in with the same credentials in the browser pane. Start with `CLAIM=0 up` to test the setup page on an unclaimed install; `traces` then refuses to run.
 5. Builds the web app (`next build`) into `.next-verify`, restoring `web/tsconfig.json` afterwards because the build rewrites it.
-6. Starts `next start` on 127.0.0.1:13000 in its own process group, with `INGEST_URL=http://127.0.0.1:18000`.
+6. Starts `next start` on 127.0.0.1:13000 in its own process group, with only `INGEST_URL=http://127.0.0.1:18000` and `AGENTTRACE_PUBLIC_URL=http://127.0.0.1:13000`: no store credentials or API key (ADR-0031).
 
 It's ready when it prints `READY run=<id> ingest=http://127.0.0.1:18000 web=http://127.0.0.1:13000 artifacts=<dir>`. A non-zero exit prints the tail of the failing log, and the full logs are in the run dir (`compose-up.log`, `web-build.log`, `web.log`).
 
@@ -84,8 +85,8 @@ It ends with `DOCTOR OK` or `DOCTOR FAIL` (exit 1). Don't drive a `DOCTOR FAIL` 
 Each command writes `<name>.cmd` (command and exit code), `<name>.out` and `<name>.err` to the run dir, then prints the result. Pass a name to keep several captures apart (`health health-redis-down`).
 
 - **API health:** `agenttrace-verify health [name]` curls `/health`. The body is followed by `http_status=<code>`.
-- **Web page, as text:** `agenttrace-verify page [name]` saves the full server-rendered HTML and writes `<name>.summary` with one `label => result` line per store, or `Ingest API unreachable`.
-- **Web page, visually:** use the built-in browser pane. Navigate to `http://127.0.0.1:13000`, find the heading `Service health` with `find`, then take a `screenshot`. Copy the screenshot file the tool reports into the run dir with a descriptive name.
+- **Web page, as text:** `agenttrace-verify page [name]` saves the full server-rendered HTML of `/status` and writes `<name>.summary` with one `label => result` line per store, or `Ingest API unreachable`.
+- **Web page, visually:** use the built-in browser pane. Navigate to `http://127.0.0.1:13000/status`, find the heading `Service health` with `find`, then take a `screenshot`. Every other page needs a session: sign in at `/login` first. Copy the screenshot file the tool reports into the run dir with a descriptive name.
 - **Fault injection:** `agenttrace-verify store-stop <svc>` and `store-start <svc>`, where svc is `postgres`, `clickhouse`, `redis`, `seaweedfs` or `ingest`. These only touch the verify project. `store-start` waits for the service to be healthy again.
 - **Demo agent:** `agenttrace-verify agent "Where is order 1042?"` runs the CLI and captures `agent.{cmd,out,err}`. It needs `ANTHROPIC_API_KEY` in `.env`. Each run calls the real API and costs money.
 - **Side effects:** check stored state directly, read-only.

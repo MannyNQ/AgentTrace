@@ -12,7 +12,7 @@
 ## How to get to it (user POV)
 
 - `curl http://<host>:8000/health` (dev) or `:18000` (verify instance).
-- The web health page, which renders this same response. See [web-health-page.md](./web-health-page.md).
+- The web status page at `/status`, which renders this same response without a session. See [web-health-page.md](./web-health-page.md).
 
 ## Driving it with agenttrace-verify
 

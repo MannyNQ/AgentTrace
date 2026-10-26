@@ -10,7 +10,7 @@ The eval runner uploads results to `/v1/experiments` in the ingest API (ADR-0023
 - `ex-cost` each sample is priced on upload from its per-model token counts at its `started_at`; an unknown model makes that sample's cost null and counts it under `unpriced_samples`.
 - `ex-summary` `GET /v1/experiments/<id>` has per-scorer `scored`, `passed`, `pass_rate`, `mean_score`, and `pass_rate_by_sample`, and per-item pass counts and errored samples, in dataset order. Items lacking a scorer's expectation aren't counted for it.
 - `ex-item` `GET /v1/experiments/<id>/items/<item_id>` has the item as the version holds it and every sample's output, trajectory, error, scores, and cost.
-- `ex-ui-list` `/experiments` lists experiments newest first with status (`running`, `completed`, `failed`), dataset and version, samples uploaded out of items × samples, cost (`—` with none uploaded), git branch and commit. The Dataset select filters with `?dataset=<id>`; "Clear" removes it. A dataset page links here with "Experiments on this dataset →"; the home page with "Experiments →".
+- `ex-ui-list` `/experiments` lists experiments newest first with status (`running`, `completed`, `failed`), dataset and version, samples uploaded out of items × samples, cost (`—` with none uploaded), git branch and commit. The Dataset select filters with `?dataset=<id>`; "Clear" removes it. A dataset page links here with "Experiments on this dataset →"; the project home page (`/p/<slug>`) and the nav with "Experiments".
 - `ex-ui-page` `/experiments/<id>` has the header (dataset version link, counts, cost, started and duration, git, entry, hash), the stop reason for a `failed` run, a Scorers table (what each checks, pass rate, passed/scored, mean score, each repeat's rate), and an Items table with passed/scored per scorer (`n/a` when the item lacks the scorer's expectation), errored samples, and mean latency.
 - `ex-ui-item` `/experiments/<id>/items/<item_id>` has the input and expectations, then each sample: scores with ✓/✗ and reasons, output (or the error), and expected vs actual tool calls lined up by the first comparing trajectory scorer's mode, with the first mismatch outlined and labelled, missing calls `✗` and extra ones `+`. Each sample links its trace, or says "trace expired" once it's gone (experiment traces aren't pinned).
 - `ex-cli` `agenttrace eval -c <eval.yaml>` prints one line per sample and a summary (pass rates with each repeat's rate, items failing most samples, cost), and exits 0 on a completed experiment. Before anything runs, a bad `eval.yaml`, a missing `AGENTTRACE_API_KEY`, an unknown dataset or version, or an import error exits 2 and records nothing.
@@ -18,7 +18,7 @@ The eval runner uploads results to `/v1/experiments` in the ingest API (ADR-0023
 ## How to get to it (user POV)
 
 - The CLI: `uv run agenttrace eval -c examples/demo-agent/eval.yaml` from the repo root, with `AGENTTRACE_API_KEY` and `AGENTTRACE_ENDPOINT` set.
-- The web app: home page → "Experiments →", or a dataset page → "Experiments on this dataset →". Then an experiment's name, then an item's input.
+- The web app: the project home page → "Experiments →" (or "Experiments" in the nav), or a dataset page → "Experiments on this dataset →". Then an experiment's name, then an item's input.
 - The API directly: `curl -H "Authorization: Bearer $AGENTTRACE_API_KEY" http://127.0.0.1:18000/v1/experiments`.
 
 ## Driving it with agenttrace-verify

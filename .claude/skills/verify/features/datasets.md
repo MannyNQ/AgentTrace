@@ -1,6 +1,6 @@
 # Datasets
 
-Datasets live behind `/v1/datasets` in the ingest API (ADR-0019); the web app calls it from the server with `AGENTTRACE_API_KEY`. A dataset has an editable draft and immutable versions, each a list of item revisions (ADR-0020). Users add a trace to a draft with "Add to dataset" (the server copies the root input, from S3 when offloaded), write the expected output or trajectory, and publish. Publishing refuses unchanged drafts and new or changed items without expectations. The version page shows what was added, changed, and removed versus the previous version.
+Datasets live behind `/v1/datasets` in the ingest API (ADR-0019); the web app calls it from the server with the signed-in user's session (ADR-0032). A dataset has an editable draft and immutable versions, each a list of item revisions (ADR-0020). Users add a trace to a draft with "Add to dataset" (the server copies the root input, from S3 when offloaded), write the expected output or trajectory, and publish. Publishing refuses unchanged drafts and new or changed items without expectations. The version page shows what was added, changed, and removed versus the previous version.
 
 ## Sub-features
 
@@ -26,7 +26,7 @@ Datasets live behind `/v1/datasets` in the ingest API (ADR-0019); the web app ca
 Preconditions:
 
 - A healthy run. `ANTHROPIC_API_KEY` in `.env` for the demo agent journey.
-- The API key the web server and curl send is the one `H` exports (`.env`'s, else `at-local-dev-key`).
+- The API key `curl` sends is the one `H` exports (`.env`'s, else `at-local-dev-key`). The web app has no key: it forwards the session.
 
 - **Migrations.** `docker exec agenttrace-verify-postgres-1 psql -U agenttrace -d agenttrace -tAc "SELECT version, name FROM schema_migrations"` prints `1|0001_datasets.sql` and `2|0002_experiments.sql`.
 - **Integration tests.** `POSTGRES_DSN=postgresql://agenttrace:agenttrace@127.0.0.1:15432/agenttrace CLICKHOUSE_HOST=127.0.0.1 CLICKHOUSE_PORT=18123 S3_ENDPOINT=http://127.0.0.1:18333 REDIS_URL=redis://127.0.0.1:16379/15 uv run pytest services/ingest -m integration` passes. It covers from-trace with an S3-offloaded input, revisions, deletes, and concurrent publishes. It leaves `it-xxxxxxxx` datasets behind.
