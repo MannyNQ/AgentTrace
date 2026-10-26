@@ -16,8 +16,6 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Payload**: A span's full input or output. Values over 8 KB are moved to object storage; the span keeps a **preview** (first 1 KB) and an `input_uri` or `output_uri`. Search covers previews only. See ADR-0009.
 
-**Replay**: A new trace re-run from a recorded one, linked by a `replay_of` attribute pointing at the original `(trace_id, span_id)`. Schema details wait until Phase 5.
-
 **Root span**: The span with no parent. Its end marks the trace complete. See ADR-0004.
 
 **Span kind**: A closed set: `llm`, `tool`, `agent`, `retrieval`, `custom`. `custom` is the escape hatch; no other kinds exist.
@@ -30,7 +28,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Trace completion**: A trace is complete when its root span ends, or after a 5-minute quiet period with no new spans. A late span reopens the trace and its summary is recomputed. See ADR-0004.
 
-**Trace summary**: Derived fields on a complete trace: total latency, cost, span count, status, and error counts per span kind.
+**Trace summary**: Derived fields on a complete trace: total latency, cost, span count, status, error counts per span kind, and the root span's `replay_of`, if any.
 
 **Trace status**: `error` when the root span is `error` or never closed; otherwise `ok`. A failed span the agent recovered from doesn't make the trace `error`. A trace that isn't complete yet shows as `running`. Status is computed when a trace is read (ADR-0013).
 
@@ -40,7 +38,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Price table**: Versioned prices per model (input, output, cache-read, and 5-minute and 1-hour cache-write per-token prices, effective date).
 
-**Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item are **pinned** and never expire; experiment traces expire normally. See ADR-0011 and ADR-0021.
+**Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item are **pinned** and never expire; experiment traces and replay traces expire normally. See ADR-0011, ADR-0021, and ADR-0029.
 
 **Pin**: Exempting a trace from retention by rewriting its `retention_days` in `spans` and `traces` so it expires on 2106-01-01, the latest date ClickHouse's `DateTime` holds. Happens when a dataset item gets a `source_trace_id`. Unlinking doesn't unpin. See ADR-0021.
 
@@ -70,7 +68,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their pass thresholds and `max_drop`, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, `version`, and `max_drop`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
 
-**Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. See ADR-0006.
+**Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. `agenttrace replay` runs replay runs through it unchanged. See ADR-0006.
 
 **Experiment**: One run of one version of the agent over one dataset version with a set of scorers. Status is `running`, `completed`, or `failed`; `failed` means the runner failed, not the agent. See ADR-0023.
 
@@ -97,3 +95,11 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 **LLM judge**: The `llm_judge` scorer: an Anthropic model, named in `model`, grades a sample against plain-language `criteria` and returns pass or fail with a reason. Runs in the eval runner, outside the sample's trace; after 3 failed retries it skips the sample rather than scoring 0. See ADR-0027.
 
 **Judge cost**: `judge_cost_usd` on a sample, computed by the server from the judge's token counts, kept apart from the agent's cost. See ADR-0027.
+
+## Replay
+
+**Replay**: One re-run of a recorded trace's root input through the user's entry point, `--samples k` times (default 3), started with `agenttrace replay <trace_id>`. Stored as one `replays` row with a status (`running`, `completed`, or `failed`), its git commit, branch, and dirty flag, and its runs. Scored only when the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation; the runs are then scored against that draft revision, recorded as `(item_id, rev)` (ADR-0030). Not an experiment: it pins no dataset version. See ADR-0028 and ADR-0029. _Avoid_: calling a replay run a Sample.
+
+**Replay run**: One execution within a replay, and its own trace. Its root span carries `replay_of`, the `(trace_id, span_id)` of the original trace's root span. Replaying a replay points at the original's root span, so `replay_of` never chains. Errored runs score 0, as in an errored sample. See ADR-0028. _Avoid_: Sample, which is an experiment's run.
+
+**First difference**: The first position where a replay run's trajectory differs from the original's. Trajectories are compared step by step; a step differs on tool name or on `args` by full JSON equality, not the partial match of an expected trajectory, because the original is a recording, not an expectation. A trajectory that is a prefix of the other differs at the first missing step. Outputs are shown side by side with no computed diff.
