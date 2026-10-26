@@ -4,7 +4,12 @@ A scorer that needs an expectation the item doesn't have is skipped for that ite
 scoring 0 (design.md, Phase 3). Built-in scores are 1 or 0. A custom scorer is a function taking a
 `Case` and returning a bool, a number from 0 to 1, a `(score, reason)` pair, or None to skip.
 The LLM judge asks an Anthropic model for a pass or fail verdict (ADR-0027); when the model can't
-be reached it skips the sample, raising `Skipped` with the reason.
+be reached it skips the sample, raising `Skipped` with the reason. A judge that's misconfigured (no
+credentials, a bad key, an unknown model) is never skipped: it fails when the scorers are built,
+or stops the run with `Fatal`, since skipping every sample would quietly turn the gate off.
+
+Built-in scorers and the judge may grade several samples at once; custom scorers are called one at
+a time (`thread_safe`), as they were before scoring moved onto threads.
 """
 
 import importlib
@@ -50,6 +55,11 @@ class ScorerError(Exception):
     """A scorer can't be built or returned something that isn't a score."""
 
 
+class Fatal(Exception):
+    """The scorer can't grade any sample (the judge's credentials or model are wrong): the run
+    stops rather than scoring or skipping every sample."""
+
+
 class Skipped(Exception):
     """The scorer couldn't grade this sample (the judge's model was unreachable); the message
     says why. Unlike a failure it gives no score, so an outage doesn't look like a regression."""
@@ -81,6 +91,8 @@ def _short(value: Any) -> str:
 
 class Scorer:
     """`applies` says whether the scorer grades this item at all; `grade` scores one sample."""
+
+    thread_safe = True  # may grade several samples at once
 
     def __init__(self, cfg: Any):
         self.name: str = cfg.name
@@ -263,6 +275,8 @@ class Trajectory(Scorer):
 
 
 class Custom(Scorer):
+    thread_safe = False  # user code may keep state between calls
+
     def __init__(self, cfg: c.Custom):
         super().__init__(cfg)
         fn = load_object(cfg.function)
@@ -300,6 +314,20 @@ VERDICT_SCHEMA = {
 }
 JUDGE_RETRIES = 3
 JUDGE_MAX_TOKENS = 16000
+# Errors that mean the judge is misconfigured for every sample, not unlucky on this one.
+FATAL_STATUSES = {401, 403, 404}
+
+
+def _transient(e: Exception) -> bool:
+    """An outage: no connection, a timeout, rate limiting, or a server error. These skip one
+    sample; anything else from the API is about the request or the configuration."""
+    import anthropic
+
+    if isinstance(e, anthropic.APIConnectionError):  # includes timeouts
+        return True
+    return isinstance(e, anthropic.APIStatusError) and (
+        e.status_code in (408, 409, 429) or e.status_code >= 500
+    )
 
 
 def _usage(model: str, usage: Any) -> ModelUsage:
@@ -331,6 +359,17 @@ class LlmJudge(Scorer):
                 raise ScorerError("llm_judge needs anthropic: pip install anthropic") from e
             client = anthropic.Anthropic(max_retries=JUDGE_RETRIES)
         self.client = client
+        self.check()
+
+    def check(self) -> None:
+        """Fails before any agent runs when the credentials or the model are wrong: looking the
+        model up needs both, and costs nothing."""
+        try:
+            self.client.models.retrieve(self.model)
+        except Exception as e:  # TypeError when there are no credentials at all
+            raise ScorerError(
+                f"scorer {self.name}: can't use judge model {self.model}: {type(e).__name__}: {e}"
+            ) from e
 
     def prompt(self, case: Case) -> str:
         shown = {
@@ -360,8 +399,14 @@ class LlmJudge(Scorer):
                     messages=[{"role": "user", "content": self.prompt(case)}],
                     output_config={"format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
                 )
-        except anthropic.APIError as e:  # the SDK has already retried
-            raise Skipped(f"judge unavailable: {type(e).__name__}: {e}") from e
+        except anthropic.APIError as e:  # the SDK has already retried transient errors
+            if _transient(e):
+                raise Skipped(f"judge unavailable: {type(e).__name__}: {e}") from e
+            if isinstance(e, anthropic.APIStatusError) and e.status_code in FATAL_STATUSES:
+                raise Fatal(f"judge {self.name}: {type(e).__name__}: {e}") from e
+            raise Skipped(f"judge refused the request: {type(e).__name__}: {e}") from e
+        except TypeError as e:  # credentials went missing after the check
+            raise Fatal(f"judge {self.name}: {e}") from e
         usage = (_usage(getattr(response, "model", None) or self.model, response.usage),)
         if response.stop_reason != "end_turn":
             raise Skipped(f"judge stopped with {response.stop_reason}", usage)

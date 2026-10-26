@@ -23,15 +23,11 @@ export default function ComparePage(props: Props) {
 async function CompareView({ params }: Pick<Props, "params">) {
   await connection();
   const { id, baselineId } = await params;
-  // The auto-selected comparison too, so a link from the PR comment says why this is the baseline.
-  const [e, b, chosen, auto] = await Promise.all([
-    getExperiment(id),
-    getExperiment(baselineId),
-    getComparison(id, baselineId),
-    getComparison(id),
-  ]);
+  // The auto-selected comparison first: when it's this baseline (a link from the PR comment), it
+  // says why it was chosen. Only otherwise is the pair compared as chosen.
+  const [e, b, auto] = await Promise.all([getExperiment(id), getExperiment(baselineId), getComparison(id)]);
   if (!e || !b) notFound();
-  const r = auto.ok && auto.data.baseline?.id === baselineId ? auto : chosen;
+  const r = auto.ok && auto.data.baseline?.id === baselineId ? auto : await getComparison(id, baselineId);
   const crumbs = <Crumbs trail={[["Experiments", "/experiments"], [experimentLabel(e), `/experiments/${e.id}`]]} />;
   if (!r.ok) {
     return (

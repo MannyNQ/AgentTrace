@@ -188,3 +188,23 @@ def test_judge_usage_is_priced_apart_from_the_agent(api: Api):
     assert detail["judge_cost_usd"] == pytest.approx(2.0)
     sample = api.call("GET", f"/v1/experiments/{exp}/items/{api.answer}")["samples"][0]
     assert sample["judge_cost_usd"] == pytest.approx(2.0)
+
+
+def test_a_completed_pair_is_computed_once(api: Api, monkeypatch):
+    base = run(api, [1.0, 1.0], git_commit="m1", git_branch="main")
+    pr = run(api, [0.0, 0.0], git_merge_base="m1", git_base_branch="main")
+    calls = []
+    import fake_experiments
+
+    original = fake_experiments.FakeExperiments.score_rows
+    monkeypatch.setattr(
+        fake_experiments.FakeExperiments,
+        "score_rows",
+        lambda self, eid: calls.append(eid) or original(self, eid),
+    )
+    first = comparison(api, pr)
+    second = comparison(api, pr)
+    chosen = comparison(api, pr, base)
+    assert len(calls) == 2  # the baseline's scores and this run's, once
+    assert first == second and chosen["scorers"] == first["scorers"]
+    assert (first["baseline_reason"], chosen["baseline_reason"]) == ("merge_base", "chosen")

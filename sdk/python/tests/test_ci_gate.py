@@ -114,13 +114,28 @@ def response(verdict: str | None, stop: str = "end_turn", text: str | None = Non
     )
 
 
-def judge(reply, **over) -> tuple[scorers.LlmJudge, FakeMessages]:
+class FakeModels:
+    def __init__(self, error: Exception | None = None):
+        self.error = error
+
+    def retrieve(self, model: str):
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(id=model)
+
+
+def judge(reply, model_error: Exception | None = None, **over):
     messages = FakeMessages(reply)
     j = scorers.LlmJudge(
         cfg({**JUDGE, **over}).scorers[0],  # pyright: ignore[reportArgumentType]
-        client=SimpleNamespace(messages=messages),
+        client=SimpleNamespace(messages=messages, models=FakeModels(model_error)),
     )
     return j, messages
+
+
+def status_error(cls: type, code: int) -> Exception:
+    request = httpx2.Request("POST", "https://api.invalid/v1/messages")
+    return cls("nope", response=httpx2.Response(code, request=request), body=None)
 
 
 CASE = scorers.Case(
@@ -156,10 +171,36 @@ def test_include_picks_what_the_judge_sees():
     assert "lookup_order" in prompt and "secret" not in prompt
 
 
-def test_the_judge_skips_rather_than_failing_when_it_cant_answer():
+def test_a_misconfigured_judge_fails_before_the_run():
+    for error in (
+        status_error(anthropic.NotFoundError, 404),  # a misspelled model
+        status_error(anthropic.AuthenticationError, 401),  # a bad key
+        TypeError("Could not resolve authentication method"),  # no credentials at all
+    ):
+        with pytest.raises(scorers.ScorerError, match="can't use judge model claude-haiku-5-5"):
+            judge(response("pass"), model_error=error)
+
+
+def test_a_judge_that_breaks_mid_run_stops_it_rather_than_skipping_every_sample():
+    with pytest.raises(scorers.Fatal):
+        judge(status_error(anthropic.AuthenticationError, 401))[0].grade(CASE)
+    with pytest.raises(scorers.Fatal):
+        judge(TypeError("Could not resolve authentication method"))[0].grade(CASE)
+    with pytest.raises(scorers.Fatal):
+        score([judge(status_error(anthropic.PermissionDeniedError, 403))[0]], CASE, None)
+
+
+def test_the_judge_skips_a_sample_on_an_outage_or_a_refused_request():
     down = anthropic.APIConnectionError(request=httpx2.Request("POST", "https://api.invalid"))
-    with pytest.raises(scorers.Skipped, match="judge unavailable"):
-        judge(down)[0].grade(CASE)
+    for error in (
+        down,
+        status_error(anthropic.InternalServerError, 529),
+        status_error(anthropic.RateLimitError, 429),
+    ):
+        with pytest.raises(scorers.Skipped, match="judge unavailable"):
+            judge(error)[0].grade(CASE)
+    with pytest.raises(scorers.Skipped, match="refused the request"):
+        judge(status_error(anthropic.BadRequestError, 400))[0].grade(CASE)  # this sample only
     with pytest.raises(scorers.Skipped, match="refusal") as e:
         judge(response(None, stop="refusal"))[0].grade(CASE)
     assert e.value.usage  # a refused call still cost tokens
@@ -259,16 +300,15 @@ REGRESSED = {
 
 
 def test_the_pr_comment_shows_the_verdict_table_and_item_regressions():
-    md = report.markdown(
-        {}, REGRESSED, "support", {ITEM: {"question": "Where is 1042?"}}, "http://w/"
-    )
+    md = report.markdown({}, REGRESSED, "support", "http://w/")
     assert md.startswith("### ❌ AgentTrace eval: 1 regression\n")
     assert "[baseline](http://w/experiments/base) (at the merge-base `abcdef1`)" in md
     assert "| `steps` | 75% | 0% | -75 pts (-100 pts to -25 pts) | 5 pts | 4 | ❌ regressed |" in md
     assert "| `answer` | 100% | 100% | +0 pts (+0 pts to +0 pts) | 5 pts | 2 | ✅ ok |" in md
     assert "⚠️ Underpowered" in md
     assert "$0.0123 → $0.0000" in md and "3.2 s → 0.1 s" in md
-    link = f"[Where is 1042?](http://w/experiments/cur/compare/base/items/{ITEM})"
+    # Items by ID: inputs are often copied from production and a PR comment can be public.
+    link = f"[item `{ITEM[:8]}`](http://w/experiments/cur/compare/base/items/{ITEM})"
     assert md.count(link) == report.MAX_ITEM_REGRESSIONS
     assert "- +2 more" in md
     assert "1 items added, 0 removed" in md
@@ -278,7 +318,7 @@ def test_the_pr_comment_shows_the_verdict_table_and_item_regressions():
 def test_without_a_baseline_the_comment_lists_scores_and_passes():
     cmp = {"experiment": experiment("cur"), "baseline": None, "regressions": 0}
     detail = {"scorer_stats": [{"scorer": "steps", "pass_rate": 0.75, "passed": 9, "scored": 12}]}
-    md = report.markdown(detail, cmp, "support", {})
+    md = report.markdown(detail, cmp, "support")
     assert md.startswith("### ⚪ AgentTrace eval: no baseline")
     assert "| `steps` | 75% | 9/12 |" in md
     assert "this run `cur`" in md  # no web URL: IDs instead of links
@@ -343,3 +383,87 @@ def test_base_records_the_branch_even_without_a_merge_base(fake_server, tmp_path
     assert gate(tmp_path, "--base", "main") == 0
     created = fake_server["created"][-1]
     assert (created.git_base_branch, created.git_merge_base) == ("main", None)
+
+
+# --- Review fixes -----------------------------------------------------------------------------
+
+
+def test_only_fields_in_use_are_sent_so_an_older_ingest_accepts_them(monkeypatch):
+    sent = []
+    monkeypatch.setattr(Client, "request", lambda self, m, p, body=None: sent.append(body))
+    c = Client("http://x", "k")
+    spec = config.parse({**BASE, "scorers": [{"name": "a", "type": "contains"}]})
+    from agenttrace.eval.results import NewExperiment, SampleResult
+
+    c.create_experiment(
+        NewExperiment(
+            id=uuid4(), dataset_id=uuid4(), dataset_version=1, config={}, config_hash="f" * 64,
+            scorers=[s.spec() for s in spec.scorers],
+        )
+    )  # fmt: skip
+    c.upload_samples(
+        "e",
+        [
+            SampleResult(
+                item_id=uuid4(), sample_index=0, started_at="2026-10-01T00:00:00Z", latency_ms=1.0
+            )
+        ],
+    )  # noqa: E501
+    created, uploaded = sent
+    for absent in ("git_merge_base", "git_base_branch"):
+        assert absent not in created
+    assert "max_drop" not in created["scorers"][0]  # at its default
+    assert "judge_usage" not in uploaded["samples"][0]
+    loose = config.parse({**BASE, "scorers": [{"name": "a", "type": "contains", "max_drop": 0.2}]})
+    assert loose.scorers[0].spec().model_dump(exclude_defaults=True)["max_drop"] == 0.2
+
+
+def test_a_refused_create_exits_2_without_a_traceback(fake_server, tmp_path, monkeypatch, capsys):
+    from agenttrace.eval.client import ApiError
+
+    def refuse(self, e):
+        raise ApiError("POST /v1/experiments: 422 some fields are invalid", 422)
+
+    monkeypatch.setattr(Client, "create_experiment", refuse)
+    assert gate(tmp_path) == 2
+    assert "couldn't create the experiment: POST /v1/experiments: 422" in capsys.readouterr().err
+
+
+def test_custom_scorers_are_called_one_at_a_time():
+    import threading
+    import time
+
+    active, peak, lock = 0, 0, threading.Lock()
+
+    def slow(case):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.02)
+        with lock:
+            active -= 1
+        return True
+
+    custom = scorers.Custom.__new__(scorers.Custom)
+    custom.name, custom.fn = "slow", slow
+    threads = [threading.Thread(target=score, args=([custom], CASE, None)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak == 1
+
+
+def test_a_fatal_judge_error_fails_the_experiment():
+    from test_eval_runner import SUPPORT, FakeApi
+
+    from agenttrace.eval.runner import RunError, Runner
+
+    api = FakeApi()
+    broken = judge(status_error(anthropic.AuthenticationError, 401))[0]
+    runner = Runner(cfg(JUDGE), api, lambda input: "ok", [broken], report=lambda line: None)  # pyright: ignore[reportArgumentType]
+    with pytest.raises(RunError, match="Fatal"):
+        runner.run(SUPPORT, Git())
+    assert [f.status for f in api.finished] == ["failed"]
+    assert api.samples == []  # nothing scored is uploaded

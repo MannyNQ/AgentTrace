@@ -19,6 +19,9 @@ permissions:
 
 jobs:
   gate:
+    # The Action skips pull requests from forks (no secrets, read-only token), so its outcomes
+    # can't be checked there.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

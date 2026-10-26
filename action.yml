@@ -103,11 +103,16 @@ runs:
         REPORT: ${{ runner.temp }}/agenttrace-report.md
       run: |
         [ -f "$REPORT" ] || exit 0
-        # One comment per eval.yaml, updated on every push, found by its hidden marker.
+        # One comment per eval.yaml, updated on every push, found by its hidden marker and by
+        # its author: anyone can post a comment starting with the marker, and editing theirs
+        # would fail or overwrite it. The default token is the Actions bot, which can't look
+        # itself up; a personal token can.
         marker="<!-- agenttrace:$CONFIG -->"
         { echo "$marker"; cat "$REPORT"; } > "$REPORT.comment"
+        me=$(gh api user --jq .login 2>/dev/null) || me="github-actions[bot]"
         id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
-          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n 1)
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" \
+          | head -n 1)
         if [ -n "$id" ]; then
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" \
             -F "body=@$REPORT.comment" > /dev/null

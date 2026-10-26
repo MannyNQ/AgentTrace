@@ -73,7 +73,7 @@ def summary(detail: dict[str, Any]) -> str:
 def run_eval(args: argparse.Namespace) -> int:
     from agenttrace.eval import config, report, scorers
     from agenttrace.eval.client import ApiError, Client
-    from agenttrace.eval.runner import Git, RunError, Runner, git_from_env
+    from agenttrace.eval.runner import Git, RunError, Runner, StartError, git_from_env
 
     def stop(message: str) -> int:
         print(f"agenttrace eval: {message}", file=sys.stderr)
@@ -129,6 +129,8 @@ def run_eval(args: argparse.Namespace) -> int:
     runner = Runner(cfg, client, entry, built, report=lambda line: print(line, file=sys.stderr))
     try:
         result = runner.run(version, git, args.name)
+    except StartError as e:
+        return stop(str(e))
     except RunError as e:
         print(f"agenttrace eval: {e}", file=sys.stderr)
         if args.report_md:
@@ -148,8 +150,7 @@ def run_eval(args: argparse.Namespace) -> int:
     else:
         print(report.text(cmp))
         if args.report_md:
-            inputs = {i.item_id: i.contents["input"] for i in version.items}
-            md = report.markdown(result.summary, cmp, version.name, inputs, args.web_url)
+            md = report.markdown(result.summary, cmp, version.name, args.web_url)
             _write(args.report_md, md)
         if args.fail_on_regression and cmp["regressions"]:
             code = 3

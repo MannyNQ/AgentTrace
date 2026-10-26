@@ -8,7 +8,8 @@ the items scored in both runs, and regresses when a paired item-level bootstrap 
 
 import random
 import statistics
-from collections import defaultdict
+import threading
+from collections import OrderedDict, defaultdict
 from typing import Literal
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from agenttrace_ingest.experiments import ExperimentInfo, SampleRow, ScoreRow, S
 ROUNDS = 10_000
 SEED = 20261025  # fixed, so a pair of experiments always compares the same way
 BaselineReason = Literal["merge_base", "base_branch", "chosen"]
+CACHED = 256  # comparisons kept in memory
 
 
 class ScorerComparison(Record):
@@ -173,6 +175,33 @@ def find_baseline(
     return None
 
 
+class _Cache:
+    """Computed comparisons by (experiment, baseline). Both are completed, so their samples can't
+    change, and the bootstrap is the costly part (about 1.5 s per scorer at 1,000 items): the
+    experiment page, the compare page, and the CLI all ask for the same pair."""
+
+    def __init__(self, size: int = CACHED):
+        self.size, self.lock = size, threading.Lock()
+        self.items: OrderedDict[tuple[UUID, UUID], Comparison] = OrderedDict()
+
+    def get(self, key: tuple[UUID, UUID]) -> Comparison | None:
+        with self.lock:
+            found = self.items.get(key)
+            if found is not None:
+                self.items.move_to_end(key)
+            return found
+
+    def put(self, key: tuple[UUID, UUID], c: Comparison) -> None:
+        with self.lock:
+            self.items[key] = c
+            self.items.move_to_end(key)
+            while len(self.items) > self.size:
+                self.items.popitem(last=False)
+
+
+_cache = _Cache()
+
+
 def compare(
     store: Store, project: UUID, experiment_id: UUID, baseline_id: UUID | None = None
 ) -> Comparison:
@@ -200,6 +229,9 @@ def compare(
             current_stats=run_stats(samples), baseline_stats=None,
         )  # fmt: skip
     b, reason = found
+    cached = _cache.get((e.id, b.id))
+    if cached is not None:
+        return cached.model_copy(update={"baseline_reason": reason})
     base_scores, cur_scores = _by_item(store.score_rows(b.id)), _by_item(store.score_rows(e.id))
     cur_items = store.version_items(project, e.dataset_id, e.dataset_version) or {}
     base_items = store.version_items(project, b.dataset_id, b.dataset_version) or {}
@@ -212,7 +244,7 @@ def compare(
         item_regressions += regressed
     order = {item: n for n, item in enumerate(cur_items)}
     item_regressions.sort(key=lambda r: order.get(r.item_id, len(order)))
-    return Comparison(
+    c = Comparison(
         experiment=e,
         baseline=b,
         baseline_reason=reason,
@@ -224,3 +256,5 @@ def compare(
         current_stats=run_stats(samples),
         baseline_stats=run_stats(store.sample_rows(b.id)),
     )
+    _cache.put((e.id, b.id), c)
+    return c

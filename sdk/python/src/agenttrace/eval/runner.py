@@ -33,7 +33,7 @@ from typing import Any
 
 from agenttrace._json import to_jsonable
 from agenttrace.eval import scorers as sc
-from agenttrace.eval.client import Client, DatasetVersion, VersionItem
+from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
 from agenttrace.eval.config import EvalConfig
 from agenttrace.eval.results import (
     MAX_SAMPLES_PER_REQUEST,
@@ -58,6 +58,10 @@ UPLOAD_BATCH = 20
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 MAX_ARG_BYTES = 4 * 1024  # one tool-call argument value, as uploaded
 MAX_TRAJECTORY_BYTES = 1024 * 1024  # all of a sample's tool-call arguments, as uploaded
+
+
+class StartError(Exception):
+    """The server refused to create the experiment, so nothing was recorded."""
 
 
 class RunError(Exception):
@@ -282,8 +286,20 @@ def _sum_usage(usage: list[ModelUsage]) -> list[ModelUsage]:
     return [ModelUsage(model=m, **t) for m, t in totals.items()]
 
 
+# Custom scorers are called one at a time across the run (`Scorer.thread_safe`).
+_serial = threading.Lock()
+
+
+def _grade(scorer: sc.Scorer, case: sc.Case) -> sc.Result | None:
+    if scorer.thread_safe:
+        return scorer.grade(case)
+    with _serial:
+        return scorer.grade(case)
+
+
 def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> Scored:
-    """Skipped scorers give no score; on an errored sample every other scorer gives 0."""
+    """Skipped scorers give no score; on an errored sample every other scorer gives 0. A `Fatal`
+    scorer error propagates and stops the run."""
     out, usage = Scored(), []
     for scorer in scorers:
         if not scorer.applies(case):
@@ -292,7 +308,9 @@ def score(scorers: list[sc.Scorer], case: sc.Case, error: str | None) -> Scored:
             result = sc.fail(f"agent raised {error.split(':', 1)[0]}")
         else:
             try:
-                result = scorer.grade(case)
+                result = _grade(scorer, case)
+            except sc.Fatal:
+                raise
             except sc.Skipped as e:
                 usage += e.usage
                 out.skipped.append(f"{scorer.name}: {e}")
@@ -438,6 +456,25 @@ class Runner:
         # A truncated output's text doubles at worst when encoded again (escaped quotes).
         assert 2 * MAX_OUTPUT_BYTES + MAX_TRAJECTORY_BYTES < MAX_UPLOAD_BYTES
         experiment_id = str(uuid.uuid4())
+        try:
+            self._create(experiment_id, version, git, name)
+        except ApiError as e:
+            raise StartError(f"couldn't create the experiment: {e}") from e
+        remove = add_span_processor(self.capture)
+        try:
+            abandoned = asyncio.run(self._samples(experiment_id, version))
+        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
+            self._fail(experiment_id, f"{type(e).__name__}: {e}")
+            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
+        finally:
+            remove()
+        flush(timeout_s=10)  # so each sample's trace is there to open from the results
+        self.client.finish(experiment_id, Finish(status="completed"))
+        return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
+
+    def _create(
+        self, experiment_id: str, version: DatasetVersion, git: Git, name: str | None
+    ) -> None:
         self.client.create_experiment(
             NewExperiment(
                 id=uuid.UUID(experiment_id),
@@ -454,17 +491,6 @@ class Runner:
                 git_base_branch=git.base_branch,
             )
         )
-        remove = add_span_processor(self.capture)
-        try:
-            abandoned = asyncio.run(self._samples(experiment_id, version))
-        except BaseException as e:  # Ctrl-C included: the experiment mustn't stay `running`
-            self._fail(experiment_id, f"{type(e).__name__}: {e}")
-            raise RunError(f"the run stopped: {type(e).__name__}: {e}", abandoned=True) from e
-        finally:
-            remove()
-        flush(timeout_s=10)  # so each sample's trace is there to open from the results
-        self.client.finish(experiment_id, Finish(status="completed"))
-        return RunResult(experiment_id, self.client.experiment(experiment_id), abandoned)
 
     def _fail(self, experiment_id: str, error: str) -> None:
         try:

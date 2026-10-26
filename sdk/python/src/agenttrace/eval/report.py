@@ -1,7 +1,10 @@
 """The comparison with the baseline, as the CLI prints it and as the PR comment's markdown
-(`agenttrace eval --report-md`). Rendering only: the numbers come from ingest (ADR-0024)."""
+(`agenttrace eval --report-md`). Rendering only: the numbers come from ingest (ADR-0024).
 
-import json
+The markdown names items by ID, never by input: dataset items are often copied from production
+traces, and a PR comment or job summary can be public. Everything in it is IDs, numbers, and names
+the config constrains (scorer names, dataset slugs), so nothing needs escaping."""
+
 from typing import Any
 
 MAX_ITEM_REGRESSIONS = 10
@@ -52,14 +55,6 @@ def _secs(ms: float | None) -> str:
     return "—" if ms is None else f"{ms / 1000:.1f} s"
 
 
-def _short(value: Any, n: int = 60) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    if isinstance(value, dict) and isinstance(value.get("question"), str):
-        text = value["question"]  # the demo agent's shape; other inputs show as JSON
-    text = " ".join(text.split())
-    return text if len(text) <= n else text[: n - 1] + "…"
-
-
 def text(cmp: dict[str, Any]) -> str:
     """The comparison for the terminal."""
     b = cmp["baseline"]
@@ -92,7 +87,6 @@ def markdown(
     detail: dict[str, Any],
     cmp: dict[str, Any],
     dataset: str,
-    inputs: dict[str, Any],
     web_url: str | None = None,
 ) -> str:
     """The PR comment (design.md, Phase 4): verdict, scorer table, cost and latency, item
@@ -157,7 +151,7 @@ def markdown(
         heading = "**Item regressions** (most samples passed before, most fail now; not gated)"
         out += ["", heading, ""]
         for r in regressions[:MAX_ITEM_REGRESSIONS]:
-            label = _short(inputs.get(str(r["item_id"]), str(r["item_id"])[:8]))
+            label = f"item `{str(r['item_id'])[:8]}`"
             if web:
                 href = f"{web}/experiments/{e['id']}/compare/{b['id']}/items/{r['item_id']}"
                 label = f"[{label}]({href})"
