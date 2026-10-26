@@ -5,16 +5,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
-from agenttrace_ingest import dataset_api, experiment_api, experiments, spans
+from agenttrace_ingest import dataset_api, experiment_api, experiments, replay_api, replays, spans
 from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Pins, Store, TraceInputs, pin_pending
 from agenttrace_ingest.experiment_store import PostgresExperiments, PostgresPrices
-from agenttrace_ingest.migrate import migrate
+from agenttrace_ingest.migrate import migrate, migrate_clickhouse
 from agenttrace_ingest.pins import ClickHousePins
+from agenttrace_ingest.replay_store import PostgresReplays
 from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import CHECKS, ensure_bucket
-from agenttrace_ingest.trace_inputs import StoredTraceInputs
+from agenttrace_ingest.stores import CHECKS, clickhouse_client, ensure_bucket
+from agenttrace_ingest.trace_inputs import StoredTraceInputs, TraceRoots
 
 log = logging.getLogger(__name__)
 
@@ -47,11 +48,15 @@ def create_app(
     pins: Pins | None = None,
     experiment_store: experiments.Store | None = None,
     prices: experiments.Prices | None = None,
+    replay_store: replays.Store | None = None,
+    trace_roots: TraceRoots | None = None,
 ) -> FastAPI:
     s = settings or Settings()
     keys = keys or spans.PostgresKeys(s)
     datasets = datasets or PostgresDatasets(s)
     pins = pins or ClickHousePins(s)
+    prices = prices or PostgresPrices(s)
+    stored_inputs = StoredTraceInputs(s)
     background: set[asyncio.Task] = set()
 
     @asynccontextmanager
@@ -59,6 +64,9 @@ def create_app(
         # A failed migration stops startup: serving on a half-upgraded schema is worse.
         for name in await asyncio.to_thread(migrate, s.postgres_dsn):
             log.info("schema migration applied: %s", name)
+        ch = clickhouse_client(s)
+        for name in await asyncio.to_thread(migrate_clickhouse, s.postgres_dsn, ch):
+            log.info("clickhouse migration applied: %s", name)
         try:
             await asyncio.to_thread(ensure_bucket, s)
         except Exception:
@@ -77,15 +85,16 @@ def create_app(
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
     app.include_router(spans.router(s, keys, queue or spans.RedisQueue(s)))
+    app.include_router(dataset_api.router(datasets, trace_inputs or stored_inputs, pins, keys))
     app.include_router(
-        dataset_api.router(datasets, trace_inputs or StoredTraceInputs(s), pins, keys)
+        experiment_api.router(experiment_store or PostgresExperiments(s), prices, keys)
     )
-    app.include_router(
-        experiment_api.router(
-            experiment_store or PostgresExperiments(s), prices or PostgresPrices(s), keys
-        )
+    app.include_router(replay_api.router(replay_store or PostgresReplays(s), prices, keys))
+    app.include_router(replay_api.traces_router(trace_roots or stored_inputs, keys))
+    dataset_api.install_error_handlers(
+        app,
+        (dataset_api.PREFIX, experiment_api.PREFIX, replay_api.PREFIX, replay_api.TRACES_PREFIX),
     )
-    dataset_api.install_error_handlers(app, (dataset_api.PREFIX, experiment_api.PREFIX))
 
     @app.get("/health")
     async def health(response: Response) -> dict:

@@ -1,4 +1,6 @@
-import { DEFAULT_PROJECT_ID, QUIET_PERIOD_S, getClickHouse } from "@/lib/stores";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import type { ToolCall } from "@/lib/datasets";
+import { DEFAULT_PROJECT_ID, QUIET_PERIOD_S, S3_BUCKET, getClickHouse, getS3 } from "@/lib/stores";
 
 export type SpanKind = "llm" | "tool" | "agent" | "retrieval" | "custom";
 export type TraceStatus = "ok" | "error" | "running";
@@ -17,6 +19,8 @@ export type TraceSummary = {
   userId: string;
   sessionId: string;
   lastEndTime: Date;
+  /** The original trace this one re-ran, when it's a replay run (ADR-0028); else "". */
+  replayOf: string;
 };
 
 export type SpanRow = {
@@ -61,6 +65,7 @@ const SUMMARY_SELECT = `
     max(session_id) AS t_session_id,
     max(user_id) AS t_user_id,
     groupUniqArrayArray(tags) AS t_tags,
+    max(replay_of) AS t_replay_of,
     sum(llm_errors) + sum(tool_errors) + sum(agent_errors) + sum(retrieval_errors)
       + sum(custom_errors) AS t_errors
   FROM traces
@@ -83,6 +88,7 @@ type SummaryRow = {
   t_session_id: string;
   t_user_id: string;
   t_tags: string[];
+  t_replay_of: string;
   t_errors: number;
 };
 
@@ -119,20 +125,24 @@ function toSummary(r: SummaryRow, now: Date): TraceSummary {
     userId: r.t_user_id,
     sessionId: r.t_session_id,
     lastEndTime: lastEnd,
+    replayOf: r.t_replay_of,
   };
 }
 
 export type Cursor = { start: string; traceId: string };
 
+/** Replay runs are hidden unless `showReplays` (ADR-0029), so they don't crowd production. */
 export async function listTraces(
   limit: number,
   before?: Cursor,
+  showReplays = false,
 ): Promise<{ traces: TraceSummary[]; next?: Cursor }> {
   const result = await getClickHouse().query({
     query: `${SUMMARY_SELECT}
       GROUP BY trace_id
       HAVING (t_start, trace_id) < (parseDateTime64BestEffort({before_start:String}, 6, 'UTC'),
                                     {before_trace:String})
+         AND ({show_replays:UInt8} = 1 OR t_replay_of = '')
       ORDER BY t_start DESC, trace_id DESC
       LIMIT {limit:UInt32}`,
     query_params: {
@@ -141,6 +151,7 @@ export async function listTraces(
       // so an empty cursor can't be special-cased in SQL.)
       before_start: before?.start ?? "2999-01-01T00:00:00Z",
       before_trace: before?.traceId ?? "f".repeat(32),
+      show_replays: showReplays ? 1 : 0,
       limit: limit + 1,
     },
     format: "JSONEachRow",
@@ -278,4 +289,47 @@ export async function liveTraces(traceIds: string[]): Promise<Set<string> | null
   } catch {
     return null;
   }
+}
+
+/** A span's full input or output: the preview when it's stored whole, else the object storage
+ * copy (ADR-0009). The URI comes from the span row, never from a request. */
+export async function readPayload(span: SpanRow, which: "input" | "output"): Promise<string> {
+  const uri = which === "input" ? span.inputUri : span.outputUri;
+  if (!uri) return which === "input" ? span.inputPreview : span.outputPreview;
+  const prefix = `s3://${S3_BUCKET}/`;
+  if (!uri.startsWith(prefix)) throw new Error(`unexpected payload uri: ${uri}`);
+  const object = await getS3().send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: uri.slice(prefix.length) }));
+  return (await object.Body?.transformToString()) ?? "";
+}
+
+/** A stored payload as a value. The worker stores a string as the bare string and anything else
+ * as JSON, so only an object or array is taken as JSON, as ingest's `decode_payload` does. */
+function decodePayload(text: string): unknown {
+  try {
+    const v: unknown = JSON.parse(text);
+    return v !== null && typeof v === "object" ? v : text;
+  } catch {
+    return text;
+  }
+}
+
+/** What a trace did, in the shape a replay run records (sdk `agenttrace.eval.runner`): its tool
+ * calls in start order, with a call's arguments when its input is an object, and the root span's
+ * output. Null when the trace has expired. */
+export async function traceOutcome(
+  traceId: string,
+): Promise<{ trajectory: ToolCall[]; output: unknown; rootError: string | null } | null> {
+  const trace = await getTrace(traceId);
+  if (!trace) return null;
+  const tools = trace.spans.filter((s) => s.kind === "tool");
+  const inputs = await Promise.all(tools.map((s) => readPayload(s, "input")));
+  const trajectory = tools.map((s, i): ToolCall => {
+    const args = decodePayload(inputs[i]);
+    return args && typeof args === "object" && !Array.isArray(args)
+      ? { tool: s.name, args: args as Record<string, unknown> }
+      : { tool: s.name };
+  });
+  const root = trace.spans.find((s) => s.parentSpanId === "");
+  const output = root ? decodePayload(await readPayload(root, "output")) : null;
+  return { trajectory, output, rootError: root?.status === "error" ? root.errorType || "error" : null };
 }

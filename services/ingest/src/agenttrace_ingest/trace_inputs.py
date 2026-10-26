@@ -1,15 +1,43 @@
-"""A trace's root span input, read server-side for "Add to dataset" (GLOSSARY.md)."""
+"""A trace's root span input, read server-side for "Add to dataset" and for `agenttrace replay`
+(GLOSSARY.md, ADR-0028)."""
 
 import json
 from functools import cached_property
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID
 
-from agenttrace_ingest.datasets import NotFound, Refused
+from agenttrace.eval.results import SpanRef
+from agenttrace_ingest.datasets import NotFound, Record, Refused
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import clickhouse_client, s3_client
 
 TRUNCATED_ATTRIBUTE = "agenttrace.truncated"  # sdk/python/src/agenttrace/exporter.py
+REPLAY_OF_ATTRIBUTE = "agenttrace.replay_of"  # sdk/python/src/agenttrace/eval/replay.py
+
+
+class RootInput(Record):
+    """A trace's root span and its full input. `replay_of` is set when the trace is itself a
+    replay run, naming the original it re-ran."""
+
+    trace_id: str
+    span_id: str
+    input: Any
+    replay_of: SpanRef | None
+
+
+class TraceRoots(Protocol):
+    def root(self, project: UUID, trace_id: str) -> RootInput:
+        """Raises NotFound or Refused, as `root_input` does."""
+        ...
+
+
+def parse_ref(value: str) -> SpanRef | None:
+    """`<trace_id>:<span_id>` as the runner writes it, or None when unset or malformed."""
+    trace_id, _, span_id = value.partition(":")
+    try:
+        return SpanRef(trace_id=trace_id, span_id=span_id)
+    except ValueError:
+        return None
 
 
 def decode_payload(text: str) -> Any:
@@ -38,6 +66,9 @@ class StoredTraceInputs:
         return s3_client(self.s)
 
     def root_input(self, project: UUID, trace_id: str) -> Any:
+        return self.root(project, trace_id).input
+
+    def root(self, project: UUID, trace_id: str) -> RootInput:
         ch = self._clickhouse
         params = {"project": str(project), "trace": trace_id}
         # The summary's time range bounds the scan on the spans sort key (ADR-0013).
@@ -53,22 +84,35 @@ class StoredTraceInputs:
         if not has_root:
             raise Refused("the trace's root span hasn't arrived, so there's no input to copy")
         rows = ch.query(
-            """SELECT input_preview, input_uri, attributes[{truncated:String}] FROM spans FINAL
+            """SELECT toString(span_id), input_preview, input_uri, attributes[{truncated:String}],
+                      attributes[{replay_of:String}]
+               FROM spans FINAL
                WHERE project_id = {project:UUID} AND trace_id = {trace:FixedString(32)}
                  AND parent_span_id = '' AND start_time BETWEEN {start:DateTime64(6)}
                  AND {end:DateTime64(6)}
                LIMIT 1""",
-            parameters={**params, "start": start, "end": end, "truncated": TRUNCATED_ATTRIBUTE},
+            parameters={
+                **params,
+                "start": start,
+                "end": end,
+                "truncated": TRUNCATED_ATTRIBUTE,
+                "replay_of": REPLAY_OF_ATTRIBUTE,
+            },
         ).result_rows
         if not rows:
             raise NotFound("trace not found; it may have expired")
-        preview, uri, truncated = rows[0]
+        span_id, preview, uri, truncated, replay_of = rows[0]
         if "input" in truncated.split(","):
             raise Refused("the SDK cut this trace's input to fit a request, so it can't be copied")
         text = self._read(uri) if uri else preview
         if text == "":
             raise Refused("the trace's root span has no input")
-        return decode_payload(text)
+        return RootInput(
+            trace_id=trace_id,
+            span_id=span_id,
+            input=decode_payload(text),
+            replay_of=parse_ref(replay_of),
+        )
 
     def _read(self, uri: str) -> str:
         prefix = f"s3://{self.s.s3_bucket}/"

@@ -32,10 +32,21 @@ function parseCursor(before: string | string[] | undefined): Cursor | undefined 
 
 async function TraceList({ searchParams }: { searchParams: PageProps<"/traces">["searchParams"] }) {
   await connection(); // traces change every request; never prerendered
-  const before = parseCursor((await searchParams).before);
+  const params = await searchParams;
+  const before = parseCursor(params.before);
+  const showReplays = params.replays === "1";
+  const query = (extra: Record<string, string>) =>
+    `/traces?${new URLSearchParams({ ...(showReplays ? { replays: "1" } : {}), ...extra })}`;
+  const toggle = (
+    <p className="mt-4 text-sm">
+      <Link href={showReplays ? "/traces" : "/traces?replays=1"} className="hover:underline" data-replays-toggle>
+        {showReplays ? "Hide replays" : "Show replays"}
+      </Link>
+    </p>
+  );
   let page;
   try {
-    page = await listTraces(PAGE_SIZE, before);
+    page = await listTraces(PAGE_SIZE, before, showReplays);
   } catch (e) {
     return (
       <p className="mt-6 rounded-md border border-line p-4 text-sm">
@@ -48,15 +59,19 @@ async function TraceList({ searchParams }: { searchParams: PageProps<"/traces">[
 
   if (traces.length === 0) {
     return (
-      <p className="mt-6 text-sm text-muted">
-        {before ? "No older traces." : "No traces yet. Run the demo agent with AGENTTRACE_API_KEY set."}
-      </p>
+      <>
+        {toggle}
+        <p className="mt-6 text-sm text-muted">
+          {before ? "No older traces." : "No traces yet. Run the demo agent with AGENTTRACE_API_KEY set."}
+        </p>
+      </>
     );
   }
 
   return (
     <>
-      <div className="mt-6 overflow-x-auto rounded-md border border-line">
+      {toggle}
+      <div className="mt-2 overflow-x-auto rounded-md border border-line">
         <table className="w-full text-left text-sm" aria-label="Traces">
           <thead className="border-b border-line text-xs text-muted">
             <tr>
@@ -79,6 +94,11 @@ async function TraceList({ searchParams }: { searchParams: PageProps<"/traces">[
                   <Link href={`/traces/${t.traceId}`} className="font-medium hover:underline">
                     {t.rootName}
                   </Link>
+                  {t.replayOf && (
+                    <span className="ml-2 font-mono text-xs text-muted" data-replay-of={t.replayOf}>
+                      replay
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <StatusBadge status={t.status} />
@@ -98,7 +118,7 @@ async function TraceList({ searchParams }: { searchParams: PageProps<"/traces">[
       </div>
       {next && (
         <p className="mt-4 text-sm">
-          <Link href={`/traces?before=${next.start}_${next.traceId}`} className="hover:underline">
+          <Link href={query({ before: `${next.start}_${next.traceId}` })} className="hover:underline">
             Older →
           </Link>
         </p>

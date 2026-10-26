@@ -101,3 +101,20 @@ function anyOrder(expected: ToolCall[], actual: ToolCall[]): Alignment {
 export function align(mode: "exact" | "in_order" | "any_order", expected: ToolCall[], actual: ToolCall[]): Alignment {
   return mode === "exact" ? exact(expected, actual) : mode === "in_order" ? inOrder(expected, actual) : anyOrder(expected, actual);
 }
+
+/**
+ * Where a replay run's trajectory first differs from the original's (GLOSSARY.md "First
+ * difference"): step by step, a different tool or arguments that aren't equal as JSON. Unlike
+ * `callMatches`, every argument counts, since the original is a recording, not an expectation.
+ * A trajectory that is a prefix of the other differs at the first missing step. Null when equal.
+ */
+export function firstDifference(original: ToolCall[], run: ToolCall[]): number | null {
+  for (let i = 0; i < Math.max(original.length, run.length); i++) {
+    const a = original[i];
+    const b = run[i];
+    if (!a || !b || a.tool !== b.tool || canonical(a.args ?? null) !== canonical(b.args ?? null)) {
+      return i;
+    }
+  }
+  return null;
+}

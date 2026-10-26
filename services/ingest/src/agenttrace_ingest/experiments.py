@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from agenttrace.eval.results import (
+    AgentRun,
     Finish,
     ModelUsage,
     NewExperiment,
@@ -73,9 +74,9 @@ class StoredScore(Record):
     reason: str | None
 
 
-class StoredSample(Record):
-    item_id: UUID
-    sample_index: int
+class StoredRun(Record):
+    """An agent run as stored, priced, and graded: an experiment's sample or a replay run."""
+
     trace_id: str | None
     started_at: datetime
     latency_ms: float
@@ -88,6 +89,11 @@ class StoredSample(Record):
     judge_usage: list[ModelUsage]
     judge_cost_usd: float | None
     scores: list[StoredScore]
+
+
+class StoredSample(StoredRun):
+    item_id: UUID
+    sample_index: int
 
 
 class ScoreRow(Record):
@@ -263,24 +269,28 @@ def sample_cost(prices: PriceTable, usage: Iterable[ModelUsage], at: datetime) -
     return total
 
 
-def _check_text(value: str | None, field: str) -> None:
+def check_text(value: str | None, field: str) -> None:
     if value is not None and "\x00" in value:
         raise Refused(f"{field} has a NUL character (\\u0000), which Postgres can't store")
 
 
-def _stored(s: SampleResult, thresholds: dict[str, float], prices: PriceTable) -> StoredSample:
+def stored[T: StoredRun](
+    cls: type[T], r: AgentRun, thresholds: dict[str, float], prices: PriceTable, **refused: Any
+) -> T:
+    """`r` as `cls` stores it: checked for what Postgres can hold, priced at its start
+    (ADR-0010), and each score marked passed or not. `refused` goes on a refusal's detail."""
     try:
-        storable(s.output, "output", MAX_JSON_BYTES)
-        storable([t.model_dump() for t in s.trajectory], "trajectory")
+        storable(r.output, "output", MAX_JSON_BYTES)
+        storable([t.model_dump() for t in r.trajectory], "trajectory")
     except ValueError as e:
-        raise Refused(str(e), item_id=s.item_id) from e
-    _check_text(s.error, "error")
-    for sc in s.scores:
-        _check_text(sc.reason, "reason")
-    return StoredSample(
-        **s.model_dump(exclude={"scores"}),
-        cost_usd=sample_cost(prices, s.usage, s.started_at),
-        judge_cost_usd=sample_cost(prices, s.judge_usage, s.started_at),
+        raise Refused(str(e), **refused) from e
+    check_text(r.error, "error")
+    for sc in r.scores:
+        check_text(sc.reason, "reason")
+    return cls(
+        **r.model_dump(exclude={"scores"}),
+        cost_usd=sample_cost(prices, r.usage, r.started_at),
+        judge_cost_usd=sample_cost(prices, r.judge_usage, r.started_at),
         scores=[
             StoredScore(
                 scorer=sc.scorer,
@@ -288,7 +298,7 @@ def _stored(s: SampleResult, thresholds: dict[str, float], prices: PriceTable) -
                 passed=sc.score >= thresholds[sc.scorer],
                 reason=sc.reason,
             )
-            for sc in s.scores
+            for sc in r.scores
         ],
     )
 
@@ -317,7 +327,9 @@ def upload_samples(
         if scorers - thresholds.keys():
             raise Refused(f"unknown scorers: {', '.join(sorted(scorers - thresholds.keys()))}")
         table = prices.get()
-        tx.upsert_samples([_stored(s, thresholds, table) for s in samples])
+        tx.upsert_samples(
+            [stored(StoredSample, s, thresholds, table, item_id=s.item_id) for s in samples]
+        )
     return len(samples)
 
 
@@ -336,7 +348,7 @@ def finish(store: Store, project: UUID, experiment_id: UUID, body: Finish) -> Ex
                     raise Refused(
                         f"{got} of {expected} samples uploaded; upload the rest or finish as failed"
                     )
-            _check_text(body.error, "error")
+            check_text(body.error, "error")
             tx.finish(body.status, body.error)
     return get(store, project, experiment_id)
 

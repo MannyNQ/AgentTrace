@@ -1,4 +1,5 @@
 """`agenttrace eval`: run the agent over a dataset version and upload the scores (ADR-0006).
+`agenttrace replay`: run it again on a recorded trace's input (ADR-0028); see `run_replay`.
 
 After a completed run it prints the comparison with the baseline (ADR-0024). Exit codes: 0 when
 the experiment completed, 1 when it failed (or, with `--fail-on-regression`, when it couldn't be
@@ -159,6 +160,103 @@ def run_eval(args: argparse.Namespace) -> int:
     return code
 
 
+def _dirty() -> bool | None:
+    """Whether the working tree has uncommitted changes; None without git."""
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return bool(out.stdout.strip()) if out.returncode == 0 else None
+
+
+def run_replay(args: argparse.Namespace) -> int:
+    """Exit codes as `eval`'s: 0 when the replay completed, 1 when it failed, 2 when it couldn't
+    start (nothing recorded). With `--require-pass`, 3 when a scored run didn't pass, and 2
+    before running when there's nothing to score (ADR-0030)."""
+    from agenttrace.eval import config, scorers
+    from agenttrace.eval import replay as rp
+    from agenttrace.eval.client import ApiError, Client
+    from agenttrace.eval.results import MAX_SAMPLES_PER_ITEM
+    from agenttrace.eval.runner import Git, RunError, StartError, git_from_env
+
+    def stop(message: str) -> int:
+        print(f"agenttrace replay: {message}", file=sys.stderr)
+        return 2
+
+    path = args.config or "eval.yaml"
+    cfg = None
+    if args.config or Path(path).exists() or not args.entry:
+        try:
+            cfg = config.load(path)
+        except config.ConfigError as e:
+            hint = "" if args.entry or args.config else "; or pass --entry module:function"
+            return stop(f"{e}{hint}")
+    runs = args.samples if args.samples is not None else (cfg.samples if cfg else rp.DEFAULT_RUNS)
+    if not 1 <= runs <= MAX_SAMPLES_PER_ITEM:
+        return stop(f"--samples must be between 1 and {MAX_SAMPLES_PER_ITEM}")
+    env = Config.from_env()
+    if not env.api_key:
+        return stop("set AGENTTRACE_API_KEY to the project's API key")
+    for p in (str(Path.cwd()), str(Path(path).resolve().parent)):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    client = Client(env.endpoint, env.api_key)
+    entry_path = args.entry or (cfg.entry if cfg else "")
+    try:
+        o = rp.original(client.trace_input(args.trace_id))
+        entry = scorers.load_object(entry_path)
+        if not callable(entry):
+            return stop(f"{entry_path} isn't callable")
+        how = rp.scoring(cfg, client, o, lambda: scorers.build(cfg) if cfg else [])
+    except (ApiError, scorers.ScorerError) as e:
+        return stop(str(e))
+    if args.require_pass and how.unscored_reason:
+        return stop(f"--require-pass needs something to score, but {how.unscored_reason}")
+
+    env_git = git_from_env(dict(os.environ))
+    git = Git(
+        commit=env_git.commit or _git("rev-parse", "HEAD"),
+        branch=env_git.branch or _git("rev-parse", "--abbrev-ref", "HEAD"),
+    )
+    if o.ref.trace_id != args.trace_id:
+        print(f"{args.trace_id} is a replay run; replaying its original", file=sys.stderr)
+    scored = (
+        f"scored against item {how.item.item_id[:8]} rev {how.item.rev}"
+        if how.item
+        else f"unscored: {how.unscored_reason}"
+    )
+    print(
+        f"replaying trace {o.ref.trace_id} with {entry_path}: {runs} runs, {scored}",
+        file=sys.stderr,
+    )
+    runner = rp.ReplayRunner(
+        client,
+        entry,
+        o,
+        how,
+        {s.name: s.threshold for s in cfg.scorers} if cfg else {},
+        cfg.concurrency if cfg else rp.DEFAULT_CONCURRENCY,
+        cfg.timeout_s if cfg else rp.DEFAULT_TIMEOUT_S,
+        report=lambda line: print(line, file=sys.stderr),
+    )
+    try:
+        result = runner.run(runs, git, _dirty(), cfg)
+    except StartError as e:
+        return stop(str(e))
+    except RunError as e:
+        print(f"agenttrace replay: {e}", file=sys.stderr)
+        if e.abandoned:
+            _exit_now(1)
+        return 1
+    print(rp.summary(result.summary, args.web_url))
+    code = 3 if args.require_pass and not rp.all_pass(result.summary) else 0
+    if result.abandoned:
+        _exit_now(code)
+    return code
+
+
 def _exit_now(code: int) -> None:
     """Exit without joining agent threads that may never return (a hung sample)."""
     sys.stdout.flush()
@@ -189,8 +287,25 @@ def main(argv: list[str] | None = None) -> None:
         default=os.environ.get("AGENTTRACE_WEB_URL"),
         help="the web UI's address, for links in the report (default: $AGENTTRACE_WEB_URL)",
     )
+    rp = sub.add_parser("replay", help="run the agent again on a recorded trace's input")
+    rp.add_argument("trace_id", help="the trace to replay")
+    rp.add_argument("-c", "--config", help="path to eval.yaml (default: eval.yaml, if it exists)")
+    rp.add_argument("--entry", help="the entry point, module:function (default: eval.yaml's)")
+    rp.add_argument(
+        "--samples", type=int, help="how many replay runs (default: eval.yaml's samples, else 3)"
+    )
+    rp.add_argument(
+        "--require-pass",
+        action="store_true",
+        help="exit 3 unless every scored run passes; exit 2 if there's nothing to score",
+    )
+    rp.add_argument(
+        "--web-url",
+        default=os.environ.get("AGENTTRACE_WEB_URL"),
+        help="the web UI's address, for the replay page link (default: $AGENTTRACE_WEB_URL)",
+    )
     args = parser.parse_args(argv)
-    sys.exit(run_eval(args))
+    sys.exit(run_replay(args) if args.command == "replay" else run_eval(args))
 
 
 if __name__ == "__main__":
