@@ -46,15 +46,21 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Trajectory**: The ordered sequence of tool spans in a trace (tool names and arguments). What trajectory scorers grade. See ADR-0001.
 
-**Dataset**: A named set of test cases in a project. Has one editable draft and a series of immutable published versions. See ADR-0005.
+**Dataset**: A named set of test cases in a project. Has one editable draft and a series of immutable published versions. See ADR-0005. Identified by a stable `id`; its name can change. Datasets are **archived**, never deleted: an archived dataset is hidden from the dataset list and the "Add to dataset" picker, and its versions stay readable. _Avoid_: deleting a dataset.
 
-**Dataset version**: A frozen snapshot of a dataset (`v1`, `v2`, ...), created by publishing the draft. Experiments always pin one.
+**Dataset version**: A frozen snapshot of a dataset (`v1`, `v2`, ...), created by publishing the draft. Stored as one item revision per item; unchanged items share their revision with the previous version. Experiments always pin one. See ADR-0020.
+
+**Item revision**: One immutable state of a dataset item's contents, numbered `rev` 1, 2, ... per item. Editing a draft item adds a revision. Edits name the revision they were based on, and a stale one is refused.
+
+**Publish**: Freezing the draft into the next dataset version. Refused when nothing changed since the latest version, or when a new or changed item has neither an expected output nor an expected trajectory.
 
 **Dataset item**: One test case, with a stable `item_id` that persists across dataset versions (each version records the item's contents at that point): `input`, plus optional `expected_output`, `expected_trajectory`, `metadata`, and `source_trace_id`.
 
-**Expected trajectory**: A list of tool calls (tool name plus an optional argument pattern) a dataset item should produce. Records what should happen; how strictly to match is the scorer's job.
+**Expected trajectory**: A list of tool calls a dataset item should produce, each `{"tool": "<name>", "args": {...}}` with `args` optional. `args` is a partial match: the listed keys must be equal, other keys are ignored. Records what should happen; matching modes, regex and wildcards are the scorer's job.
 
-**Add to dataset**: Turning a trace into a draft dataset item. Copies the root span's input and sets `source_trace_id`; leaves `expected_output` and `expected_trajectory` empty to fill in, since the trace's own steps are the failure. _Avoid_: Promote, Capture.
+**Add to dataset**: Turning a trace into a draft dataset item. The server copies the root span's full input into the item at that moment (fetching it from object storage if it was offloaded) and sets `source_trace_id`; it leaves `expected_output` and `expected_trajectory` empty to fill in, since the trace's own steps are the failure. A trace can be in a dataset's draft once. _Avoid_: Promote, Capture.
+
+**Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning (Phase 3, ADR-0011) stops this for new links.
 
 **Scorer**: A function that grades one output. Built-ins (exact match, contains, regex, JSON schema, trajectory, LLM judge) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path.
 

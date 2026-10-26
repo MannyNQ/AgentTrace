@@ -79,8 +79,8 @@ class RedisQueue:
         )
 
 
-def router(s: Settings, keys: KeyResolver, queue: SpanQueue) -> APIRouter:
-    r = APIRouter()
+def key_auth(keys: KeyResolver):
+    """A dependency resolving the request's Bearer API key to its project (ADR-0017)."""
 
     async def project(request: Request) -> UUID:
         scheme, _, key = request.headers.get("authorization", "").partition(" ")
@@ -89,20 +89,16 @@ def router(s: Settings, keys: KeyResolver, queue: SpanQueue) -> APIRouter:
             raise HTTPException(401, "missing or unknown API key")
         return project_id
 
-    async def read_body(request: Request) -> bytes:
-        declared = request.headers.get("content-length")
-        if declared and int(declared) > s.max_request_bytes:
-            raise HTTPException(413, f"request body over {s.max_request_bytes} bytes")
-        body = bytearray()
-        async for chunk in request.stream():
-            body += chunk
-            if len(body) > s.max_request_bytes:
-                raise HTTPException(413, f"request body over {s.max_request_bytes} bytes")
-        return bytes(body)
+    return project
+
+
+def router(s: Settings, keys: KeyResolver, queue: SpanQueue) -> APIRouter:
+    r = APIRouter()
+    project = key_auth(keys)
 
     @r.post("/v1/spans", status_code=202)
     async def ingest_spans(request: Request, project_id: Annotated[UUID, Depends(project)]) -> dict:
-        body = await read_body(request)
+        body = await request.body()  # size-limited by BodyLimit (app.py)
         try:
             batch = SpanBatch.model_validate_json(body)
         except ValidationError as e:

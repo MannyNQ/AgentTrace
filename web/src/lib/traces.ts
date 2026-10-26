@@ -260,3 +260,22 @@ export function flattenTree(spans: SpanRow[]): TreeNode[] {
   visit("", 0);
   return out;
 }
+
+/** Which of these traces still exist, or null when ClickHouse can't be read. A dataset item's
+ * source trace expires with retention until pinning lands (ADR-0011, GLOSSARY.md "Source trace
+ * expired"). Datasets live in Postgres, so a ClickHouse outage mustn't take their pages down. */
+export async function liveTraces(traceIds: string[]): Promise<Set<string> | null> {
+  const ids = traceIds.filter((t) => /^[0-9a-f]{32}$/.test(t));
+  if (ids.length === 0) return new Set();
+  try {
+    const result = await getClickHouse().query({
+      query: `SELECT DISTINCT trace_id FROM traces
+              WHERE project_id = {project:UUID} AND trace_id IN {ids:Array(FixedString(32))}`,
+      query_params: { project: DEFAULT_PROJECT_ID, ids },
+      format: "JSONEachRow",
+    });
+    return new Set((await result.json<{ trace_id: string }>()).map((r) => r.trace_id));
+  } catch {
+    return null;
+  }
+}

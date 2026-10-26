@@ -4,6 +4,8 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { flattenTree, getTrace, type SpanRow, type TraceSummary } from "@/lib/traces";
 import { formatCost, formatDuration, formatTime, prettyPayload } from "@/lib/format";
+import { listDatasets } from "@/lib/datasets";
+import { AddToDatasetForm } from "@/app/datasets/forms";
 import { KindBadge, StatusBadge } from "../ui";
 
 type Props = PageProps<"/traces/[traceId]">;
@@ -37,6 +39,9 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
   return (
     <>
       <Header summary={summary} />
+      <Suspense>
+        <DatasetLinks traceId={traceId} />
+      </Suspense>
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <ol className="divide-y divide-line rounded-md border border-line" aria-label="Span tree">
           {nodes.map(({ span, depth }) => (
@@ -102,6 +107,25 @@ function Header({ summary }: { summary: TraceSummary }) {
         )}
       </dl>
     </header>
+  );
+}
+
+/** Add to dataset (GLOSSARY.md). Archived datasets aren't offered. */
+async function DatasetLinks({ traceId }: { traceId: string }) {
+  let datasets;
+  try {
+    datasets = await listDatasets();
+  } catch (e) {
+    return (
+      <p className="mt-4 text-sm text-muted">
+        Datasets unavailable: {e instanceof Error ? e.message : String(e)}
+      </p>
+    );
+  }
+  return (
+    <section className="mt-4" aria-label="Datasets">
+      <AddToDatasetForm traceId={traceId} datasets={datasets.map((d) => ({ id: d.id, name: d.name }))} />
+    </section>
   );
 }
 
