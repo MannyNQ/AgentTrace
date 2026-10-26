@@ -57,6 +57,8 @@ It calls the agent 3 times with the trace's input and your current code. If the 
 
 ## Development
 
+After pulling, rebuild the stack with `docker compose up -d --build`: ingest applies Postgres and ClickHouse migrations when it starts, and the web app's trace pages need them.
+
 ```bash
 uv run ruff check . && uv run pyright && uv run pytest   # Python
 uv run pytest -m integration                             # needs the compose stack

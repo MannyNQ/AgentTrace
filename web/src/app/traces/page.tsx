@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { connection } from "next/server";
-import { listTraces, type Cursor } from "@/lib/traces";
+import { clickHouseError, listTraces, type Cursor } from "@/lib/traces";
 import { formatCost, formatDuration, formatTime } from "@/lib/format";
 import { StatusBadge } from "./ui";
 
@@ -51,7 +51,9 @@ async function TraceList({ searchParams }: { searchParams: PageProps<"/traces">[
     return (
       <p className="mt-6 rounded-md border border-line p-4 text-sm">
         <span className="font-medium text-bad">Couldn&apos;t read traces from ClickHouse.</span>{" "}
-        <span className="text-muted">{e instanceof Error ? e.message : String(e)}</span>
+        <span className="text-muted" data-store-error>
+          {clickHouseError(e)}
+        </span>
       </p>
     );
   }

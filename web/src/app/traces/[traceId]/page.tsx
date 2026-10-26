@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { connection } from "next/server";
-import { flattenTree, getTrace, type SpanRow, type TraceSummary } from "@/lib/traces";
+import { clickHouseError, flattenTree, getTrace, type SpanRow, type TraceSummary } from "@/lib/traces";
 import { formatCost, formatDuration, formatTime, prettyPayload } from "@/lib/format";
 import { listDatasets } from "@/lib/datasets";
 import { AddToDatasetForm } from "@/app/datasets/forms";
@@ -31,7 +31,19 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
   await connection();
   const { traceId } = await params;
   const { span: selectedId } = await searchParams;
-  const trace = await getTrace(traceId);
+  let trace;
+  try {
+    trace = await getTrace(traceId);
+  } catch (e) {
+    return (
+      <p className="mt-6 rounded-md border border-line p-4 text-sm">
+        <span className="font-medium text-bad">Couldn&apos;t read the trace from ClickHouse.</span>{" "}
+        <span className="text-muted" data-store-error>
+          {clickHouseError(e)}
+        </span>
+      </p>
+    );
+  }
   if (!trace) notFound();
 
   const { summary, spans } = trace;
