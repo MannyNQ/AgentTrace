@@ -93,3 +93,31 @@ A failed trace becomes a dataset item, and a dataset can be published as a versi
 1. Ingest: migration runner, dataset schema, and the `/v1/datasets` API with its rules.
 2. Web: dataset list, dataset page (draft and versions), JSON item editor, publish, version view with what was added, changed, and removed, and "Add to dataset" on the trace page.
 3. Proof: API unit tests with a fake store, integration tests against Postgres, ClickHouse and S3, and a `datasets` entry in the verify skill.
+
+## Decisions settled in Phase 3
+
+1. **Pinning rewrites retention in place.** Giving an item a `source_trace_id` sets that trace's `retention_days` to 65535 with an `ALTER TABLE ... UPDATE` on `spans` and `traces`; a migration pins traces existing items link to. Experiments don't pin (ADR-0021, amending ADR-0011).
+2. **Entry point and trajectory capture.** `eval.yaml` names `module:function`, called with the item's `input`; sync and async are both accepted. Each sample runs under a root span the runner opens, and the runner collects its tool spans through a new SDK span-processor hook, with no server round trip (ADR-0022).
+3. **Experiments stream through the ingest API.** `/v1/experiments` with client-generated IDs: created `running`, samples upserted as they're scored, finished `completed` or `failed`. The server computes sample cost on arrival (ADR-0023).
+
+Also settled:
+
+- `eval.yaml` names a dataset and a `version`, either a number or `latest` (the default), resolved to a number when the run starts.
+- A scorer is skipped for an item that lacks the expectation it needs (no `expected_output` for an output scorer, no `expected_trajectory` for `exact`, `in_order`, or `any_order`). Pass rates show their denominator.
+- Trajectory modes `exact`, `in_order`, and `any_order` compare against the item's expected trajectory; `forbidden` (a tool list) and `max_steps` (a limit) take their parameters from the scorer config and apply to every item. One scorer entry has one mode; list several for several. Scores are 1 or 0, with a reason naming the first mismatch. Arguments match by Phase 2's partial equality; regex and wildcards wait for a dataset that needs them.
+- Built-in scorers in Phase 3: exact match, contains, regex, JSON schema, and trajectory, plus custom Python scorers by import path. The LLM judge moves to Phase 4.
+- An errored sample (the agent raised or exceeded `timeout_s`, default 120) scores 0 on every scorer.
+- `agenttrace eval` ships in the `agenttrace` package; scorer dependencies sit behind the `agenttrace[eval]` extra. It exits non-zero only when the experiment is `failed`.
+- Experiments record git commit, branch, scorer configs, and the `eval.yaml` hash now, though only Phase 4 reads them.
+
+## Phase 3 plan
+
+`agenttrace eval` runs the demo agent over a published dataset version, and the experiment shows up in the UI with per-item trajectory scores:
+
+1. SDK: span-processor hook, `eval.yaml` loading and hashing, the runner (thread pool and async, per-sample root spans, timeouts), the built-in scorers and custom scorer loading, and the results uploader.
+2. Ingest: experiments schema and `/v1/experiments` (create, upsert samples, finish, list, read), cost from the price table on sample upload, pinning on item creation, and the backfill migration.
+3. Web: experiments list (filterable by dataset) and an experiment page with per-scorer pass rates (mean and spread across samples, with denominators), a per-item table of pass counts, and per-sample output, actual versus expected trajectory with the first mismatch marked, scorer reasons, and the trace link.
+4. Demo agent: an `eval_entry` adapter and an `eval.yaml`.
+5. Proof: scorer unit tests, runner tests with a scripted fake agent and a fake API, experiments API integration tests against Postgres, and an `evals` entry in the verify skill that seeds and publishes a dataset with one item built to fail its trajectory check, runs `agenttrace eval`, and checks the experiment in the UI.
+
+Phase 4 is the CI gate: baselines (ADR-0007), bootstrap regressions (ADR-0008), the GitHub Action and PR comment, comparing two experiments in the UI, and the LLM judge.

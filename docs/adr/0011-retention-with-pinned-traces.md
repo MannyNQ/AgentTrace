@@ -1,6 +1,6 @@
 # 11. Retention with pinned traces
 
-Status: accepted
+Status: accepted. Amended by ADR-0021: experiments don't pin, and pinning rewrites retention in place.
 
 ## Context
 
