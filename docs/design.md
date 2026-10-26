@@ -155,3 +155,35 @@ A pull request's eval is compared with its baseline, posted as a PR comment, and
 4. Compare UI: a "vs baseline" panel on the experiment page with a "Compare with…" picker limited to completed experiments with the same hash, and `/experiments/[id]/compare/[baselineId]` with the scorer table, items sorted regressions first, and per-item baseline and current samples side by side.
 5. LLM judge: the `llm_judge` scorer, its retries and skip, suppressed tracing, and judge cost. It goes last and can slip without blocking the gate.
 6. Proof: unit tests for the bootstrap, baseline selection, and item regressions; CLI tests for exit 3 and the markdown; a `ci-gate` entry in the verify skill that runs a baseline, breaks the demo agent, and checks for exit 3, the compare view, and the rendered comment; and an `Eval gate` workflow that runs `action.yml` for real on pull requests touching the SDK, ingest, or the Action, against a stack started in the job, with a scripted agent (`.github/eval-gate/`) once passing and once broken. This repo's CI doesn't gate on the demo agent, since a fresh stack has no baseline history and the demo agent needs a model key.
+
+## Decisions settled in Phase 5
+
+1. **A replay re-runs the whole trace on the client.** `agenttrace replay <trace_id>` calls the user's entry point with the trace's root input. Each run's trace carries `replay_of`, the original's root span `(trace_id, span_id)`, so fork-from-step can come later without a schema change. A server-side single-call playground is out under ADR-0006 (ADR-0028, building on ADR-0022).
+2. **Replays are their own entity.** A Postgres `replays` table behind `/v1/replays` holds the group, its status, and per-run scores. The lifecycle is experiments' (ADR-0023): client-generated IDs, `running`, runs upserted as scored, then `completed` or `failed`. ClickHouse's trace summary gets a `replay_of` column. Replay traces expire normally and replaying doesn't pin the original (ADR-0029, consistent with ADR-0021).
+3. **Replays score against the item's current draft revision.** If the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation, the runs are scored with `eval.yaml`'s scorers and the revision `(item_id, rev)` is recorded. Otherwise the replay is unscored (ADR-0030).
+
+Also settled:
+
+- Fork-from-step waits for fuller LLM capture: today LLM spans record only `system` and `messages` as input, parameters as strings, and tools by name without schemas. Tools run live, as in `eval`; stubbing recorded tool results waits for the same ADR.
+- The entry point comes from `eval.yaml` (`agenttrace replay <trace_id> [--config eval.yaml]`); `--entry module:function` overrides it. `--entry` with no `eval.yaml` is allowed and unscored, with `samples` 3, `timeout_s` 120, and `concurrency` 1.
+- `GET /v1/traces/{trace_id}/input` returns the root span's input with Add to dataset's copy logic, fetching it from S3 when offloaded. A truncated input is refused with 422. The CLI never touches the stores.
+- `--samples k` defaults to 3, as in `eval`. Each run is its own trace with `replay_of`. Runs use the eval runner unchanged: `concurrency` and `timeout_s` from `eval.yaml`, a runner-opened root span per run, and an errored run scores 0.
+- Any trace whose root span input is available untruncated can be replayed, including experiment sample traces and traces still running. Replaying a replay resolves to the original's root span, so `replay_of` never chains.
+- A trace is in a dataset's draft at most once, so the lookup finds at most one item.
+- A replay records the git commit, branch, a dirty flag for uncommitted changes, the `eval.yaml` hash, and scorer configs. The UI shows e.g. "at abc123 + uncommitted changes".
+- The first difference compares trajectories position by position. A step differs on tool name or on `args` by full JSON equality, not the partial match used for expected trajectories, because the original is a recording, not an expectation. The first differing index is marked; a trajectory that is a prefix of the other differs at the first missing step. Outputs are shown side by side with no computed text diff.
+- The replay page always shows each replay run's trajectory and output beside the original's, with the first difference marked. The CLI prints pass counts when the replay is scored, and a link to the replay page. The loop is: Add to dataset, set an expectation, replay until it passes, publish, CI gate.
+- Exit codes: 0 when the replay completes, 1 when it's `failed`, 2 when it couldn't start. `--require-pass` exits 3 when the scored runs don't all pass. With nothing to score (no linked draft item, or no expectation), `--require-pass` exits 2 before running and says why, failing closed like `eval`'s comparison.
+- The trace list hides replay traces unless "Show replays" is on.
+- The trace page gets a "Replays" panel (time, commit and dirty flag, pass counts if scored) and a "Replay" button that shows the CLI command to copy, since the server can't run it (ADR-0006). A replay page shows the original and the k runs side by side with the Phase 4 side-by-side component, the first difference marked, and scorer reasons. There is no top-level replays list.
+- The server computes each run's cost on arrival, and the CLI reuses the byte-bounded uploader.
+- Phase 6 is still auth.
+
+## Phase 5 plan
+
+A failed trace is re-run against a fix, and the result is compared with the original and scored against the item's expectation:
+
+1. Ingest: a replays migration (the `replays` table and its runs, and a `replay_of` column on `traces` filled from the root span by `traces_mv`), `/v1/replays` (create, upsert runs, finish, list, read) with cost on arrival, and `GET /v1/traces/{trace_id}/input`.
+2. SDK and CLI: `agenttrace replay` with `--config`, `--entry`, `--samples`, and `--require-pass`; `replay_of` on each run's root span; root resolution for replays of replays; the draft-item lookup and scoring; git and dirty-flag capture; the pass-count printout; exit codes 0, 1, 2, and 3.
+3. Web: the "Replays" panel and "Replay" button on the trace page, the "Show replays" toggle on the trace list, and the replay page with the original and the runs side by side, the first difference marked, and scorer reasons.
+4. Proof: unit tests for the first difference and replay scoring; CLI tests with a scripted fake agent for exits 0, 2, and 3 and for chain flattening; integration tests for `/v1/replays` and `/v1/traces/{id}/input`, with offloaded and truncated input; and a `replay` entry in the verify skill that breaks the demo agent, adds the trace to a dataset, sets an expectation, replays (fails), fixes the agent, replays (3/3), and checks the replay page. No new CI workflow.
