@@ -50,6 +50,8 @@ class Experiment(Record):
     config_hash: str
     git_commit: str | None
     git_branch: str | None
+    git_merge_base: str | None
+    git_base_branch: str | None
     started_at: datetime
     finished_at: datetime | None
 
@@ -61,6 +63,7 @@ class ExperimentInfo(Experiment):
     samples_uploaded: int
     cost_usd: float  # over priced samples
     unpriced_samples: int  # samples whose cost is unknown (ADR-0010)
+    judge_cost_usd: float  # LLM judge calls, apart from the agent's cost (ADR-0027)
 
 
 class StoredScore(Record):
@@ -82,6 +85,8 @@ class StoredSample(Record):
     error: str | None
     usage: list[ModelUsage]
     cost_usd: float | None
+    judge_usage: list[ModelUsage]
+    judge_cost_usd: float | None
     scores: list[StoredScore]
 
 
@@ -100,6 +105,7 @@ class SampleRow(Record):
     sample_index: int
     errored: bool
     latency_ms: float
+    cost_usd: float | None
 
 
 class ScorerStats(Record):
@@ -172,6 +178,18 @@ class Store(Protocol):
 
     def list_experiments(self, project: UUID, dataset_id: UUID | None) -> list[ExperimentInfo]:
         """Newest first."""
+        ...
+
+    def latest_completed(
+        self,
+        project: UUID,
+        config_hash: str,
+        exclude: UUID,
+        commit: str | None = None,
+        branch: str | None = None,
+    ) -> ExperimentInfo | None:
+        """The newest completed experiment with this hash, other than `exclude`, at `commit`
+        and on `branch` when they're given."""
         ...
 
     def open(
@@ -262,6 +280,7 @@ def _stored(s: SampleResult, thresholds: dict[str, float], prices: PriceTable) -
     return StoredSample(
         **s.model_dump(exclude={"scores"}),
         cost_usd=sample_cost(prices, s.usage, s.started_at),
+        judge_cost_usd=sample_cost(prices, s.judge_usage, s.started_at),
         scores=[
             StoredScore(
                 scorer=sc.scorer,

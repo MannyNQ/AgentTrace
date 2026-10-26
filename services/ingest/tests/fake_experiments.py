@@ -83,6 +83,7 @@ class FakeExperiments:
             samples_uploaded=len(e.samples),
             cost_usd=sum(c for c in costs if c is not None),
             unpriced_samples=sum(c is None for c in costs),
+            judge_cost_usd=sum(s.judge_cost_usd or 0 for s in e.samples.values()),
         )
 
     def get(self, project: UUID, experiment_id: UUID) -> ExperimentInfo | None:
@@ -96,6 +97,25 @@ class FakeExperiments:
             if e.project == project and dataset_id in (None, e.row.dataset_id)
         ]
         return sorted(found, key=lambda e: e.started_at, reverse=True)
+
+    def latest_completed(
+        self,
+        project: UUID,
+        config_hash: str,
+        exclude: UUID,
+        commit: str | None = None,
+        branch: str | None = None,
+    ) -> ExperimentInfo | None:
+        for e in self.list_experiments(project, None):
+            if (
+                e.config_hash == config_hash
+                and e.status == "completed"
+                and e.id != exclude
+                and commit in (None, e.git_commit)
+                and branch in (None, e.git_branch)
+            ):
+                return e
+        return None
 
     @contextmanager
     def open(self, project: UUID, experiment_id: UUID, exclusive: bool):
@@ -111,6 +131,7 @@ class FakeExperiments:
                 sample_index=s.sample_index,
                 errored=s.error is not None,
                 latency_ms=s.latency_ms,
+                cost_usd=s.cost_usd,
             )
             for s in self.experiments[experiment_id].samples.values()
         ]

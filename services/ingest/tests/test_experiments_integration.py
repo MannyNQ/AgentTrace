@@ -103,6 +103,55 @@ def test_an_experiment_runs_start_to_finish_in_postgres(api: TestClient):
     assert late.status_code == 409
 
 
+def test_a_pull_request_run_is_compared_with_its_merge_base_run_in_postgres(api: TestClient):
+    ds = published(api, *({"input": f"q{n}", "expected_output": "A"} for n in range(4)))
+    items = [i["item_id"] for i in api.get(f"/v1/datasets/{ds}/versions/1").json()["items"]]
+    config_hash = uuid.uuid4().hex * 2  # unique to this test, so other runs aren't baselines
+
+    def run(passed: int, **git) -> str:
+        """Each item's 3 samples score 1 on the first `passed` items, 0 on the rest."""
+        exp = str(uuid.uuid4())
+        body = {
+            "id": exp, "dataset_id": ds, "dataset_version": 1, "samples": 3,
+            "scorers": [{"name": "exact", "type": "exact_match", "max_drop": 0.1}],
+            "config": {}, "config_hash": config_hash, **git,
+        }  # fmt: skip
+        assert api.post("/v1/experiments", json=body).status_code == 201
+        samples = [
+            {
+                "item_id": item, "sample_index": i, "started_at": "2026-10-01T00:00:00Z",
+                "latency_ms": 10.0 * (n + 1), "output": "A",
+                "judge_usage": [{"model": "claude-haiku-5-5", "input_tokens": 1_000_000}],
+                "scores": [{"scorer": "exact", "score": 1.0 if n < passed else 0.0}],
+            }
+            for n, item in enumerate(items)
+            for i in range(3)
+        ]  # fmt: skip
+        r = api.post(f"/v1/experiments/{exp}/samples", json={"samples": samples})
+        assert r.status_code == 200, r.text
+        assert api.post(f"/v1/experiments/{exp}/finish", json={"status": "completed"}).is_success
+        return exp
+
+    at_merge_base = run(4, git_commit="m1", git_branch="main")
+    run(4, git_commit="m2", git_branch="main")
+    pr = run(1, git_commit="p1", git_branch="fix", git_merge_base="m1", git_base_branch="main")
+
+    c = api.get(f"/v1/experiments/{pr}/comparison").json()
+    assert (c["baseline"]["id"], c["baseline_reason"]) == (at_merge_base, "merge_base")
+    [exact] = c["scorers"]
+    assert (exact["items"], exact["baseline_rate"], exact["current_rate"]) == (4, 1.0, 0.25)
+    assert exact["regressed"] and exact["max_drop"] == 0.1
+    assert c["regressions"] == 1 and len(c["item_regressions"]) == 3
+    assert c["current_stats"]["p50_latency_ms"] == 25.0
+    assert c["experiment"]["git_merge_base"] == "m1"
+    assert c["experiment"]["judge_cost_usd"] == pytest.approx(12 * 0.10)
+
+    # Nothing at the merge-base: the newest run on the base branch.
+    pr2 = run(4, git_merge_base="gone", git_base_branch="main")
+    c = api.get(f"/v1/experiments/{pr2}/comparison").json()
+    assert c["baseline_reason"] == "base_branch" and c["regressions"] == 0
+
+
 def expiry(trace_id: str) -> tuple[list[datetime], list[datetime]]:
     """When each of the trace's rows expires, by the expression both tables' TTL uses."""
     ch = clickhouse_client(Settings())
