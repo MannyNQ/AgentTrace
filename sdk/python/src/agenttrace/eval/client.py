@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from agenttrace import _refusals as refusals
 from agenttrace.eval.results import (
     Finish,
     NewExperiment,
@@ -41,18 +42,6 @@ class DatasetVersion:
     items: list[VersionItem]
 
 
-def _detail(body: bytes) -> str:
-    try:
-        detail = json.loads(body).get("detail")
-    except (ValueError, AttributeError):
-        return body[:300].decode(errors="replace")
-    if isinstance(detail, dict):
-        fields = detail.get("fields")
-        error = str(detail.get("error", detail))
-        return f"{error}: {fields}" if fields else error
-    return str(detail)
-
-
 class Client:
     def __init__(self, endpoint: str, api_key: str, timeout_s: float = 30.0, retries: int = 3):
         self.base = endpoint.rstrip("/")
@@ -80,13 +69,19 @@ class Client:
                     text = r.read()
                 return json.loads(text) if text else None
             except urllib.error.HTTPError as e:
-                reason = _detail(e.read())
+                why = refusals.reason(e.read())
                 if e.code < 500:
-                    raise ApiError(f"{method} {path}: {e.code} {reason}", e.code) from e
-                error = f"{e.code} {reason}"
+                    raise ApiError(
+                        f"{method} {path}: {e.code} {refusals.explain(e.code, why)}", e.code
+                    ) from e
+                error = f"{e.code} {why}"
             except (urllib.error.URLError, OSError) as e:
                 error = str(getattr(e, "reason", e))
         raise ApiError(f"{method} {path}: couldn't reach {self.base} ({error})")
+
+    def project(self) -> dict[str, Any]:
+        """The key's project, whose slug the web app's links need (design.md, Phase 6)."""
+        return self.request("GET", "/v1/project")
 
     def dataset(self, dataset: str) -> dict[str, Any]:
         """`dataset` is a name or an id. Archived datasets are found too."""
