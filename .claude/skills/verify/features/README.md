@@ -42,5 +42,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Web health page](./web-health-page.md): the UI shows each store's status, a failed store's real error, and an unreachable ingest API.
 - [Span ingest](./span-ingest.md): the SDK and `POST /v1/spans` get spans into ClickHouse with auth, whole-batch validation, payload offload, cost, dedup, and dead-lettering.
 - [Trace UI](./trace-ui.md): the trace list, statuses including `running`, the span tree, span detail, and full payloads.
-- [Datasets](./datasets.md): migrations, the `/v1/datasets` API, Add to dataset from a trace, item revisions and stale edits, publish rules, version diffs, archive, and expired source traces.
+- [Datasets](./datasets.md): migrations, the `/v1/datasets` API, Add to dataset from a trace and pinning its trace, item revisions and stale edits, publish rules, version diffs, archive, and expired source traces.
+- [Experiments](./experiments.md): the `/v1/experiments` API the eval runner uploads to, with retryable creates and uploads, completion rules, server-side cost, and per-scorer and per-item summaries. Phase 3 has no CLI or UI for it yet.
 - [Demo agent](./demo-agent.md): the Keyly support agent answers through its tools, recovers from tool errors, and follows the refund policy.

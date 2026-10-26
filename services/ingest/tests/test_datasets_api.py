@@ -2,11 +2,11 @@ import json
 from uuid import UUID
 
 import pytest
-from fake_datasets import FakeDatasets, FakeTraces
+from fake_datasets import FakeDatasets, FakePins, FakeTraces
 from fastapi.testclient import TestClient
 
 from agenttrace_ingest.app import create_app
-from agenttrace_ingest.datasets import MAX_JSON_BYTES, Refused
+from agenttrace_ingest.datasets import MAX_JSON_BYTES, Refused, pin_pending
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.trace_inputs import decode_payload
 
@@ -32,8 +32,14 @@ class Api:
             }
         )
         self.store = FakeDatasets()
+        self.pins = FakePins()
         app = create_app(
-            Settings(), checks={}, keys=Keys(), datasets=self.store, trace_inputs=traces
+            Settings(),
+            checks={},
+            keys=Keys(),
+            datasets=self.store,
+            trace_inputs=traces,
+            pins=self.pins,
         )
         self.c = TestClient(app)
 
@@ -292,12 +298,53 @@ def test_from_trace_refuses_inputs_jsonb_cannot_hold():
     nan_trace = "e" * 32
     traces = FakeTraces({nan_trace: {"score": float("nan")}})
     c = TestClient(
-        create_app(Settings(), checks={}, keys=Keys(), datasets=FakeDatasets(), trace_inputs=traces)
+        create_app(
+            Settings(),
+            checks={},
+            keys=Keys(),
+            datasets=FakeDatasets(),
+            trace_inputs=traces,
+            pins=FakePins(),
+        )
     )
     headers = {"Authorization": "Bearer good"}
     ds = c.post("/v1/datasets", json={"name": "x"}, headers=headers).json()["id"]
     r = c.post(f"/v1/datasets/{ds}/items/from-trace", json={"trace_id": nan_trace}, headers=headers)
     assert r.status_code == 422 and "NaN" in r.json()["detail"]["error"], r.text
+
+
+def test_adding_a_trace_pins_it(api: Api):
+    ds = api.dataset()
+    api.call("POST", f"/{ds}/items/from-trace", {"trace_id": TRACE}, status=201)
+    api.call("POST", "", {"name": "second", "trace_id": TRACE}, status=201)
+    assert api.pins.pinned == [(PROJECT, TRACE), (PROJECT, TRACE)]
+    assert api.store.unpinned(10) == []
+
+
+def test_a_failed_pin_keeps_the_item_and_is_retried_on_startup(api: Api):
+    api.pins.down = True
+    ds = api.dataset()
+    item = api.call("POST", f"/{ds}/items/from-trace", {"trace_id": TRACE}, status=201)
+    assert item["source_trace_id"] == TRACE
+    assert api.store.unpinned(10) == [(PROJECT, TRACE)]
+
+    assert pin_pending(api.store, api.pins) == 0  # still down: stops instead of spinning
+    api.pins.down = False
+    assert pin_pending(api.store, api.pins) == 1
+    assert api.pins.pinned == [(PROJECT, TRACE)]
+    assert pin_pending(api.store, api.pins) == 0
+
+
+def test_pin_pending_batches_by_project():
+    store, pins = FakeDatasets(), FakePins()
+    for project, trace in [(PROJECT, "1" * 32), (OTHER, "2" * 32), (PROJECT, "3" * 32)]:
+        ds = store.create_dataset(project, f"d{trace[0]}", "")
+        with store.open(project, ds, lock=True) as tx:
+            tx.insert_item(trace)
+    assert pin_pending(store, pins, batch=2) == 3
+    assert sorted(pins.pinned) == sorted(
+        [(PROJECT, "1" * 32), (OTHER, "2" * 32), (PROJECT, "3" * 32)]
+    )
 
 
 @pytest.mark.parametrize(

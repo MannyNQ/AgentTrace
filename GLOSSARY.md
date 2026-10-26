@@ -42,7 +42,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item are **pinned** and never expire; experiment traces expire normally. See ADR-0011 and ADR-0021.
 
-**Pin**: Exempting a trace from retention by setting its `retention_days` to 65535 in `spans` and `traces`. Happens when a dataset item gets a `source_trace_id`. Unlinking doesn't unpin. See ADR-0021.
+**Pin**: Exempting a trace from retention by rewriting its `retention_days` in `spans` and `traces` so it expires on 2106-01-01, the latest date ClickHouse's `DateTime` holds. Happens when a dataset item gets a `source_trace_id`. Unlinking doesn't unpin. See ADR-0021.
 
 ## Evals
 
@@ -62,7 +62,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Add to dataset**: Turning a trace into a draft dataset item. The server copies the root span's full input into the item at that moment (fetching it from object storage if it was offloaded) and sets `source_trace_id`; it leaves `expected_output` and `expected_trajectory` empty to fill in, since the trace's own steps are the failure. A trace can be in a dataset's draft once. _Avoid_: Promote, Capture.
 
-**Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning stops this for items created from Phase 3 on, and a backfill pins earlier links whose traces still exist (ADR-0021).
+**Source trace expired**: A dataset item whose `source_trace_id` points at a trace that retention has removed. The item still works, since it holds its own copy of the input; only the link to the evidence is gone. Pinning stops this for items created from Phase 3 on, and ingest's startup pass pins earlier links whose traces still exist (ADR-0021).
 
 **Scorer**: A function that grades one sample. Built-ins (exact match, contains, regex, JSON schema, trajectory; LLM judge from Phase 4) are configured in `eval.yaml`; custom scorers are Python functions referenced by import path. A scorer is skipped for an item that lacks the expectation it needs.
 

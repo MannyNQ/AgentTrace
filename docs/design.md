@@ -96,7 +96,7 @@ A failed trace becomes a dataset item, and a dataset can be published as a versi
 
 ## Decisions settled in Phase 3
 
-1. **Pinning rewrites retention in place.** Giving an item a `source_trace_id` sets that trace's `retention_days` to 65535 with an `ALTER TABLE ... UPDATE` on `spans` and `traces`; a migration pins traces existing items link to. Experiments don't pin (ADR-0021, amending ADR-0011).
+1. **Pinning rewrites retention in place.** Giving an item a `source_trace_id` rewrites that trace's `retention_days` with an `ALTER TABLE ... UPDATE` on `spans` and `traces` so it expires on 2106-01-01; items record `pinned_at`, and ingest pins any unmarked item's trace on startup, which backfills Phase 2 items and retries failed pins. Experiments don't pin (ADR-0021, amending ADR-0011).
 2. **Entry point and trajectory capture.** `eval.yaml` names `module:function`, called with the item's `input`; sync and async are both accepted. Each sample runs under a root span the runner opens, and the runner collects its tool spans through a new SDK span-processor hook, with no server round trip (ADR-0022).
 3. **Experiments stream through the ingest API.** `/v1/experiments` with client-generated IDs: created `running`, samples upserted as they're scored, finished `completed` or `failed`. The server computes sample cost on arrival (ADR-0023).
 

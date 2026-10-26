@@ -26,6 +26,7 @@ class _Item:
     revs: dict[int, Contents] = field(default_factory=dict)
     current_rev: int = 0
     deleted: bool = False
+    pinned: bool = False
 
 
 @dataclass
@@ -167,6 +168,22 @@ class FakeDatasets:
         self.datasets[row.id] = _Dataset(project, row)
         return row.id
 
+    def unpinned(self, limit: int) -> list[tuple[UUID, str]]:
+        found: list[tuple[UUID, str]] = []
+        for d in self.datasets.values():
+            for i in sorted(d.items.values(), key=lambda i: i.created_at):
+                if i.source_trace_id is None or i.pinned:
+                    continue
+                if (d.project, i.source_trace_id) not in found:
+                    found.append((d.project, i.source_trace_id))
+        return found[:limit]
+
+    def mark_pinned(self, project: UUID, trace_ids: list[str]) -> None:
+        for d in self.datasets.values():
+            for i in d.items.values():
+                if d.project == project and i.source_trace_id in trace_ids:
+                    i.pinned = True
+
     @contextmanager
     def open(self, project: UUID, dataset_id: UUID, lock: bool):
         d = self.datasets.get(dataset_id)
@@ -186,3 +203,16 @@ class FakeTraces:
         if isinstance(value, NotFound | Refused):
             raise value
         return value
+
+
+class FakePins:
+    """Records pinned traces per project; `down` makes every pin fail, like a ClickHouse outage."""
+
+    def __init__(self):
+        self.pinned: list[tuple[UUID, str]] = []
+        self.down = False
+
+    def pin(self, project: UUID, trace_ids: list[str]) -> None:
+        if self.down:
+            raise ConnectionError("clickhouse is down")
+        self.pinned += [(project, t) for t in trace_ids]

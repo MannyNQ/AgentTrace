@@ -5,11 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 
-from agenttrace_ingest import dataset_api, spans
+from agenttrace_ingest import dataset_api, experiment_api, experiments, spans
 from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
-from agenttrace_ingest.datasets import Store, TraceInputs
+from agenttrace_ingest.datasets import Pins, Store, TraceInputs, pin_pending
+from agenttrace_ingest.experiment_store import PostgresExperiments, PostgresPrices
 from agenttrace_ingest.migrate import migrate
+from agenttrace_ingest.pins import ClickHousePins
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import CHECKS, ensure_bucket
 from agenttrace_ingest.trace_inputs import StoredTraceInputs
@@ -25,6 +27,16 @@ async def run_check(check: Callable[[Settings], None], s: Settings) -> str:
         return f"error: {type(e).__name__}: {e}"
 
 
+def _pin_pending(datasets: Store, pins: Pins) -> None:
+    try:
+        n = pin_pending(datasets, pins)
+    except Exception:
+        log.exception("could not look for unpinned dataset traces")
+        return
+    if n:
+        log.info("pinned %d dataset source traces", n)
+
+
 def create_app(
     settings: Settings | None = None,
     checks=CHECKS,
@@ -32,9 +44,15 @@ def create_app(
     queue: spans.SpanQueue | None = None,
     datasets: Store | None = None,
     trace_inputs: TraceInputs | None = None,
+    pins: Pins | None = None,
+    experiment_store: experiments.Store | None = None,
+    prices: experiments.Prices | None = None,
 ) -> FastAPI:
     s = settings or Settings()
     keys = keys or spans.PostgresKeys(s)
+    datasets = datasets or PostgresDatasets(s)
+    pins = pins or ClickHousePins(s)
+    background: set[asyncio.Task] = set()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -50,17 +68,24 @@ def create_app(
                 await asyncio.to_thread(spans.register_key, s, s.agenttrace_api_key)
             except Exception:
                 log.exception("could not register AGENTTRACE_API_KEY; ingest will answer 401")
+        # Backfill and retry pins without holding up startup (ADR-0021).
+        task = asyncio.create_task(asyncio.to_thread(_pin_pending, datasets, pins))
+        background.add(task)
+        task.add_done_callback(background.discard)
         yield
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
     app.include_router(spans.router(s, keys, queue or spans.RedisQueue(s)))
     app.include_router(
-        dataset_api.router(
-            datasets or PostgresDatasets(s), trace_inputs or StoredTraceInputs(s), keys
+        dataset_api.router(datasets, trace_inputs or StoredTraceInputs(s), pins, keys)
+    )
+    app.include_router(
+        experiment_api.router(
+            experiment_store or PostgresExperiments(s), prices or PostgresPrices(s), keys
         )
     )
-    dataset_api.install_error_handlers(app)
+    dataset_api.install_error_handlers(app, (dataset_api.PREFIX, experiment_api.PREFIX))
 
     @app.get("/health")
     async def health(response: Response) -> dict:

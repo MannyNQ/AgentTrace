@@ -4,11 +4,10 @@ from uuid import UUID
 import pytest
 
 from agenttrace import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
+from agenttrace.pricing import Price, PriceTable
 from agenttrace_worker.pipeline import (
     COLUMNS,
     PayloadLimits,
-    Price,
-    PriceTable,
     store_payload,
     to_row,
     truncate_utf8,
@@ -40,19 +39,24 @@ def llm(**over) -> Span:
     return Span(**(fields | over))
 
 
+def cost(table: PriceTable, span: Span) -> float | None:
+    """The worker prices a span at its start time."""
+    return table.cost(span, span.start_time)
+
+
 def test_cost_uses_the_price_in_effect_at_span_start():
-    assert PRICES.cost(llm()) == 2.0 + 1.0
-    assert PRICES.cost(llm(start_time=datetime(2026, 3, 1, tzinfo=UTC))) == 4.0 + 2.0
+    assert cost(PRICES, llm()) == 2.0 + 1.0
+    assert cost(PRICES, llm(start_time=datetime(2026, 3, 1, tzinfo=UTC))) == 4.0 + 2.0
 
 
 def test_cost_is_null_not_zero_when_it_cant_be_priced():
-    assert PRICES.cost(llm(model="unknown")) is None
-    assert PRICES.cost(llm(output_tokens=None)) is None
-    assert PRICES.cost(llm(start_time=datetime(2025, 1, 1, tzinfo=UTC))) is None
+    assert cost(PRICES, llm(model="unknown")) is None
+    assert cost(PRICES, llm(output_tokens=None)) is None
+    assert cost(PRICES, llm(start_time=datetime(2025, 1, 1, tzinfo=UTC))) is None
 
 
 def test_naive_start_time_is_read_as_utc():
-    assert PRICES.cost(llm(start_time=datetime(2026, 10, 1))) == 3.0
+    assert cost(PRICES, llm(start_time=datetime(2026, 10, 1))) == 3.0
 
 
 def test_small_payload_stays_inline_whole():
@@ -117,12 +121,12 @@ def test_cache_reads_and_writes_are_priced_on_top_of_input():
         cache_write_1h_tokens=1_000_000,
     )
     # 0.004 input + 0.02 output + 0.20 read + 5.00 write (5m) + 8.00 write (1h)
-    assert CACHED.cost(span) == pytest.approx(13.224)
+    assert cost(CACHED, span) == pytest.approx(13.224)
 
 
 def test_cache_tokens_without_a_cache_price_make_cost_null_not_low():
-    assert CACHED.cost(llm(model="old", cache_read_tokens=10)) is None
-    assert CACHED.cost(llm(model="old", cache_read_tokens=0)) == 6.0  # unused cache is fine
+    assert cost(CACHED, llm(model="old", cache_read_tokens=10)) is None
+    assert cost(CACHED, llm(model="old", cache_read_tokens=0)) == 6.0  # unused cache is fine
 
 
 def test_cache_columns_are_written():

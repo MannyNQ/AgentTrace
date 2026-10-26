@@ -2,22 +2,18 @@
 
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from stack import emit_root
 
-from agenttrace import Span, new_span_id, new_trace_id
 from agenttrace_ingest.app import create_app
 from agenttrace_ingest.dataset_store import PostgresDatasets
 from agenttrace_ingest.datasets import Contents, Refused, add_item, publish
 from agenttrace_ingest.migrate import migrate, pending
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.spans import DEFAULT_PROJECT_ID, register_key
-from agenttrace_worker.pipeline import PriceTable, to_row
-from agenttrace_worker.settings import Settings as WorkerSettings
-from agenttrace_worker.stores import ClickHouse, Payloads
 
 pytestmark = pytest.mark.integration
 
@@ -40,26 +36,6 @@ def api():
         register_key(s, key)
         c.headers["Authorization"] = f"Bearer {key}"
         yield c
-
-
-def emit_root(input_value) -> str:
-    """Store a one-span trace the way the worker does, offloading a large input to S3."""
-    ws = WorkerSettings()
-    trace_id = new_trace_id()
-    start = datetime.now(UTC) - timedelta(seconds=1)
-    span = Span(
-        trace_id=trace_id,
-        span_id=new_span_id(),
-        name="integration.root",
-        kind="agent",
-        start_time=start,
-        end_time=start + timedelta(milliseconds=5),
-        input=input_value,
-    )
-    payloads = Payloads(ws)
-    row = to_row(span, DEFAULT_PROJECT_ID, 30, PriceTable(), payloads.put)
-    ClickHouse(ws).insert_spans([row])
-    return trace_id
 
 
 def test_from_trace_reads_an_offloaded_input_from_s3(api: TestClient):
