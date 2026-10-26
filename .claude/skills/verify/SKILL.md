@@ -11,7 +11,7 @@ Drive a throwaway AgentTrace instance the way a user would, and keep proof. Ever
 .claude/skills/verify/bin/agenttrace-verify <command>
 ```
 
-Run it from the repo root. Commands: `up`, `doctor`, `health [name]`, `page [name]`, `store-stop <svc>`, `store-start <svc>`, `agent "<question>" [name]`, `emit [name]`, `post <name> <key> <file>`, `ch <name> "<sql>"`, `traces [trace_id] [name]`, `down`.
+Run it from the repo root. Commands: `up`, `doctor`, `health [name]`, `page [name]`, `store-stop <svc>`, `store-start <svc>`, `agent "<question>" [name]`, `emit [name]`, `post <name> <key> <file>`, `ch <name> "<sql>"`, `traces [trace_id] [name]`, `web-restart`, `down`.
 
 The feature map in [`features/README.md`](features/README.md) lists what to verify and how. Read it, pick the features your change touches, and drive every entry point listed there, not just the convenient one.
 
@@ -21,7 +21,7 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
 | Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets` | `health`, `post` (curl), `emit` (real SDK) |
-| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
+| Web UI | the health page at `/`, traces at `/traces` and `/traces/<id>`, datasets at `/datasets`, experiments at `/experiments` | `page`, `traces` (server HTML) + the built-in browser pane for screenshots |
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 
@@ -121,6 +121,6 @@ Afterwards, `lsof -nP -iTCP:13000 -sTCP:LISTEN` and `docker ps -a --filter name=
 ## Gotchas
 
 - **The browser pane shows "Checking services…" forever.** React reveals streamed Suspense content on an animation frame, which a hidden pane never runs. Take a `screenshot` (it forces a frame) or use `page`, which reads the full server response. This isn't an app bug.
-- **A stale build.** `up` builds images and the web app from the working tree at that moment. After editing code, run `down` then `up`. `doctor` shows the SHA it was built from.
+- **A stale build.** `up` builds images and the web app from the working tree at that moment. After editing services, SDK, or compose files, run `down` then `up`. After editing only `web/`, `web-restart` rebuilds and restarts the web app and keeps the stack and its data. `doctor` shows the SHA it was built from.
 - **Missing API key.** Without `ANTHROPIC_API_KEY`, `agent` fails with `TypeError: Could not resolve authentication method` before any tool runs. Report the demo-agent journey as not verified, and don't swap in a fake client.
 - **First runs are slow.** Building images and pulling ClickHouse can take minutes. `up` waits up to 240 s for health.
