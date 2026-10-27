@@ -1,7 +1,8 @@
 """Record Anthropic `messages.create` calls as LLM spans.
 
 Patches the sync and async `Messages` and beta `Messages` resources. Streaming calls
-(`stream=True`) pass through untraced for now.
+(`stream=True`) pass through untraced for now. The span's input is the whole request and its
+output the whole response, so a replay can answer the call from its recording (ADR-0039).
 """
 
 import functools
@@ -16,8 +17,8 @@ from agenttrace.tracing import ActiveSpan, span
 log = logging.getLogger("agenttrace")
 
 SPAN_NAME = "anthropic.messages.create"
-# Request parameters recorded as span attributes; everything else is input or too large.
-PARAM_KEYS = ("max_tokens", "output_config", "thinking", "tool_choice", "betas", "fallbacks")
+# How the request is sent, not what it asks: left out of the recorded input.
+TRANSPORT_KEYS = frozenset({"extra_headers", "extra_query", "extra_body", "timeout", "stream"})
 
 
 def instrument_anthropic() -> None:
@@ -64,13 +65,18 @@ def _patch(cls: type, is_async: bool) -> None:
 
 @contextmanager
 def _llm_span(kwargs: dict[str, Any]) -> Iterator[ActiveSpan]:
-    request = {"system": kwargs.get("system"), "messages": kwargs.get("messages")}
-    attributes = {k: str(kwargs[k]) for k in PARAM_KEYS if k in kwargs}
+    request = {k: v for k, v in kwargs.items() if k not in TRANSPORT_KEYS and _given(v)}
+    attributes = {}
     if tools := kwargs.get("tools"):
         attributes["llm.tools"] = ",".join(str(t.get("name", "?")) for t in tools)
     with span(SPAN_NAME, SpanKind.LLM, request, attributes=attributes) as s:
         s.set_llm(kwargs.get("model"))  # the requested model, so a failed call still names it
         yield s
+
+
+def _given(value: Any) -> bool:
+    """False for the SDK's `NOT_GIVEN` and `omit` sentinels, which mean "not in the request"."""
+    return type(value).__name__ not in ("NotGiven", "Omit")
 
 
 def _cache_writes(usage: Any) -> tuple[int | None, int | None]:
@@ -101,4 +107,4 @@ def _record_response(s: ActiveSpan, response: Any) -> None:
     )
     if stop_reason := getattr(response, "stop_reason", None):
         s.set_attribute("llm.stop_reason", stop_reason)
-    s.set_output(getattr(response, "content", response))
+    s.set_output(response)

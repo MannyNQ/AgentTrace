@@ -38,11 +38,41 @@ def test_messages_create_becomes_an_llm_span(collected, http_server):
     assert llm.parent_span_id == collected.by_name("agent").span_id
     assert llm.model == "claude-opus-5-5"
     assert (llm.input_tokens, llm.output_tokens) == (12, 3)
-    assert llm.input == {"system": "be brief", "messages": [{"role": "user", "content": "hi"}]}
-    assert llm.output == [{"type": "text", "text": "Hello"}]
-    assert llm.attributes["max_tokens"] == "100"
+    assert llm.input == {
+        "model": "claude-opus-5-5",
+        "max_tokens": 100,
+        "system": "be brief",
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
+    }
+    assert llm.output == {k: v for k, v in MESSAGE.items() if v is not None}
     assert llm.attributes["llm.tools"] == "lookup"
     assert llm.attributes["llm.stop_reason"] == "end_turn"
+
+
+def test_transport_options_and_unset_sentinels_stay_out_of_the_input(collected, http_server):
+    instrument_anthropic()
+    url = http_server(lambda p, h, b: (200, MESSAGE))
+    client(url).messages.create(
+        model="claude-opus-5-5",
+        max_tokens=10,
+        messages=[{"role": "user", "content": "hi"}],
+        stop_sequences=anthropic.NOT_GIVEN,
+        extra_headers={"x-secret": "s"},
+        timeout=5,
+    )
+    assert set(collected.spans[0].input) == {"model", "max_tokens", "messages"}
+
+
+def test_the_recorded_response_rebuilds_the_message(collected, http_server):
+    instrument_anthropic()
+    tool_use = {"type": "tool_use", "id": "t1", "name": "lookup", "input": {"id": "7"}}
+    reply = {**MESSAGE, "content": [tool_use], "stop_reason": "tool_use"}
+    url = http_server(lambda p, h, b: (200, reply))
+    response = client(url).messages.create(
+        model="claude-opus-5-5", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert anthropic.types.Message.model_validate(collected.spans[0].output) == response
 
 
 def test_the_serving_model_is_recorded_not_the_requested_one(collected, http_server):

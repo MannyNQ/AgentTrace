@@ -21,7 +21,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, Protocol, overload
 
-from agenttrace._json import to_jsonable
+from agenttrace._json import is_lossless, to_jsonable
 from agenttrace._quiet import untraced as untraced  # public here, as before
 from agenttrace._quiet import untraced_now
 from agenttrace.exporter import get_exporter
@@ -32,6 +32,10 @@ log = logging.getLogger("agenttrace")
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
 
 SERVICE_NAME_ATTRIBUTE = "resource.service.name"
+# On tool spans: whether the output was recorded exactly, so a replay can stub it (ADR-0040).
+OUTPUT_LOSSLESS_ATTRIBUTE = "agenttrace.output_lossless"
+ERROR_MESSAGE_ATTRIBUTE = "agenttrace.error_message"
+MAX_ERROR_MESSAGE = 1000
 
 
 def service_name() -> str | None:
@@ -123,13 +127,17 @@ class ActiveSpan:
 
     def set_output(self, value: Any) -> None:
         self.output = to_jsonable(value)
+        if self.kind == SpanKind.TOOL:
+            self.attributes[OUTPUT_LOSSLESS_ATTRIBUTE] = "true" if is_lossless(value) else "false"
 
     def set_attribute(self, key: str, value: Any) -> None:
         self.attributes[key] = value if isinstance(value, str) else str(value)
 
-    def set_error(self, error_type: str) -> None:
+    def set_error(self, error_type: str, message: str | None = None) -> None:
         self.status = SpanStatus.ERROR
         self.error_type = error_type
+        if message:
+            self.attributes[ERROR_MESSAGE_ATTRIBUTE] = message[:MAX_ERROR_MESSAGE]
 
     def set_llm(
         self,
@@ -234,7 +242,7 @@ def span(
     try:
         yield active
     except BaseException as e:
-        active.set_error(type(e).__name__)
+        active.set_error(type(e).__name__, _message(e))
         raise
     finally:
         if leave:
@@ -242,6 +250,32 @@ def span(
         open_llm_spans.discard(active.span_id)
         _current.reset(token)
         active._end()
+
+
+def _message(e: BaseException) -> str | None:
+    try:
+        return str(e) or None
+    except Exception:  # a broken __str__ mustn't replace the exception being raised
+        return None
+
+
+def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
+    """Call `fn(**args)` as the tool `name`, recorded as a tool span with `args` as its input.
+    For dispatch loops that only know which tool to run at call time; a replay can answer the
+    call from its recording (ADR-0040). An async `fn` returns an awaitable, as calling it would."""
+    if inspect.iscoroutinefunction(fn):
+
+        async def call_async() -> Any:
+            with span(name, SpanKind.TOOL, args) as s:
+                result = await fn(**args)
+                s.set_output(result)
+                return result
+
+        return call_async()
+    with span(name, SpanKind.TOOL, args) as s:
+        result = fn(**args)
+        s.set_output(result)
+        return result
 
 
 def _call_input(fn: Callable, args: tuple, kwargs: dict) -> dict[str, Any]:

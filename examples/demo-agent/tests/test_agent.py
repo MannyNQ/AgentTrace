@@ -85,3 +85,5 @@ def test_run_is_traced_as_an_agent_span_with_tool_spans(monkeypatch):
     assert tool.name == "lookup_order" and tool.kind == "tool"
     assert tool.parent_span_id == agent.span_id
     assert tool.input == {"order_id": "0"} and tool.status == "error"
+    assert tool.error_type == "ToolError"
+    assert tool.attributes["agenttrace.error_message"] == "No order with id '0'."
