@@ -21,13 +21,14 @@ from datetime import UTC, datetime
 from typing import Any, Protocol, overload
 
 from agenttrace._json import to_jsonable
+from agenttrace._quiet import untraced as untraced  # public here, as before
+from agenttrace._quiet import untraced_now
 from agenttrace.exporter import get_exporter
 from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span_id, new_trace_id
 
 log = logging.getLogger("agenttrace")
 
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
-_untraced: ContextVar[bool] = ContextVar("agenttrace_untraced", default=False)
 
 SpanProcessor = Callable[[Span], None]
 _processors: tuple[SpanProcessor, ...] = ()
@@ -70,17 +71,6 @@ def add_span_processor(processor: SpanProcessor) -> Callable[[], None]:
             _processors = tuple(p for p in _processors if p is not processor)
 
     return remove
-
-
-@contextmanager
-def untraced() -> Iterator[None]:
-    """Spans ended inside the block are dropped: neither exported nor seen by processors. The
-    eval runner's LLM judge calls run this way, so they never land in a trace (ADR-0027)."""
-    token = _untraced.set(True)
-    try:
-        yield
-    finally:
-        _untraced.reset(token)
 
 
 class ActiveSpan:
@@ -176,7 +166,7 @@ class ActiveSpan:
 
 
 def _wanted() -> bool:
-    return (get_exporter() is not None or bool(_processors)) and not _untraced.get()
+    return (get_exporter() is not None or bool(_processors)) and not untraced_now.get()
 
 
 def emit(span: Span) -> None:

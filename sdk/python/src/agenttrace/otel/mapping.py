@@ -18,6 +18,9 @@ from agenttrace._json import to_jsonable
 from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata
 
 MAX_ATTRIBUTE_BYTES = 4096
+# Each root gets its own copy of the resource's attributes, so without a cap one export of many
+# roots would multiply the resource by its root count.
+MAX_RESOURCE_BYTES = 2048
 CONVENTION_KEY = "agenttrace.convention"
 
 _HEX = {32: re.compile(r"^[0-9a-f]{32}$"), 16: re.compile(r"^[0-9a-f]{16}$")}
@@ -165,7 +168,7 @@ def translate(o: OtelSpan) -> Span:
     trace = _trace_metadata(attrs) if parent is None else None
     attributes = {k: _attribute(v) for k, v in attrs.items()}
     if parent is None:
-        attributes |= {f"resource.{k}": _attribute(v) for k, v in o.resource.items()}
+        attributes |= _resource_attributes(o.resource)
     attributes[CONVENTION_KEY] = convention
 
     status = SpanStatus.ERROR if o.status == "error" else SpanStatus.OK
@@ -248,7 +251,7 @@ def _json_or_text(value: Any) -> Any:
     if isinstance(value, str):
         try:
             return json.loads(value)
-        except ValueError:
+        except (ValueError, RecursionError):  # nesting too deep to parse is kept as text
             return value
     return to_jsonable(value)
 
@@ -282,6 +285,17 @@ def _trace_metadata(attrs: dict[str, Any]) -> TraceMetadata | None:
         tags=tags,
         metadata=metadata,
     )
+
+
+def _resource_attributes(resource: dict[str, Any]) -> dict[str, str]:
+    """`resource.*` attributes for a root, `service.*` first, up to MAX_RESOURCE_BYTES."""
+    out, budget = {}, MAX_RESOURCE_BYTES
+    for k in sorted(resource, key=lambda k: not k.startswith("service.")):
+        key, value = f"resource.{k}", _attribute(resource[k])
+        size = len(key) + len(value.encode())
+        if size <= budget:
+            out[key], budget = value, budget - size
+    return out
 
 
 def _error_type(o: OtelSpan) -> str | None:

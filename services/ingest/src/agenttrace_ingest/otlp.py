@@ -8,6 +8,7 @@ OTLP's retry rules: exporters retry 503 but not 400 or 500.
 
 import base64
 import json
+import logging
 import zlib
 from collections.abc import Iterable
 from typing import Annotated, Any, Literal
@@ -29,6 +30,8 @@ from agenttrace.otel import OtelEvent, OtelSpan, Unstorable, translate
 from agenttrace_ingest.auth import Auth, ProjectAccess
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.spans import SpanQueue
+
+log = logging.getLogger(__name__)
 
 PROTOBUF = "application/x-protobuf"
 JSON = "application/json"
@@ -66,6 +69,11 @@ def router(s: Settings, a: Auth, queue: SpanQueue) -> APIRouter:
                 spans.append(translate(o))
             except Unstorable as e:
                 reasons.append(f"span {o.span_id or '?'}: {e}")
+            except Exception as e:  # one span the translator can't handle mustn't cost the rest
+                log.exception("can't translate OTLP span %s", o.span_id)
+                reasons.append(
+                    f"span {o.span_id or '?'}: couldn't be translated ({type(e).__name__})"
+                )
         if spans:
             spans_json = json.dumps([sp.model_dump(mode="json") for sp in spans])
             try:
@@ -110,7 +118,14 @@ def _decode(body: bytes, media: str) -> ExportTraceServiceRequest:
             json_format.ParseDict(
                 _hex_ids_to_base64(json.loads(body)), export, ignore_unknown_fields=True
             )
-    except (DecodeError, json_format.ParseError, ValueError, TypeError, AttributeError) as e:
+    except (
+        DecodeError,
+        json_format.ParseError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        RecursionError,
+    ) as e:
         raise HTTPException(400, f"body isn't an OTLP trace export: {e}") from e
     return export
 

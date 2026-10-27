@@ -6,6 +6,7 @@ import threading
 import pytest
 from opentelemetry import trace as otel_trace
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 from test_eval_runner import SUPPORT, FakeApi
 
@@ -176,3 +177,73 @@ def test_eval_installs_the_bridge_and_sees_an_otel_agents_trajectory(monkeypatch
         assert {sc.scorer: sc.score for sc in s.scores} == {"steps": 1}
         assert s.usage[0].model == "claude-haiku-5-5"
     assert isinstance(otel_trace.get_tracer_provider(), TracerProvider)
+
+
+def test_the_exporters_own_requests_never_become_spans(monkeypatch, http_server):
+    """With urllib instrumented, as `opentelemetry-instrument` does, each POST to ingest would be
+    an OTel span the bridge exports with the next POST, forever."""
+    from opentelemetry.instrumentation.urllib import URLLibInstrumentor
+
+    from agenttrace.eval.client import Client
+    from agenttrace.exporter import Config, Exporter
+
+    posts: list[list[str]] = []
+
+    def ingest(path, headers, body):
+        if path == "/v1/spans":
+            posts.append([s["name"] for s in json.loads(body)["spans"]])
+        return 202, {}
+
+    url = http_server(ingest)
+    provider = TracerProvider()
+    seen = []
+    provider.add_span_processor(SimpleSpanProcessor(InMemory(seen)))
+    bridge.install(provider)
+    exporter = Exporter(Config(api_key="k", endpoint=url, flush_interval_s=0.05))
+    monkeypatch.setattr(tracing, "get_exporter", lambda: exporter)
+    URLLibInstrumentor().instrument(tracer_provider=provider)
+    try:
+        with span("agent", "agent"):
+            pass
+        for _ in range(5):
+            exporter.flush()
+        Client(url, "k").request("POST", "/v1/experiments", {})  # the eval runner's uploads
+        exporter.flush()
+    finally:
+        URLLibInstrumentor().uninstrument()
+    assert posts == [["agent"]]
+    assert seen == []  # suppressed for other OTel exporters too, as OTel's own exporters do
+
+
+class InMemory:
+    def __init__(self, into: list):
+        self.into = into
+
+    def export(self, spans):
+        self.into.extend(spans)
+        from opentelemetry.sdk.trace.export import SpanExportResult
+
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self):
+        pass
+
+
+def test_a_span_that_cant_be_translated_never_reaches_the_agents_code(monkeypatch, collected):
+    def broken(_):
+        raise RuntimeError("translator bug")
+
+    monkeypatch.setattr(bridge, "translate", broken)
+    provider = TracerProvider()
+    bridge.install(provider)
+    with provider.get_tracer("t").start_as_current_span("chat", attributes=CHAT):
+        pass  # the agent carries on
+    assert collected.spans == []
+
+
+def test_deeply_nested_json_in_an_attribute_is_kept_as_text(collected, tracer):
+    deep = "[" * 100_000
+    attrs = {**TOOL, "gen_ai.tool.call.result": deep}
+    with tracer.start_as_current_span("execute_tool", attributes=attrs):
+        pass
+    assert collected.by_name("lookup_order").output == deep

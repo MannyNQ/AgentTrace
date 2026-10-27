@@ -20,6 +20,8 @@ Agent code can also mix the two: an `@trace` tool called inside a framework's OT
 
 - An OTel-instrumented agent works with eval and replay unchanged, and its trajectory is whatever its tool spans record (ADR-0022).
 - The base package doesn't depend on `opentelemetry-sdk`.
+- The SDK's own requests to ingest (the exporter's and the eval client's) run with OpenTelemetry instrumentation suppressed and the SDK untraced. Otherwise, with urllib instrumented, each export would be a span for the next export, forever.
+- A span the bridge fails to translate is logged and dropped: OpenTelemetry doesn't catch a processor's errors, so one would raise from `span.end()` in the agent's code.
 - `agenttrace eval` sets the global tracer provider when the agent hasn't, which OpenTelemetry allows once per process.
 - Sending the same spans through the bridge and an OTLP exporter is harmless: both carry the same `(trace_id, span_id)`, and the worker's dedup keeps one (ADR-0014).
 - Translation runs in two places, ingest and the SDK, from the same code in `agenttrace`, so a mapping fix reaches both together but needs an SDK release to reach the bridge.

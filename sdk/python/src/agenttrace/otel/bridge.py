@@ -51,10 +51,15 @@ class Bridge(SpanProcessor):
     def on_end(self, span: ReadableSpan) -> None:
         if tracing._otel is None:  # not installed, or reset by a test
             return
+        # OpenTelemetry doesn't catch a processor's errors: one would raise from `span.end()` in
+        # the agent's own code.
         try:
             s = translate(otel_span(span))
         except Unstorable as e:
             log.debug("agenttrace: dropped OpenTelemetry span %r: %s", span.name, e)
+            return
+        except Exception:
+            log.warning("agenttrace: could not translate span %r", span.name, exc_info=True)
             return
         # The same call recorded by two instrumentations, such as the Anthropic SDK's own span
         # inside `instrument_anthropic()`'s: keeping both would count its cost twice.

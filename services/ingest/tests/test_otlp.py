@@ -251,3 +251,38 @@ def test_redis_being_down_is_a_retryable_503():
     )
     assert r.status_code == 503
     assert r.headers["retry-after"]
+
+
+def test_resource_attributes_dont_multiply_an_export_by_its_root_count():
+    c, q = setup()
+    roots = [otel_span(span_id=f"{i + 1:016x}", parent=None) for i in range(1000)]
+    resource = {f"r{i}": "x" * 4096 for i in range(250)}  # 1 MB of resource
+    body = request(*roots, resource=resource).SerializeToString()
+    assert c.post("/otlp/v1/traces", content=body, headers=PROTOBUF).status_code == 200
+    queued = len(json.dumps(q.pushed[0][1]))
+    assert queued < 5 * 1024 * 1024  # it was about 1 GB
+
+
+def test_a_span_that_fails_to_translate_is_rejected_alone(monkeypatch):
+    import agenttrace_ingest.otlp as otlp
+
+    real = otlp.translate
+
+    def flaky(o):
+        if o.span_id == "1111111111111111":
+            raise RuntimeError("translator bug")
+        return real(o)
+
+    monkeypatch.setattr(otlp, "translate", flaky)
+    c, q = setup()
+    req = request(otel_span(), otel_span(span_id="1111111111111111"))
+    r = c.post("/otlp/v1/traces", content=req.SerializeToString(), headers=PROTOBUF)
+    assert r.status_code == 200
+    assert ExportTraceServiceResponse.FromString(r.content).partial_success.rejected_spans == 1
+    assert [s["span_id"] for s in q.pushed[0][1]] == [CHILD]
+
+
+def test_a_deeply_nested_json_body_is_400():
+    c, q = setup()
+    r = c.post("/otlp/v1/traces", content=b"[" * 200_000, headers=JSON)
+    assert r.status_code == 400 and q.pushed == []

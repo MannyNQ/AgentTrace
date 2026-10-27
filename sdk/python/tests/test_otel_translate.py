@@ -5,6 +5,7 @@ import pytest
 
 from agenttrace import SpanKind, SpanStatus
 from agenttrace.otel import OtelEvent, OtelSpan, Unstorable, translate
+from agenttrace.otel.mapping import MAX_RESOURCE_BYTES
 
 TRACE = "0af7651916cd43dd8448eb211c80319c"
 ROOT = "b7ad6b7169203331"
@@ -331,6 +332,21 @@ def test_resource_attributes_go_on_root_spans_only():
     assert root.attributes["resource.service.name"] == "support-bot"
     assert root.attributes["resource.service.version"] == "1.4.0"
     assert not any(k.startswith("resource.") for k in child.attributes)
+
+
+def test_resource_attributes_on_a_root_are_capped_service_first():
+    """Every root gets a copy, so an unbounded resource multiplies an export by its root count."""
+    resource = {f"r{i}": "x" * 4096 for i in range(250)} | {"service.name": "support-bot"}
+    attrs = translate(otel(parent_span_id=None, resource=resource)).attributes
+    copied = {k: v for k, v in attrs.items() if k.startswith("resource.")}
+    assert copied["resource.service.name"] == "support-bot"
+    assert sum(len(k) + len(v.encode()) for k, v in copied.items()) <= MAX_RESOURCE_BYTES
+
+
+def test_deeply_nested_json_is_kept_as_text():
+    deep = "[" * 100_000
+    attrs = {**GEN_AI_TOOL, "gen_ai.tool.call.result": deep}
+    assert translate(otel(attributes=attrs)).output == deep
 
 
 def test_a_span_with_a_remote_parent_is_stored_as_a_root():
