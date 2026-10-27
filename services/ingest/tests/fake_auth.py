@@ -330,6 +330,13 @@ class FakeAuth:
         self.delete_sessions(link.user_id)
         return link.user_id
 
+    def purge_expired(self, now: datetime) -> tuple[int, int]:
+        sessions = {h: s for h, s in self.sessions.items() if s[1] > now}
+        links = {h: lk for h, lk in self.links.items() if lk.link.expires_at > now}
+        purged = (len(self.sessions) - len(sessions), len(self.links) - len(links))
+        self.sessions, self.links = sessions, links
+        return purged
+
 
 @dataclass
 class FakeLimiter:

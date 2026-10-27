@@ -56,6 +56,25 @@ def _pin_pending(datasets: Store, pins: Pins) -> None:
         log.info("pinned %d dataset source traces", n)
 
 
+# Expired sessions and links are refused as soon as they expire; their rows go this often.
+PURGE_EVERY_S = 3600.0
+
+
+async def purge_expired_forever(a: auth.Auth, every_s: float = PURGE_EVERY_S) -> None:
+    """Deletes expired sessions and links now and then every `every_s`. A failed pass is
+    logged and tried again next time; every ingest process runs this, and deleting twice is
+    harmless."""
+    while True:
+        try:
+            sessions, links = await asyncio.to_thread(a.purge_expired)
+        except Exception:
+            log.exception("could not purge expired sessions and links")
+        else:
+            if sessions or links:
+                log.info("purged %d expired sessions and %d expired links", sessions, links)
+        await asyncio.sleep(every_s)
+
+
 # Backoff between ClickHouse migration attempts while ClickHouse is unreachable.
 CLICKHOUSE_RETRY_FIRST_S = 1.0
 CLICKHOUSE_RETRY_MAX_S = 30.0
@@ -143,7 +162,9 @@ def create_app(
         task = asyncio.create_task(asyncio.to_thread(_pin_pending, datasets, pins))
         background.add(task)
         task.add_done_callback(background.discard)
+        purge = asyncio.create_task(purge_expired_forever(a))
         yield
+        purge.cancel()
         clickhouse.cancel()  # still retrying at shutdown: ClickHouse never came back
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)

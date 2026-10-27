@@ -66,7 +66,7 @@ Before you serve it beyond your machine:
 - Serve the web app over https, behind a reverse proxy that terminates TLS, and set `AGENTTRACE_PUBLIC_URL` to that address. Session cookies are then marked `Secure`, and ingest stops accepting `at-local-dev-key`.
 - Set `AGENTTRACE_API_KEY` in `.env` to a long random key of your own, for example from `openssl rand -base64 32`. Left empty, compose falls back to `at-local-dev-key`, which ingest then refuses, logging an error on every start. Keys made in the web app work alongside it.
 - Claim the install right away, ideally with an `AGENTTRACE_SETUP_TOKEN` you chose: until it's claimed, anyone holding the token can.
-- Expose only the web app, and ingest's port if agents outside the host send spans. `docker-compose.yml` publishes Postgres, ClickHouse, Redis, and S3 on every interface with the passwords from `.env.example`: change those passwords, and firewall those ports or remove their `ports:` lines.
+- Expose only the web app, and ingest's port if agents outside the host send spans. `docker-compose.yml` publishes Postgres, ClickHouse, Redis, and S3 on `127.0.0.1` only, for local tools; still change their passwords from the ones in `.env.example`.
 
 ## Development
 

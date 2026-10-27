@@ -283,9 +283,14 @@ class Store(Protocol):
         sessions; returns the user, or None when it's used, expired, or not a reset."""
         ...
 
+    def purge_expired(self, now: datetime) -> tuple[int, int]:
+        """Deletes sessions and links that expired by `now`; returns how many of each."""
+        ...
+
 
 class Limiter(Protocol):
-    """Counts failed logins per email over `LOGIN_FAILURE_WINDOW_S`."""
+    """Counts failed logins per email over `LOGIN_FAILURE_WINDOW_S`. Raises `Unavailable` when
+    it can't count, and signing in is refused rather than left unlimited."""
 
     def failures(self, email: str) -> int: ...
 
@@ -310,7 +315,8 @@ def new_token(prefix: str = "") -> str:
 def normalize_email(email: str) -> str:
     email = email.strip().lower()
     local, at, domain = email.partition("@")
-    if not at or not local or "." not in domain or "@" in domain or len(email) > 254:
+    # A dotless domain is allowed: self-hosted teams use addresses like `ops@localhost`.
+    if not at or not local or not domain or "@" in domain or len(email) > 254:
         raise Refused("that doesn't look like an email address")
     return email
 
@@ -522,9 +528,9 @@ class Auth:
         if found is None:
             raise NotFound(f"no user with the email {email}")
         user = found[0]
+        self.limiter.clear(user.email)  # first: with Redis down, nothing changes
         self.store.set_password(user.id, self.passwords.hash(password))
         self.store.delete_sessions(user.id)
-        self.limiter.clear(user.email)
         return user
 
     def _verify(self, stored: str, password: str) -> bool:
@@ -532,6 +538,10 @@ class Auth:
             return self.passwords.verify(stored, password)
         except (VerificationError, InvalidHashError):
             return False
+
+    def purge_expired(self) -> tuple[int, int]:
+        """Expired sessions and links are refused when used; this deletes their rows."""
+        return self.store.purge_expired(self.now())
 
     def _new_session(self, user: User) -> NewSession:
         token = new_token()
