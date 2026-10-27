@@ -252,3 +252,33 @@ An agent instrumented only with OpenTelemetry is traced, can have a failed trace
 4. `examples/demo-agent-otel/`: a Pydantic AI agent on `FunctionModel`, offline like the demo agent's mock tools, exporting over OTLP.
 5. Web: the OTLP env lines in the "key created" view.
 6. Proof and docs: an `otlp` entry in the verify skill that sends demo-agent-otel traces to `/otlp/v1/traces` with an `ingest` key and checks span kinds, tokens, cost, and the trace tree in the UI, adds a failed trace to a dataset, runs `agenttrace eval` on it through the bridge with a trajectory scorer that sees its tool calls, and runs `agenttrace replay`; the README status line and an OTLP setup section with the content-capture note; and an eng-log entry for anything that surprises us.
+
+## Decisions settled in Phase 8
+
+1. **Analytics are approximate and read the existing tables.** `/v1/analytics/{volume,latency,cost,tools,models}` aggregate `spans` and `traces` without `FINAL`, with `quantileTDigest` percentiles, and the overview labels its numbers approximate. No rollup tables until the benchmark below shows the plain queries miss their budget (ADR-0037).
+2. **One trace filter for the trace list and analytics.** `/v1/traces` and `/v1/analytics/...` parse the same filter, so a chart and the list it links to can't disagree. Span-level panels apply it through `trace_id IN (SELECT trace_id FROM traces WHERE ...)`, with the time range on both sides. `traces` gains a `service_name` column for it (ADR-0038).
+
+Also settled:
+
+- The overview is `/p/<slug>/overview`, the project's landing page: `/p/<slug>/` redirects to it, it's first in the project nav, and the old links page goes away. It answers "is my agent getting slower, pricier, or less reliable, and where?"
+- Ranges are 24h in hourly buckets and 7d and 30d in daily buckets, in the browser's time zone: the web app sends an IANA `tz` (UTC when absent) and ClickHouse buckets with it. A range is clamped to the project's `retention_days`. No custom ranges.
+- Production traffic only by default: traces tagged by the eval runner and replay traces (`replay_of` set) are left out unless "Include eval and replay runs" is on.
+- Traces bucket by start time. A running trace counts toward volume only; latency, error rate, and cost per trace use completed traces, and the page shows how many are running.
+- Trace error rate uses trace status as the trace list does (a root that never ended is `error`), over completed traces. A span kind's error rate is its error spans over all its spans.
+- Headline tiles: traces, trace error rate, p95 trace latency, and cost per completed trace, each with its change from the previous period of the same length as a plain percentage, with no significance test.
+- Panels: volume over time; errors by trace status and by span kind; p50, p95, and p99 trace latency over time; the slowest tools and models by p95, top 10, among names with at least 20 calls in the range; spend over time stacked by the top 5 models plus "other"; a per-model table of cost, calls, cost per call, and input, output, cache-read, and cache-write tokens (5m and 1h together); and a sortable tools table of every tool's calls, error rate, and p95, with names under 20 calls greyed out. Unpriced calls get their own row per model rather than counting as zero.
+- Every chart click opens the trace list filtered to what was clicked. The trace list gains filters for time range, status, tags, user ID, `service.name`, production versus eval and replay runs, and "has a span of kind K or name N", optionally only errored ones.
+- `service_name` on `traces` is filled by `traces_mv` from the root span: `resource.service.name` for OTLP, and for the SDK `AGENTTRACE_SERVICE_NAME`, else `OTEL_SERVICE_NAME`. A ClickHouse migration adds the column and swaps the view's query with `MODIFY QUERY`, as in Phase 5; traces already stored get `''`.
+- Sessions and `full` keys read analytics; `ingest` keys get 403 (ADR-0033). Errors follow the read API: 503 naming the store, 422 for a bad filter.
+- Charts are hand-rolled SVG (line, stacked bar, sparkline) with a small client component for hover, on the app's theme tokens. No chart library. Each panel loads in its own `Suspense`.
+- Budget: the 30d overview loads in under 2 s at 1M traces and 20M spans in one project on the dev stack. A miss adds an hourly rollup or a `start_time` projection on `traces`, with an ADR amending ADR-0037.
+- Deferred: alerting, custom ranges, saved filters and a query builder, and everything Phase 7 deferred (model-name aliases stay deferred; unpriced calls are shown instead).
+
+## Phase 8 plan
+
+A project's overview shows whether its agent is getting slower, pricier, or less reliable, and every number links to the traces behind it:
+
+1. Ingest filter: the shared trace filter, `/v1/traces` taking it, and the ClickHouse migration for `service_name`; the SDK setting `service.name` on root spans.
+2. Ingest analytics: the bucketing helper (range, buckets, `tz`, retention clamp) and `/v1/analytics/{volume,latency,cost,tools,models}`, with previous-period values for the headline numbers.
+3. Web: the SVG chart components, `/p/<slug>/overview` with its tiles and panels, the landing redirect and nav, and the trace list's new filters with chart clicks mapped onto them.
+4. Proof: unit tests for the filter, bucketing across time zones and DST, and each endpoint's SQL against hand-computed fixtures; integration tests against ClickHouse covering running traces, eval and replay exclusion, unpriced calls, and project isolation; an `overview` entry in the verify skill that seeds traces with known latencies, costs, and errors through the SDK and OTLP and checks each number on the page and the trace list each click opens; and a seeding benchmark for the 2 s budget, with its result in the eng log.

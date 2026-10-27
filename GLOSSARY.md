@@ -127,3 +127,13 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 **Replay run**: One execution within a replay, and its own trace. Its root span carries `replay_of`, the `(trace_id, span_id)` of the original trace's root span. Replaying a replay points at the original's root span, so `replay_of` never chains. Errored runs score 0, as in an errored sample. See ADR-0028. _Avoid_: Sample, which is an experiment's run.
 
 **First difference**: The first position where a replay run's trajectory differs from the original's. Trajectories are compared step by step; a step differs on tool name or on `args` by full JSON equality, not the partial match of an expected trajectory, because the original is a recording, not an expectation. A trajectory that is a prefix of the other differs at the first missing step. Outputs are shown side by side with no computed diff.
+
+## Analytics
+
+**Overview**: A project's landing page, `/p/<slug>/overview`: volume, error rates, latency percentiles, cost, and tools over 24h, 7d, or 30d, with each headline number's change from the previous period. Its numbers are approximate (ADR-0037). _Avoid_: dashboard, as the page's name.
+
+**Trace filter**: The one set of conditions the trace list and the overview both take: time range, status, tags, user ID, service name, production or eval and replay runs, and spans of a kind or name. A chart click opens the trace list with the same filter, so the two agree. See ADR-0038.
+
+**Production traffic**: Traces that are neither eval samples' traces nor replay runs. The overview counts only these unless told otherwise.
+
+**Service name**: `service_name` on a trace, from its root span's `resource.service.name`: an OpenTelemetry resource attribute over OTLP, or `AGENTTRACE_SERVICE_NAME` (else `OTEL_SERVICE_NAME`) in the SDK. Empty for traces stored before Phase 8.
