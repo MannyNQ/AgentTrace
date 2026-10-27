@@ -250,7 +250,8 @@ def span(
         # Only a tool's message is kept: a fork re-raises it (ADR-0040). Elsewhere it can carry
         # URLs or driver errors nobody asked to store.
         # A stubbed call's error keeps the recorded class name, so the run reads like the original.
-        error_type = getattr(e, "recorded_type", None) or type(e).__name__
+        recorded = isinstance(e, _playback.RecordedToolError)
+        error_type = e.recorded_type if recorded else type(e).__name__
         active.set_error(error_type, _message(e) if active.kind == SpanKind.TOOL else None)
         raise
     finally:

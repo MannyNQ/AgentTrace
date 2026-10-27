@@ -44,6 +44,8 @@ Preconditions:
 
 ## Gotchas
 
+- A fork answers only calls its playback's context reaches. An agent that starts threads without copying the context, or streams LLM calls (untraced), runs those live even in the prefix, so the run's stubbed spans are fewer than the prefix's steps. That's the documented limit, not a stubbing bug.
+
 - Tests that read `FixedString` columns through clickhouse-connect get bytes; select `toString(trace_id)`.
 - `git_dirty` and the commit are null when the CLI runs outside a git work tree, and the UI says "unknown code".
 - The replay page reads the original from ClickHouse: once it expires, there's no first difference to mark. Replay runs keep their own trajectories in Postgres.

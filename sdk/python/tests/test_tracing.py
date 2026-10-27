@@ -52,6 +52,15 @@ def test_exception_marks_error_and_propagates(collected):
     assert "agenttrace.error_message" not in s.attributes  # kept on tool spans only
 
 
+def test_only_a_recorded_tool_error_keeps_another_class_name(collected):
+    class Odd(Exception):
+        recorded_type = "Pretend"
+
+    with pytest.raises(Odd), span("odd", "tool"):
+        raise Odd()
+    assert collected.by_name("odd").error_type == "Odd"
+
+
 def test_call_tool_records_a_tool_span_named_for_the_tool(collected):
     def lookup(order_id: str, verbose: bool = False) -> dict:
         return {"order_id": order_id}
