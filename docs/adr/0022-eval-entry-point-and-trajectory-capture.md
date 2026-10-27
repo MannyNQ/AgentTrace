@@ -1,6 +1,6 @@
 # 22. The eval entry point takes the item input; the runner captures spans in-process
 
-Status: accepted. Builds on ADR-0006.
+Status: accepted. Builds on ADR-0006. Amended by ADR-0036: OpenTelemetry spans reach the capture hook through the OTel bridge.
 
 ## Context
 

@@ -12,6 +12,7 @@ Failures become tests, and tests grade trajectories (ADR-0001). A failed product
 
 ```
  agent + SDK ──spans (API key, batched, async)──▶ ingest API ──▶ Redis Streams ──▶ workers
+ agent + OTel exporter ──OTLP/HTTP (API key)──▶ /otlp ─┘ (translated into spans)
                                                     │                             │
           ┌─────────────────────────────────────────┴─────────────────────────────┤
           ▼                          ▼                                            ▼
@@ -223,3 +224,31 @@ Every request is authenticated, every read and write is checked against the proj
 3. Web: setup, login, and invite pages; `/p/<slug>/` routing and the old-path redirects; all reads through ingest; settings pages for members, keys, and projects; store credentials and the API key removed from the web service in compose. The shared key stays a valid `full` key until this step removes it, so the web app works throughout steps 1 and 2.
 4. SDK and CLI: errors that name the missing key scope, and links printed with the slug.
 5. Proof and docs: unit tests for the resolver matrix (key scope, session role, project header match or mismatch, revoked or expired); integration tests with two projects, calling every read and write route with the other project's key and session and expecting 403 or 404 with nothing leaked; an `auth` entry in the verify skill that claims a fresh stack with the setup token, invites a member, creates project 2 with an `ingest` key, sends demo-agent spans there and checks project 1 can't see them, checks the `ingest` key gets 403 on `/v1/datasets`, the member can't open the keys page, an old `/replays/<id>` link redirects, and the web container has no store credentials; and the README's "no authentication" warning replaced with a note to serve it behind https.
+
+## Decisions settled in Phase 7
+
+1. **OTLP spans are translated into the span contract at ingest.** `POST /otlp/v1/traces` takes OTLP/HTTP, maps each span from OpenTelemetry's GenAI conventions or OpenInference into an `agenttrace.Span`, and queues it on the same stream, so storage, cost, dedup, and trace completion don't change. It drops only spans it can't store and reports them in `partial_success`, unlike `/v1/spans` (ADR-0035, amending ADR-0017).
+2. **The SDK bridges OpenTelemetry in-process.** An `agenttrace[otel]` extra translates OTel spans as they end with the same code, and the SDK uses OTel's context as its own, so `agenttrace eval` and `agenttrace replay` see an OTel-instrumented agent's trajectory (ADR-0036, amending ADR-0022).
+
+Also settled:
+
+- Users set `OTEL_EXPORTER_OTLP_ENDPOINT=<ingest>/otlp` and `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <key>`; an `ingest` key is enough. Protobuf and JSON bodies, gzipped or not; responses use the request's encoding. No gRPC: every major OTel SDK can send HTTP, and gRPC would add a listener and a port.
+- Errors follow OTLP's retry rules: 400 for a body that can't be decoded or breaks the 5 MB (decompressed) or 1000-span limit, 401 or 403 for a bad key, and 503 with `Retry-After` while Redis can't be reached, since exporters don't retry a 500.
+- The translator lives in the `agenttrace` package beside the span contract. Its mapping table is the only place convention attribute names appear, and it reads old and new GenAI names, since those conventions are still at Development status. Vendor namespaces (`traceloop.*`, `claude_code.*`, `gcp.vertex.agent.*`) aren't mapped; their spans are `custom` with attributes kept. Spans without a convention, such as HTTP and database spans, are kept as `custom` too, since they are often the root.
+- Every translated span carries `agenttrace.convention` (`gen_ai`, `openinference`, or `none`), an attribute, not a column.
+- `CHAIN` maps to `custom`, not `agent`: LangChain wraps nearly every step in a chain. Embeddings are `llm` spans, so their tokens are priced.
+- Message and tool-call content moves into the span's input and output and through the 8 KB offload; other attribute values are cut to 4 KB. The OTLP setup docs say to set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true`, since without it tool spans have no arguments for trajectory scorers to match.
+- The eval runner and `agenttrace replay` install the bridge whenever `opentelemetry-sdk` is importable; production code calls `agenttrace.otel.install()`. Running the bridge and an OTLP exporter together sends each span twice with the same IDs, and the worker keeps one.
+- The web app's "key created" view shows the OTLP env lines next to the SDK's, since the key is shown only once. Nothing else in the UI changes: translated spans are ordinary spans.
+- Deferred: OTLP logs and metrics (they'd go under `/otlp` too), gRPC, model-name aliases in the price table, lifting child-span metadata onto the root, and vendor namespaces.
+
+## Phase 7 plan
+
+An agent instrumented only with OpenTelemetry is traced, can have a failed trace added to a dataset, and can be evaluated and replayed:
+
+1. Translator in `agenttrace`: the kind table, both conventions, tokens and cost fields, content, trace metadata, status, resource attributes, and remote parents, tested against recorded GenAI and OpenInference spans.
+2. `POST /otlp/v1/traces` in ingest: protobuf, JSON, and gzip; per-span rejection with `partial_success`; the error codes above; spans pushed onto the existing stream.
+3. SDK `otel` extra: the bridge, OTel's context as the SDK's, and automatic install in `eval` and `replay`.
+4. `examples/demo-agent-otel/`: a Pydantic AI agent on `FunctionModel`, offline like the demo agent's mock tools, exporting over OTLP.
+5. Web: the OTLP env lines in the "key created" view.
+6. Proof and docs: an `otlp` entry in the verify skill that sends demo-agent-otel traces to `/otlp/v1/traces` with an `ingest` key and checks span kinds, tokens, cost, and the trace tree in the UI, adds a failed trace to a dataset, runs `agenttrace eval` on it through the bridge with a trajectory scorer that sees its tool calls, and runs `agenttrace replay`; the README status line and an OTLP setup section with the content-capture note; and an eng-log entry for anything that surprises us.
