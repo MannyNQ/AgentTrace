@@ -1,6 +1,6 @@
 # 17. Phase 1 ingest: JSON spans, whole-batch validation, API keys resolve the project
 
-Status: accepted
+Status: accepted. Amended by ADR-0035: OTLP ingest is `POST /otlp/v1/traces`, lenient per span.
 
 ## Context
 
@@ -15,5 +15,5 @@ Requests carry `Authorization: Bearer <key>`. Keys live in a Postgres `api_keys`
 ## Consequences
 
 - An invalid span is an SDK bug, and it shows up loudly instead of being dropped silently.
-- OTLP/HTTP is a separate endpoint in a later phase.
+- OTLP/HTTP is a separate endpoint in a later phase (ADR-0035).
 - Phase 6 adds key management on top of the same table.

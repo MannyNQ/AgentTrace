@@ -52,13 +52,19 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Trace metadata**: Set on the root span by the SDK: `session_id`, `user_id`, `tags` (list of strings), `metadata` (string-to-string map). Tags and user ID are filterable.
 
-**Cost**: `cost_usd` on an LLM span, computed once at ingestion from the price table and never recomputed. Covers input, output, and prompt-cache reads and writes (`input_tokens` excludes cached tokens). Null when the model has no price. See ADR-0010.
+**Cost**: `cost_usd` on an LLM span, computed once at ingestion from the price table and never recomputed. Covers input, output, and prompt-cache reads and writes (`input_tokens` excludes cached tokens). Null when the model has no price. See ADR-0010. OTel conventions count cached tokens inside input tokens, so OTLP ingest subtracts them, and counts every cache write as a 5-minute write, since no convention says which (ADR-0035).
 
 **Price table**: Versioned prices per model (input, output, cache-read, and 5-minute and 1-hour cache-write per-token prices, effective date).
 
 **Retention**: Spans expire after a per-project period (default 30 days). Traces linked from a dataset item are **pinned** and never expire; experiment traces and replay traces expire normally. See ADR-0011, ADR-0021, and ADR-0029.
 
 **Pin**: Exempting a trace from retention by rewriting its `retention_days` in `spans` and `traces` so it expires on 2106-01-01, the latest date ClickHouse's `DateTime` holds. Happens when a dataset item gets a `source_trace_id`. Unlinking doesn't unpin. See ADR-0021.
+
+**OTLP ingest**: The `POST /otlp/v1/traces` endpoint, which takes spans from any OpenTelemetry exporter over OTLP/HTTP and translates each one into a span, stored like any other. Authenticated by an API key, as `/v1/spans` is. A span that can't be stored is dropped and reported back rather than failing the request. See ADR-0035.
+
+**OTel bridge**: The SDK's in-process version of the same translation. It turns OpenTelemetry spans into spans as they end, so the eval runner sees an OTel-instrumented agent's trajectory. The eval runner and `agenttrace replay` install it automatically; elsewhere it's installed with `agenttrace.otel.install()`. See ADR-0036.
+
+**Convention**: The attribute vocabulary an OpenTelemetry span was translated from: `gen_ai` (OpenTelemetry's GenAI conventions), `openinference`, or `none`, recorded in the span's `agenttrace.convention` attribute. A span with neither becomes a `custom` span. _Avoid_: semconv, as shorthand.
 
 ## Evals
 
