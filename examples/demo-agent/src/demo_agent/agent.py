@@ -11,7 +11,7 @@ from datetime import date
 
 import anthropic
 
-from agenttrace import span, trace
+from agenttrace import trace
 from demo_agent.tools import TOOL_DEFINITIONS, run_tool
 
 MODEL = os.environ.get("DEMO_AGENT_MODEL", "claude-opus-5-5")
@@ -74,11 +74,8 @@ def run(question: str, client: anthropic.Anthropic | None = None) -> AgentResult
         for block in response.content:
             if block.type != "tool_use":
                 continue
-            with span(block.name, "tool", input=block.input) as tool_span:
-                output, is_error = run_tool(block.name, block.input)
-                tool_span.set_output(output)
-                if is_error:  # the agent recovers from tool errors, so this doesn't raise
-                    tool_span.set_error("ToolError")
+            # The agent recovers from tool errors: run_tool returns them for the model to see.
+            output, is_error = run_tool(block.name, block.input)
             calls.append(ToolCall(block.name, block.input, output, is_error))
             results.append(
                 {

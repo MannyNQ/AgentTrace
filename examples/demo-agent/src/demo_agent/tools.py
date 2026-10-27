@@ -7,6 +7,8 @@ from typing import Any
 
 from anthropic.types.beta import BetaToolParam
 
+from agenttrace import call_tool
+
 DATA: dict[str, Any] = json.loads(files("demo_agent").joinpath("data.json").read_text())
 REFUND_WINDOW_DAYS = 30
 
@@ -98,10 +100,13 @@ TOOL_DEFINITIONS: list[BetaToolParam] = [
 
 
 def run_tool(name: str, args: dict) -> tuple[str, bool]:
-    """Run a tool by name. Returns (JSON result or error message, is_error)."""
-    if name not in TOOLS:
-        return f"Unknown tool {name!r}.", True
+    """Run a tool by name as a tool span. Returns (JSON result or error message, is_error)."""
+
+    def unknown(**_: Any) -> None:
+        raise ToolError(f"Unknown tool {name!r}.")
+
+    fn = TOOLS[name][0] if name in TOOLS else unknown
     try:
-        return json.dumps(TOOLS[name][0](**args)), False
+        return json.dumps(call_tool(name, args, fn)), False
     except ToolError as e:
         return str(e), True

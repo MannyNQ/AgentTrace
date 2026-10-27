@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from agenttrace import SpanKind, SpanStatus, span, trace
+from agenttrace import SpanKind, SpanStatus, call_tool, span, trace
 
 
 def test_nested_spans_share_a_trace_and_link_parents(collected):
@@ -49,6 +49,66 @@ def test_exception_marks_error_and_propagates(collected):
         raise KeyError("x")
     s = collected.by_name("boom")
     assert s.status == SpanStatus.ERROR and s.error_type == "KeyError"
+    assert "agenttrace.error_message" not in s.attributes  # kept on tool spans only
+
+
+def test_call_tool_records_a_tool_span_named_for_the_tool(collected):
+    def lookup(order_id: str, verbose: bool = False) -> dict:
+        return {"order_id": order_id}
+
+    assert call_tool("lookup_order", {"order_id": "7"}, lookup) == {"order_id": "7"}
+    s = collected.by_name("lookup_order")
+    assert s.kind == SpanKind.TOOL
+    assert s.input == {"order_id": "7"}  # the arguments given, without defaults filled in
+    assert s.output == {"order_id": "7"}
+    assert s.attributes["agenttrace.output_lossless"] == "true"
+
+
+def test_call_tool_awaits_async_tools_and_records_their_errors(collected):
+    async def failing(q: str) -> None:
+        raise ValueError(f"no results for {q}")
+
+    with pytest.raises(ValueError):
+        asyncio.run(call_tool("search", {"q": "x"}, failing))
+    s = collected.by_name("search")
+    assert s.status == SpanStatus.ERROR and s.error_type == "ValueError"
+    assert s.attributes["agenttrace.error_message"] == "no results for x"
+
+
+@dataclass
+class Order:
+    id: str
+
+
+@pytest.mark.parametrize(
+    ("output", "lossless"),
+    [
+        ({"a": [1, 2.5, None, True, "s"]}, "true"),
+        ((1, 2), "false"),  # comes back as a list
+        (Order("7"), "false"),  # comes back as a dict
+        ({1: "a"}, "false"),  # the key comes back as "1"
+        (float("nan"), "false"),
+        (SpanKind.TOOL, "false"),  # comes back as the plain string "tool"
+    ],
+)
+def test_tool_spans_say_whether_their_output_was_recorded_exactly(collected, output, lossless):
+    call_tool("t", {}, lambda: output)
+    assert collected.by_name("t").attributes["agenttrace.output_lossless"] == lossless
+
+
+def test_call_tool_awaits_async_callable_objects(collected):
+    class Search:
+        async def __call__(self, q: str) -> list[str]:
+            return [q]
+
+    assert asyncio.run(call_tool("search", {"q": "x"}, Search())) == ["x"]
+    assert collected.by_name("search").output == ["x"]
+
+
+def test_only_tool_spans_carry_the_lossless_mark(collected):
+    with span("work") as s:
+        s.set_output((1, 2))
+    assert "agenttrace.output_lossless" not in collected.by_name("work").attributes
 
 
 def test_separate_top_level_spans_are_separate_traces(collected):

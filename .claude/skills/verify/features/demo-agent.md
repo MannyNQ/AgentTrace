@@ -10,6 +10,7 @@ The Keyly support agent answers customer questions in a terminal by calling five
 - `agent-refund-refused` declines a refund outside the window and explains the policy.
 - `agent-escalate` hands warranty claims to a human.
 - `agent-traced` sends each run to AgentTrace: a `support_agent` agent span with an LLM span per model call and a tool span per tool call, priced and shown in the UI.
+- `agent-full-capture` records each LLM span with the whole request and response, and each tool span (through `agenttrace.call_tool`) with whether its output was recorded exactly and, on failure, the error message, which is what a fork needs to stub a step (ADR-0039, ADR-0040).
 
 ## How to get to it (user POV)
 
@@ -31,11 +32,14 @@ Preconditions:
 
 - **Traced.** After the steps above, run `H traces '' traces-agent`. There's one `support_agent` line per run, each `ok` (the tool-error run too, since the agent recovers) with tag `demo-agent` and a cost in dollars. Then `H traces <trace_id of the tool-error run> trace-agent-tool-error`: `[agent] support_agent` with `[llm] anthropic.messages.create` and `[tool] lookup_order ✗ ToolError` beneath it. Check the LLM span's model and cost with `H ch agent-llm-cost "SELECT model, input_tokens, output_tokens, cost_usd FROM spans WHERE kind='llm' ORDER BY start_time"`: every row has a non-null cost equal to `(input_tokens*4 + output_tokens*20)/1e6` for `claude-opus-5-5`.
 
+- **Full capture.** After the order-status and tool-error runs, get the first LLM span: `H ch llm-span "SELECT trace_id, span_id, input_uri != '' FROM spans WHERE kind='llm' ORDER BY start_time LIMIT 1 FORMAT TSV"`. With the instance's key (`KEY=$(grep '^AGENTTRACE_API_KEY=' .env | cut -d= -f2-); KEY=${KEY:-at-local-dev-key}`), fetch its full payloads into the run dir: `curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:18000/v1/traces/<trace_id>/spans/<span_id>/input | jq -r .text > verify-artifacts/<run-id>/llm-input.json` and the same with `output` into `llm-output.json` (the endpoint wraps the payload as a JSON string in `{"text": ...}`). `jq -S 'keys' llm-input.json` lists `betas`, `fallbacks`, `max_tokens`, `messages`, `model`, `output_config`, `system`, `tools`, and no `extra_*` or `timeout`; `jq '[.tools[] | has("input_schema")] | all'` is `true`. `jq -S 'keys' llm-output.json` includes `content`, `id`, `model`, `stop_reason`, `usage`. The first call's input is about 2 KB, so it's inline (the third column is 0); later calls in a long run grow past 8 KB and are offloaded, and the endpoint reads them from S3 the same way. Then `H ch tool-marks "SELECT name, status, attributes['agenttrace.output_lossless'], attributes['agenttrace.error_message'] FROM spans WHERE kind='tool' ORDER BY start_time FORMAT TSV"`: every `ok` tool span has `true` (the demo tools return plain dicts), and the tool-error run's `lookup_order` row is `error` with an empty mark (an errored call has no output) and `No order with id \'9999\'.` (ClickHouse's TSV escapes the quotes).
+
 ## Gotchas
 
 - Without a key, the CLI fails with `TypeError: Could not resolve authentication method` before any tool runs. That's a precondition failure, not an agent bug. Never substitute a fake client to make it pass.
 - The refund window is measured from the real current date. Order 1043 was delivered 2026-10-10, so `agent-refund-allowed` only holds until 2026-11-09. After that it correctly refuses, so update the demo data in `examples/demo-agent/src/demo_agent/data.json` rather than the assertion.
 - Order 1043 has two mice. Asking about "the mouse" makes the agent rightly confirm before refunding the whole $58 order, so the question names both.
 - The agent is told today's date in its system prompt. Without it, the model judged the refund window itself and allowed a refund on 1044, 85 days after delivery.
+- The full-capture check needs traces recorded by Phase 9's SDK. Spans from older runs have only `system` and `messages` as input and `content` as output, so run the agent again on the current build rather than reading old rows.
 - Model wording varies between runs. Assert on tool lines, numbers, IDs and ticket names, not phrasing.
 - `H agent "<q>" <name>` names the capture directly; without a name it overwrites `agent.*` on every call.

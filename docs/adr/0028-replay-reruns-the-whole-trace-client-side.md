@@ -1,6 +1,6 @@
 # 28. A replay re-runs the whole trace on the client
 
-Status: accepted. Builds on ADR-0006 and ADR-0022.
+Status: accepted; its deferral of fork-from-step and tool stubbing is settled by ADR-0039 and ADR-0040. Builds on ADR-0006 and ADR-0022.
 
 ## Context
 

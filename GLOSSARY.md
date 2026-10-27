@@ -124,7 +124,21 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Replay**: One re-run of a recorded trace's root input through the user's entry point, `--samples k` times (default 3), started with `agenttrace replay <trace_id>`. Stored as one `replays` row with a status (`running`, `completed`, or `failed`), its git commit, branch, and dirty flag, and its runs. Scored only when the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation; the runs are then scored against that draft revision, recorded as `(item_id, rev)` (ADR-0030). Not an experiment: it pins no dataset version. See ADR-0028 and ADR-0029. _Avoid_: calling a replay run a Sample.
 
-**Replay run**: One execution within a replay, and its own trace. Its root span carries `replay_of`, the `(trace_id, span_id)` of the original trace's root span. Replaying a replay points at the original's root span, so `replay_of` never chains. Errored runs score 0, as in an errored sample. See ADR-0028. _Avoid_: Sample, which is an experiment's run.
+**Replay run**: One execution within a replay, and its own trace. Its root span carries `replay_of`, the `(trace_id, span_id)` of the original trace's root span, or of the fork point for a fork. A whole-trace replay of a replay run points at the original's root span, so its `replay_of` never chains; a fork points at the trace it forked, which may itself be a replay run, so forks chain. Errored runs score 0, as in an errored sample. See ADR-0028 and ADR-0040. _Avoid_: Sample, which is an experiment's run.
+
+**Fork**: A replay that plays back the original trace's steps up to a chosen step and runs live from there. The entry point is called from the start with the root input, as in any replay; every LLM call and tool call before the fork point returns its recorded result instead of running, so the user's current code really runs the loop from that step on. The original process isn't resumed, since its state isn't in the trace. _Avoid_: Resume.
+
+**Step**: One LLM span or tool span in a trace, in start-time order. What a fork point and a divergence are counted in.
+
+**Fork point**: The step where a fork goes live, named by its `span_id`. At an LLM step, that call runs live; at a tool step, the LLM reply that asked for the tool is stubbed and the tool runs live. Agent and custom spans can't be fork points.
+
+**Stubbed prefix**: The steps of a fork before its fork point, each answered with the original trace's recorded result rather than run.
+
+**Stubbable**: A step whose recording can stand in for running it: an LLM span with the full request and response (ADR-0039), or a tool span from `@trace(kind="tool")` or `agenttrace.call_tool` whose output survived recording unchanged and untruncated. A fork whose prefix, or a tool-stubbed replay whose trace, needs a step that isn't stubbable is refused, naming the step.
+
+**Divergence**: A fork run's prefix leaving the recording: a tool call with no recorded match, after which the run goes live from that step and records it as `diverged_at`. An LLM request that differs from its recording isn't a divergence; the stub is still returned and the differing fields are recorded as a warning, since a changed prompt is usually the fix being tested.
+
+**Tool stubbing**: Running a replay with every tool call answered by the original trace's recorded result while LLM calls run live, so the replay repeats no side effects. Recordings are matched by tool name and full JSON equality of arguments, each used once; a call with no match errors the run. Can be combined with a fork.
 
 **First difference**: The first position where a replay run's trajectory differs from the original's. Trajectories are compared step by step; a step differs on tool name or on `args` by full JSON equality, not the partial match of an expected trajectory, because the original is a recording, not an expectation. A trajectory that is a prefix of the other differs at the first missing step. Outputs are shown side by side with no computed diff.
 
