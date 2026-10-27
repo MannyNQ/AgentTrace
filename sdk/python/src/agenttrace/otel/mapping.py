@@ -155,6 +155,12 @@ def translate(o: OtelSpan) -> Span:
             model = _first(attrs, GEN_AI_MODEL)
             fields |= _tokens(attrs, GEN_AI_TOKENS)
             fields["model"] = str(model) if model is not None else None
+    # `input.value` and `output.value` are content on any span its convention gives none, such
+    # as an agent run's root: GenAI doesn't say where a run's input goes, and "Add to dataset"
+    # and replay need it.
+    for key in ("input", "output"):
+        if fields.get(key) is None and f"{key}.value" in attrs:
+            fields[key] = _oi_value(attrs, key)
 
     trace = _trace_metadata(attrs) if parent is None else None
     attributes = {k: _attribute(v) for k, v in attrs.items()}

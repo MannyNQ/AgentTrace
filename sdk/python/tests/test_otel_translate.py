@@ -252,6 +252,27 @@ def test_a_span_without_a_convention_is_custom_with_its_attributes():
     }
 
 
+@pytest.mark.parametrize("convention", [{}, {"gen_ai.operation.name": "invoke_agent"}])
+def test_input_and_output_values_are_content_on_any_span_without_its_own(convention):
+    attrs = {
+        **convention,
+        "input.value": json.dumps({"question": "Where is order 42?"}),
+        "input.mime_type": "application/json",
+        "output.value": "It shipped.",
+    }
+    s = translate(otel(parent_span_id=None, attributes=attrs))
+    assert s.input == {"question": "Where is order 42?"}
+    assert s.output == "It shipped."
+    assert "input.value" not in s.attributes and "output.value" not in s.attributes
+
+
+def test_a_conventions_own_content_wins_over_input_value():
+    attrs = {**GEN_AI_TOOL, "input.value": "ignored"}
+    s = translate(otel(attributes=attrs))
+    assert s.input == {"order_id": "42"}
+    assert s.attributes["input.value"] == "ignored"
+
+
 def test_vendor_namespaces_are_kept_but_not_mapped():
     attrs = {"traceloop.span.kind": "tool", "traceloop.entity.name": "lookup"}
     s = translate(otel(attributes=attrs))
