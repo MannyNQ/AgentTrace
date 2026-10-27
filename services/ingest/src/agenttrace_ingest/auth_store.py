@@ -2,6 +2,8 @@
 migrations/0005_auth.sql), and Redis counters for failed logins. Rows only; the decisions are in
 `auth`, apart from the atomic ones its `Store` names."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from uuid import UUID
 
@@ -22,6 +24,7 @@ from agenttrace_ingest.auth import (
 )
 from agenttrace_ingest.datasets import Conflict, NotFound
 from agenttrace_ingest.settings import Settings
+from agenttrace_ingest.traces import Unavailable
 
 USER_COLUMNS = """u.id, u.org_id, u.email, u.role, u.created_at,
                   u.deactivated_at IS NOT NULL AS deactivated"""
@@ -412,6 +415,12 @@ class PostgresAuth:
             conn.execute("DELETE FROM sessions WHERE user_id = %s", (link["user_id"],))
             return link["user_id"]
 
+    def purge_expired(self, now: datetime) -> tuple[int, int]:
+        with self._connect() as conn:
+            sessions = conn.execute("DELETE FROM sessions WHERE expires_at <= %s", (now,))
+            links = conn.execute("DELETE FROM links WHERE expires_at <= %s", (now,))
+            return sessions.rowcount, links.rowcount
+
 
 class RedisLimiter:
     def __init__(self, s: Settings):
@@ -420,15 +429,25 @@ class RedisLimiter:
     def _key(self, email: str) -> str:
         return f"login-failures:{email}"
 
+    @contextmanager
+    def _reaching(self) -> Iterator[None]:
+        try:
+            yield
+        except redis.RedisError as e:
+            raise Unavailable(f"can't reach Redis, which counts failed sign-ins: {e}") from e
+
     def failures(self, email: str) -> int:
-        return int(self.r.get(self._key(email)) or 0)  # type: ignore[arg-type]
+        with self._reaching():
+            return int(self.r.get(self._key(email)) or 0)  # type: ignore[arg-type]
 
     def failed(self, email: str) -> None:
         # The window starts at the first failure and isn't pushed out by later ones.
-        pipe = self.r.pipeline()
-        pipe.incr(self._key(email))
-        pipe.expire(self._key(email), LOGIN_FAILURE_WINDOW_S, nx=True)
-        pipe.execute()
+        with self._reaching():
+            pipe = self.r.pipeline()
+            pipe.incr(self._key(email))
+            pipe.expire(self._key(email), LOGIN_FAILURE_WINDOW_S, nx=True)
+            pipe.execute()
 
     def clear(self, email: str) -> None:
-        self.r.delete(self._key(email))
+        with self._reaching():
+            self.r.delete(self._key(email))

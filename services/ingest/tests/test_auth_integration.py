@@ -175,6 +175,27 @@ def test_an_expired_link_can_t_be_used(store, org):
     assert store.accept_invite(h, NOW, "late@example.com", "x") is None
 
 
+def test_purging_deletes_expired_sessions_and_links_only(store, org):
+    org_id, _ = org
+    owner = seed_user(org_id)
+    old_s, new_s = hash_token(f"s-{uuid.uuid4()}"), hash_token(f"s-{uuid.uuid4()}")
+    store.create_session(old_s, owner.id, NOW - timedelta(seconds=1))
+    store.create_session(new_s, owner.id, LATER)
+    old_l, new_l = hash_token(f"l-{uuid.uuid4()}"), hash_token(f"l-{uuid.uuid4()}")
+    store.create_link(old_l, "invite", org_id, "member", None, owner.id, NOW - timedelta(seconds=1))
+    store.create_link(new_l, "invite", org_id, "member", None, owner.id, LATER)
+
+    sessions, links = store.purge_expired(NOW)
+    assert sessions >= 1 and links >= 1  # other tests' expired rows may go too
+    with psycopg.connect(Settings().postgres_dsn) as conn:
+        left = conn.execute(
+            "SELECT token_hash FROM sessions WHERE token_hash = ANY(%(h)s)"
+            " UNION ALL SELECT token_hash FROM links WHERE token_hash = ANY(%(h)s)",
+            {"h": [old_s, new_s, old_l, new_l]},
+        ).fetchall()
+    assert sorted(r[0] for r in left) == sorted([new_s, new_l])
+
+
 def test_deactivating_voids_links_made_by_or_aimed_at_the_user(store, org):
     org_id, _ = org
     owner, rogue = seed_user(org_id), seed_user(org_id)

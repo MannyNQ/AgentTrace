@@ -11,21 +11,23 @@ Failures become tests, and tests grade trajectories (ADR-0001). A failed product
 ## Architecture
 
 ```
- agent + SDK ──spans (batched, async)──▶ ingest API ──▶ Redis Streams ──▶ workers
-                                                                            │
-          ┌─────────────────────────────────────────────────────────────────┤
-          ▼                          ▼                                      ▼
-   Postgres                    ClickHouse                         S3 (SeaweedFS locally)
-   orgs, projects,             spans: append-only,                payloads > 8 KB
-   datasets, experiments       queried in aggregate
+ agent + SDK ──spans (API key, batched, async)──▶ ingest API ──▶ Redis Streams ──▶ workers
+                                                    │                             │
+          ┌─────────────────────────────────────────┴─────────────────────────────┤
+          ▼                          ▼                                            ▼
+   Postgres                    ClickHouse                               S3 (SeaweedFS locally)
+   orgs, projects, users,      spans: append-only,                      payloads > 8 KB
+   sessions, API keys,         queried in aggregate
+   datasets, experiments,
+   replays
 
- web (Next.js) ──▶ query API ──▶ Postgres + ClickHouse + S3
- agenttrace CLI (eval runner, runs on the client) ──▶ results upload
+ browser ──▶ web (Next.js) ──/v1 with the user's session──▶ ingest API
+ agenttrace CLI (eval and replay, run on the client) ──/v1 with a full API key──▶ ingest API
 ```
 
 | Store | Holds | Why |
 |---|---|---|
-| Postgres | Orgs, projects, datasets, experiments | Relational data that changes and needs transactions |
+| Postgres | Orgs, projects, users, sessions, API keys, datasets, experiments, replays | Relational data that changes and needs transactions |
 | ClickHouse | Spans | Append-only, high volume, read as aggregates (latency percentiles, cost by model) |
 | Redis Streams | Spans in flight | Ingest returns immediately; a database outage doesn't lose spans |
 | S3 | Payloads over 8 KB | Keeps ClickHouse rows small so analytics stay fast (ADR-0009) |
@@ -33,6 +35,7 @@ Failures become tests, and tests grade trajectories (ADR-0001). A failed product
 Key constraints from the ADRs:
 
 - Every row is scoped by `project_id` from day one; auth arrived in Phase 6 (ADR-0002, ADR-0031 to ADR-0034).
+- Only ingest reads and writes the stores; the web app goes through `/v1` like any client (ADR-0031).
 - The SDK generates OTel-format IDs, so `(trace_id, span_id)` is the dedup key (ADR-0003).
 - A trace is complete when its root span ends or after a 5-minute quiet period (ADR-0004).
 - The eval runner runs on the client; the server never executes user code (ADR-0006).
@@ -203,7 +206,7 @@ Also settled:
 - Owners only: members, invites, roles, API keys, creating and renaming projects, and project settings such as `retention_days`. Members can do everything else in every project of the org. Removing a member deactivates them and revokes their sessions; keys they created keep working. The last owner can't be demoted or removed.
 - `AGENTTRACE_PUBLIC_URL` is where people open the web app, defaulting to `http://localhost:3000`. The cookie is `Secure` when it's https, and ingest accepts the published dev key only while it's localhost (ADR-0033).
 - Password hashing (argon2id, 64 MiB each) runs on at most 4 threads of its own; requests waiting for one wait as coroutines, so a login flood can't exhaust memory or hold up span ingest, whose guard answers cached keys without a thread.
-- Sessions last 30 days, sliding, with the expiry extended at most once a day. The cookie is httpOnly, `SameSite=Lax`, and `Secure` when `AGENTTRACE_PUBLIC_URL` is https. Logout revokes the session; a password change revokes the user's other sessions. Ten failed logins per email in 15 minutes get 429, counted in Redis. Passwords need 12 or more characters, with no composition rules. Next server actions check the origin, and the browser never talks to ingest, so there is no separate CSRF token.
+- Sessions last 30 days, sliding, with the expiry extended at most once a day. The cookie is httpOnly, `SameSite=Lax`, and `Secure` when `AGENTTRACE_PUBLIC_URL` is https. Logout revokes the session; a password change revokes the user's other sessions. Ten failed logins per email in 15 minutes get 429, counted in Redis; while Redis can't be reached, signing in answers 503 rather than going uncounted. Ingest deletes expired sessions and links every hour. Passwords need 12 or more characters, with no composition rules. Next server actions check the origin, and the browser never talks to ingest, so there is no separate CSRF token.
 - Invites and password resets are owner-created links: single use, 7-day expiry, the role chosen in the invite. `agenttrace-admin reset-password <email>` covers a locked-out owner.
 - The SDK, `agenttrace eval`, `agenttrace replay`, and the GitHub Action keep using `AGENTTRACE_API_KEY`. The SDK needs an `ingest` key; eval and replay need a `full` key. There is no `agenttrace login`. The CLI prints links with the project slug.
 - The read API mirrors what the web app read itself: `GET /v1/traces` (newest first, `before_start` and `before_trace` from the previous page's `next`, replays hidden unless `show_replays`), `GET /v1/traces/{id}` (summary and spans), `.../spans/{span_id}/{input|output}` (the full payload), `.../outcome` (tool calls with full arguments and the root output, for the replay page), and `POST /v1/traces/live` (which of a dataset's source traces still exist). Responses say whether a payload was offloaded but never show storage URIs. Ingest decides trace status, so `TRACE_QUIET_PERIOD_S` moves to it. When ClickHouse or object storage can't be read, these routes answer 503 with which store and why; reading a column a pending ClickHouse migration adds says so. Half a cursor is 422. A replay's original trace must be in the caller's project, like every other reference in a request body.

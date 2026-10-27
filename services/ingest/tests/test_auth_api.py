@@ -15,7 +15,7 @@ from fake_datasets import FakeDatasets, FakePins
 from fastapi.testclient import TestClient
 
 from agenttrace import new_span_id, new_trace_id
-from agenttrace_ingest.app import create_app
+from agenttrace_ingest.app import create_app, purge_expired_forever
 from agenttrace_ingest.auth import (
     DEV_KEY,
     HASHING_THREADS,
@@ -27,7 +27,9 @@ from agenttrace_ingest.auth import (
     hash_token,
     is_local,
 )
+from agenttrace_ingest.auth_store import RedisLimiter
 from agenttrace_ingest.settings import Settings
+from agenttrace_ingest.traces import Unavailable
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")  # slug p-aa
 OTHER = UUID("00000000-0000-0000-0000-0000000000bb")  # slug p-bb, same org
@@ -589,3 +591,85 @@ def test_logins_hash_a_few_at_a_time_while_spans_keep_flowing(monkeypatch):
     anyio.run(main)
     assert peak[0] == HASHING_THREADS
     assert span_ms[0] < 100  # not stuck behind 16 x 50 ms of hashing
+
+
+# --- Housekeeping and outages ---------------------------------------------------------------
+
+
+def test_a_dotless_email_domain_is_an_email():
+    api = Api()
+    body = {"token": SETUP, "email": "Ops@LocalHost", "password": OWNER[1]}
+    api.call("POST", "/v1/auth/setup", body, status=201)
+    api.login("ops@localhost", OWNER[1], status=200)
+    for bad in ("ops", "@localhost", "ops@", "ops@local@host"):
+        api.login(bad, OWNER[1], status=401)
+
+
+def test_purging_deletes_only_expired_sessions_and_links(api: Api):
+    owner = api.claim()
+    stale = api.invite(owner, "stale@example.com")
+    api.store.sessions[hash_token(stale)] = (UUID(api.user_id(stale)), datetime.now(UTC))
+    live_link = api.call("POST", "/v1/members/invites", {}, session=owner).json()["token"]
+    old_link = api.call("POST", "/v1/members/invites", {}, session=owner).json()["token"]
+    link = api.store.links[hash_token(old_link)]
+    link.link = link.link.model_copy(update={"expires_at": datetime.now(UTC) - timedelta(1)})
+
+    assert Auth(api.store, api.limiter).purge_expired() == (1, 1)
+    assert set(api.store.sessions) == {hash_token(owner)}
+    assert set(api.store.links) >= {hash_token(live_link)}
+    assert hash_token(old_link) not in api.store.links
+    api.call("GET", "/v1/auth/me", session=owner, status=200)
+
+
+class DownLimiter:
+    """Redis is unreachable: every count fails, as `RedisLimiter` reports it."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def _down(self, *_):
+        self.calls += 1
+        raise Unavailable("can't reach Redis, which counts failed sign-ins: refused")
+
+    failures = failed = clear = _down
+
+
+def test_signing_in_while_redis_is_down_is_503_not_500(api: Api):
+    api.claim()
+    down = DownLimiter()
+    api.limiter.failures = api.limiter.failed = api.limiter.clear = down._down  # type: ignore[method-assign]
+    r = api.login(*OWNER, status=503)
+    assert "can't reach Redis" in api.error(r)
+
+
+def test_an_admin_reset_while_redis_is_down_changes_nothing(api: Api):
+    owner = api.claim()
+    with pytest.raises(Unavailable):
+        Auth(api.store, DownLimiter()).set_password(OWNER[0], "recovered-password")
+    api.call("GET", "/v1/auth/me", session=owner, status=200)
+    api.login(*OWNER, status=200)
+
+
+def test_the_redis_limiter_reports_an_unreachable_redis():
+    limiter = RedisLimiter(Settings(redis_url="redis://127.0.0.1:1/0"))
+    for call in (limiter.failures, limiter.failed, limiter.clear):
+        with pytest.raises(Unavailable, match="can't reach Redis"):
+            call("ops@example.com")
+
+
+def test_the_purge_loop_survives_a_failed_pass():
+    calls: list[int] = []
+
+    class Flaky:
+        def purge_expired(self) -> tuple[int, int]:
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("postgres is down")
+            return (0, 0)
+
+    async def run() -> None:
+        with anyio.move_on_after(0.5):
+            await purge_expired_forever(Flaky(), every_s=0.01)  # type: ignore[arg-type]
+
+    anyio.run(run)
+    assert len(calls) >= 2

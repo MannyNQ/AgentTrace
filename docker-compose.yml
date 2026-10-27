@@ -1,5 +1,7 @@
 name: agenttrace
 # Host ports are overridable (AGENTTRACE_*_PORT) so a second project (-p) can run beside this one.
+# The stores listen on 127.0.0.1 only: ingest and the worker reach them on the compose network,
+# and only ingest is published to other machines, for agents that send spans.
 
 x-service-env: &service-env
   POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -28,7 +30,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports: ["${AGENTTRACE_POSTGRES_PORT:-5432}:5432"]
+    ports: ["127.0.0.1:${AGENTTRACE_POSTGRES_PORT:-5432}:5432"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres:/docker-entrypoint-initdb.d:ro
@@ -45,7 +47,7 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    ports: ["${AGENTTRACE_CLICKHOUSE_HTTP_PORT:-8123}:8123", "${AGENTTRACE_CLICKHOUSE_NATIVE_PORT:-9000}:9000"]
+    ports: ["127.0.0.1:${AGENTTRACE_CLICKHOUSE_HTTP_PORT:-8123}:8123", "127.0.0.1:${AGENTTRACE_CLICKHOUSE_NATIVE_PORT:-9000}:9000"]
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
     volumes:
@@ -61,7 +63,7 @@ services:
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--appendonly", "yes"]
-    ports: ["${AGENTTRACE_REDIS_PORT:-6379}:6379"]
+    ports: ["127.0.0.1:${AGENTTRACE_REDIS_PORT:-6379}:6379"]
     volumes: [redis-data:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -73,7 +75,7 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:4.42
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
-    ports: ["${AGENTTRACE_S3_PORT:-8333}:8333"]
+    ports: ["127.0.0.1:${AGENTTRACE_S3_PORT:-8333}:8333"]
     volumes:
       - seaweedfs-data:/data
       - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
