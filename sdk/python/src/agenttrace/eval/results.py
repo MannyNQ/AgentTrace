@@ -19,6 +19,8 @@ from agenttrace.spans import SPAN_ID_PATTERN, TRACE_ID_PATTERN
 
 ScorerName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
 MAX_SAMPLES_PER_ITEM = 100
+# The tag on every eval sample's root span; ingest leaves these out of production traffic.
+EVAL_TAG = "agenttrace-eval"
 MAX_SAMPLES_PER_REQUEST = 100
 
 

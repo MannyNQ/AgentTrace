@@ -13,6 +13,7 @@ OpenTelemetry's.
 import functools
 import inspect
 import logging
+import os
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -29,6 +30,15 @@ from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span
 log = logging.getLogger("agenttrace")
 
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
+
+SERVICE_NAME_ATTRIBUTE = "resource.service.name"
+
+
+def service_name() -> str | None:
+    """The service a root span belongs to: `AGENTTRACE_SERVICE_NAME`, else OpenTelemetry's
+    `OTEL_SERVICE_NAME`, so one setting names an agent's traces over the SDK and OTLP alike."""
+    return os.environ.get("AGENTTRACE_SERVICE_NAME") or os.environ.get("OTEL_SERVICE_NAME") or None
+
 
 SpanProcessor = Callable[[Span], None]
 _processors: tuple[SpanProcessor, ...] = ()
@@ -102,6 +112,9 @@ class ActiveSpan:
         self.cache_write_5m_tokens: int | None = None
         self.cache_write_1h_tokens: int | None = None
         self.attributes: dict[str, str] = dict(attributes or {})
+        if parent is None and (service := service_name()):
+            # The key OTLP ingest gives a resource's service.name, so traces_mv reads one key.
+            self.attributes.setdefault(SERVICE_NAME_ATTRIBUTE, service)
         # Trace metadata belongs on the root span only; on a child it's ignored.
         self.trace_metadata = trace_metadata if parent is None else None
 

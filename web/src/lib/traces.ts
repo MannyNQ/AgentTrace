@@ -147,7 +147,12 @@ export async function listTraces(
   before?: Cursor,
   showReplays = false,
 ): Promise<{ traces: TraceSummary[]; next?: Cursor }> {
-  const query = new URLSearchParams({ limit: String(limit), show_replays: String(showReplays) });
+  // Eval samples' traces stay listed, as before ingest's filter hid them by default (ADR-0038).
+  const query = new URLSearchParams({
+    limit: String(limit),
+    show_replays: String(showReplays),
+    show_evals: "true",
+  });
   if (before) {
     query.set("before_start", before.start);
     query.set("before_trace", before.traceId);

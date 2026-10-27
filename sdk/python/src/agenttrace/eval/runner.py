@@ -37,6 +37,7 @@ from agenttrace.eval import scorers as sc
 from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
 from agenttrace.eval.config import EvalConfig
 from agenttrace.eval.results import (
+    EVAL_TAG,
     MAX_SAMPLES_PER_REQUEST,
     AgentRun,
     Finish,
@@ -51,7 +52,6 @@ from agenttrace.spans import Span, SpanKind
 from agenttrace.tracing import add_span_processor, span
 
 SAMPLE_SPAN = "agenttrace.eval.sample"
-EVAL_TAG = "agenttrace-eval"
 MAX_OUTPUT_BYTES = 1024 * 1024  # what the server stores (ADR-0023)
 MAX_ERROR = 1000
 UNKNOWN_MODEL = "unknown"  # an LLM span without a model: the server can't price it
