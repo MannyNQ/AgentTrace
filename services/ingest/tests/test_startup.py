@@ -12,6 +12,8 @@ from agenttrace_ingest import app as app_module
 from agenttrace_ingest.auth import DEFAULT_PROJECT_ID, DEV_KEY
 from agenttrace_ingest.settings import Settings
 
+FIRST = 0.05  # the first retry delay, shortened for the test
+
 
 def test_ingest_serves_while_clickhouse_migrations_retry(monkeypatch):
     attempts: list[float] = []
@@ -28,7 +30,7 @@ def test_ingest_serves_while_clickhouse_migrations_retry(monkeypatch):
     monkeypatch.setattr(app_module, "migrate_clickhouse", migrate_clickhouse)
     monkeypatch.setattr(app_module, "clickhouse_client", lambda s: object())
     monkeypatch.setattr(app_module, "ensure_bucket", lambda s: None)
-    monkeypatch.setattr(app_module, "CLICKHOUSE_RETRY_FIRST_S", 0.01)
+    monkeypatch.setattr(app_module, "CLICKHOUSE_RETRY_FIRST_S", FIRST)
     app = app_module.create_app(
         Settings(agenttrace_api_key=None),
         checks={},
@@ -41,7 +43,10 @@ def test_ingest_serves_while_clickhouse_migrations_retry(monkeypatch):
         assert c.get("/health").status_code == 200  # up before ClickHouse answered
         assert applied.wait(timeout=5)
     assert len(attempts) == 3
-    assert attempts[2] - attempts[1] >= attempts[1] - attempts[0]  # backs off
+    # Backs off: the waits are FIRST, then twice that. Each gap is at least its wait (startup
+    # work on a busy machine only adds to it), so compare with the waits, not with each other.
+    assert attempts[1] - attempts[0] >= FIRST
+    assert attempts[2] - attempts[1] >= 2 * FIRST
 
 
 def test_shutdown_stops_a_migration_still_retrying(monkeypatch):
