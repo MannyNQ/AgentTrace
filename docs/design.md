@@ -282,3 +282,33 @@ A project's overview shows whether its agent is getting slower, pricier, or less
 2. Ingest analytics: the bucketing helper (range, buckets, `tz`, retention clamp) and `/v1/analytics/{volume,latency,cost,tools,models}`, with previous-period values for the headline numbers.
 3. Web: the SVG chart components, `/p/<slug>/overview` with its tiles and panels, the landing redirect and nav, and the trace list's new filters with chart clicks mapped onto them.
 4. Proof: unit tests for the filter, bucketing across time zones and DST, and each endpoint's SQL against hand-computed fixtures; integration tests against ClickHouse covering running traces, eval and replay exclusion, unpriced calls, and project isolation; an `overview` entry in the verify skill that seeds traces with known latencies, costs, and errors through the SDK and OTLP and checks each number on the page and the trace list each click opens; and a seeding benchmark for the 2 s budget, with its result in the eng log.
+
+## Decisions settled in Phase 9
+
+1. **LLM spans record the full request and response.** The input is the full `create` keyword arguments (tools with schemas, real parameter values), less transport options; the output is the full response (`id`, `model`, `stop_reason`, `usage`, `content`). The stringified parameter attributes go; `llm.tools` stays for search. Older traces replay whole but can't be forked (ADR-0039).
+2. **A fork replays a stubbed prefix, then runs live.** The entry point runs from the start with the root input; every LLM call and tool call before the fork point returns its recording, and everything from it on runs live with today's code. The original process isn't resumed, since its state isn't in the trace. Tool stubbing answers every tool call from the recording while LLM calls run live, with or without a fork (ADR-0040, settling what ADR-0028 deferred).
+
+Also settled:
+
+- The CLI is `agenttrace replay <trace_id> --from <span_id>` (a short prefix accepted) and `--stub-tools`. The web UI never runs user code (ADR-0006): "Fork from here" on an LLM or tool span copies the command, or shows why the span can't be a fork point.
+- A step is an LLM or tool span, in start-time order. At an LLM fork point that call runs live; at a tool fork point the LLM reply that asked for the tool is stubbed and the tool runs live. Agent and custom spans aren't fork points.
+- Interception is at the Anthropic integration's `messages.create`, `@trace(kind="tool")`, and a new `agenttrace.call_tool(name, args, fn)` helper for dispatch loops that only know the tool's name at call time. `span()` blocks, OTel-bridged and OTLP spans, and streamed calls aren't stubbable; a fork or tool-stubbed replay that needs one is refused before it starts, naming the step. The demo agent moves its tools to `call_tool`.
+- Prefix LLM calls match by order; tool calls match by name and full JSON equality of arguments, each recording used once, so parallel calls find theirs.
+- A prefix LLM request that differs from its recording still gets the stub, with the differing fields recorded as a warning: a changed prompt is usually the fix being tested. A prefix tool call with no match takes the run live from that step, recorded as `diverged_at`. Under `--stub-tools`, a live-suffix tool call with no match errors the run (it scores 0).
+- A tool span is stubbable only when its output round-trips through JSON unchanged and wasn't truncated; the SDK marks this when it records the span. A truncated LLM span isn't stubbable either.
+- Tool spans record the error message as well as the type. A stubbed errored call raises `agenttrace.RecordedToolError` carrying both; an agent catching a specific exception class sees a different one.
+- A fork's `replay_of` points at the fork point in the trace it forked, which may be a replay run, so forks chain; whole-trace replays still resolve to the original root. "Replays of trace X" becomes the traces whose chain reaches X.
+- The CLI reads steps from `GET /v1/traces/{id}/steps` in ingest (ADR-0031): each step's kind, name, `span_id`, full input and output (from S3 when offloaded), and the attributes that decide stubbability. The CLI decides refusals, beside the interceptors.
+- `replays` gains `fork_span_id` (null for a whole-trace replay) and `tool_mode` (`live` or `recorded`); each run gains `diverged_at` and its LLM-request warnings. Scoring is unchanged (ADR-0030).
+- First difference still compares whole trajectories, so a prefix divergence is the first difference. The replay page collapses the stubbed prefix, marks the fork point, and shows divergence, warnings, and the fork lineage.
+- Deferred: stubbing `span()` blocks, OTel-bridged and OTLP spans, and streamed calls; decoders for tool outputs that don't round-trip; providers other than Anthropic; a server-side playground (still out under ADR-0006).
+
+## Phase 9 plan
+
+A failed step can be forked: the history up to it is played back exactly, today's code runs from there, and nothing in the prefix touches a real tool:
+
+1. SDK capture: the full LLM request and response, the round-trip and truncation marks and error messages on tool spans, `call_tool`, and the demo agent moved onto it.
+2. Ingest: `/v1/traces/{id}/steps`, the `replays` migration (`fork_span_id`, `tool_mode`, per-run `diverged_at` and warnings), and `replay_of` resolution for chained forks.
+3. SDK replay: the stub layer (matching, divergence, request warnings, `RecordedToolError`), `--from` and `--stub-tools`, and refusals that name the step.
+4. Web: "Fork from here" on LLM and tool spans, the collapsed prefix and fork-point marker, divergence and warnings on the replay page, and fork lineage.
+5. Proof: unit tests for matching and divergence; integration tests for the steps endpoint and chained `replay_of`; a `fork` entry in the verify skill that forks a recorded demo-agent failure at the step that went wrong, with a fixed prompt, and checks the step changes while no prefix tool ran.
