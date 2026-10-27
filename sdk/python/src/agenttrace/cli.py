@@ -1,5 +1,6 @@
 """`agenttrace eval`: run the agent over a dataset version and upload the scores (ADR-0006).
-`agenttrace replay`: run it again on a recorded trace's input (ADR-0028); see `run_replay`.
+`agenttrace replay`: run it again on a recorded trace's input (ADR-0028), or fork it from a step
+or stub its tools (ADR-0040); see `run_replay`.
 
 After a completed run it prints the comparison with the baseline (ADR-0024). Exit codes: 0 when
 the experiment completed, 1 when it failed (or, with `--fail-on-regression`, when it couldn't be
@@ -177,7 +178,7 @@ def run_replay(args: argparse.Namespace) -> int:
     """Exit codes as `eval`'s: 0 when the replay completed, 1 when it failed, 2 when it couldn't
     start (nothing recorded). With `--require-pass`, 3 when a scored run didn't pass or no run
     was graded, and 2 before running when there's nothing to score (ADR-0030)."""
-    from agenttrace.eval import config, scorers
+    from agenttrace.eval import config, fork, scorers
     from agenttrace.eval import replay as rp
     from agenttrace.eval.client import ApiError, Client
     from agenttrace.eval.results import MAX_SAMPLES_PER_ITEM
@@ -212,7 +213,11 @@ def run_replay(args: argparse.Namespace) -> int:
         if not callable(entry):
             return stop(f"{entry_path} isn't callable")
         how = rp.scoring(cfg, client, o, lambda: scorers.build(cfg) if cfg else [])
-    except (ApiError, scorers.ScorerError) as e:
+        plan = None
+        if args.fork_from is not None or args.stub_tools:
+            steps = client.trace_steps(args.trace_id)
+            plan = fork.plan(args.trace_id, steps, args.fork_from, args.stub_tools)
+    except (ApiError, scorers.ScorerError, fork.ForkError) as e:
         return stop(str(e))
     if args.require_pass and how.unscored_reason:
         return stop(f"--require-pass needs something to score, but {how.unscored_reason}")
@@ -222,8 +227,16 @@ def run_replay(args: argparse.Namespace) -> int:
         commit=env_git.commit or _git("rev-parse", "HEAD"),
         branch=env_git.branch or _git("rev-parse", "--abbrev-ref", "HEAD"),
     )
-    if o.ref.trace_id != args.trace_id:
+    if plan is not None and plan.fork is not None:
+        print(
+            f"forking trace {args.trace_id} at {plan.fork.label}: {plan.fork.index} steps played "
+            "back, live from there",
+            file=sys.stderr,
+        )
+    elif o.ref.trace_id != args.trace_id:
         print(f"{args.trace_id} is a replay run; replaying its original", file=sys.stderr)
+    if plan is not None and plan.stub_tools:
+        print("tools answered from the recording; none will run", file=sys.stderr)
     scored = (
         f"scored against item {how.item.item_id[:8]} rev {how.item.rev}"
         if how.item
@@ -242,6 +255,7 @@ def run_replay(args: argparse.Namespace) -> int:
         cfg.concurrency if cfg else rp.DEFAULT_CONCURRENCY,
         cfg.timeout_s if cfg else rp.DEFAULT_TIMEOUT_S,
         report=lambda line: print(line, file=sys.stderr),
+        plan=plan,
     )
     try:
         result = runner.run(runs, git, _dirty(), cfg)
@@ -310,6 +324,17 @@ def main(argv: list[str] | None = None) -> None:
     rp.add_argument("--entry", help="the entry point, module:function (default: eval.yaml's)")
     rp.add_argument(
         "--samples", type=int, help="how many replay runs (default: eval.yaml's samples, else 3)"
+    )
+    rp.add_argument(
+        "--from",
+        dest="fork_from",
+        metavar="SPAN_ID",
+        help="fork: play the trace back up to this LLM or tool span and run live from it",
+    )
+    rp.add_argument(
+        "--stub-tools",
+        action="store_true",
+        help="answer every tool call from the recording instead of running it",
     )
     rp.add_argument(
         "--require-pass",

@@ -149,6 +149,11 @@ class Client:
         replay run (ADR-0028)."""
         return self.request("GET", f"/v1/traces/{urllib.parse.quote(trace_id)}/input")
 
+    def trace_steps(self, trace_id: str) -> list[dict[str, Any]]:
+        """The trace's LLM and tool spans in order, with full payloads, for a fork (ADR-0040)."""
+        path = f"/v1/traces/{urllib.parse.quote(trace_id)}/steps"
+        return self.request("GET", path)["steps"]
+
     def create_replay(self, r: NewReplay) -> dict[str, Any]:
         return self.request("POST", "/v1/replays", r.model_dump(mode="json", exclude_defaults=True))
 

@@ -1,5 +1,6 @@
 """AgentTrace Python SDK: trace agent runs and send them to an AgentTrace server."""
 
+from agenttrace._playback import RecordedToolError
 from agenttrace.exporter import configure, flush
 from agenttrace.integrations.anthropic import instrument_anthropic
 from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span_id, new_trace_id
@@ -14,6 +15,7 @@ from agenttrace.tracing import (
 
 __all__ = [
     "ActiveSpan",
+    "RecordedToolError",
     "Span",
     "SpanKind",
     "SpanStatus",

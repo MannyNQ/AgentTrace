@@ -7,7 +7,7 @@ from typing import Any
 
 from anthropic.types.beta import BetaToolParam
 
-from agenttrace import call_tool
+from agenttrace import RecordedToolError, call_tool
 
 DATA: dict[str, Any] = json.loads(files("demo_agent").joinpath("data.json").read_text())
 REFUND_WINDOW_DAYS = 30
@@ -108,5 +108,5 @@ def run_tool(name: str, args: dict) -> tuple[str, bool]:
     fn = TOOLS[name][0] if name in TOOLS else unknown
     try:
         return json.dumps(call_tool(name, args, fn)), False
-    except ToolError as e:
+    except (ToolError, RecordedToolError) as e:  # the latter when a replay answers from a recording
         return str(e), True

@@ -21,6 +21,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, Protocol, overload
 
+from agenttrace import _playback
 from agenttrace._json import is_lossless, to_jsonable
 from agenttrace._quiet import untraced as untraced  # public here, as before
 from agenttrace._quiet import untraced_now
@@ -248,7 +249,9 @@ def span(
     except BaseException as e:
         # Only a tool's message is kept: a fork re-raises it (ADR-0040). Elsewhere it can carry
         # URLs or driver errors nobody asked to store.
-        active.set_error(type(e).__name__, _message(e) if active.kind == SpanKind.TOOL else None)
+        # A stubbed call's error keeps the recorded class name, so the run reads like the original.
+        error_type = getattr(e, "recorded_type", None) or type(e).__name__
+        active.set_error(error_type, _message(e) if active.kind == SpanKind.TOOL else None)
         raise
     finally:
         if leave:
@@ -272,6 +275,20 @@ def _message(e: BaseException) -> str | None:
 
 
 _CALL_TOOL = {INTERCEPTOR_ATTRIBUTE: "call_tool"}
+_LIVE = object()
+
+
+def _answer(s: ActiveSpan, name: str, args: Any) -> Any:
+    """A tool call's recorded result under a replay's playback, or `_LIVE` to run it. A call
+    that failed in the recording raises RecordedToolError (ADR-0040)."""
+    p = _playback.current()
+    rec = p.answer_tool(name, args) if p is not None else None
+    if rec is None:
+        return _LIVE
+    s.set_attribute(_playback.STUBBED_ATTRIBUTE, "true")
+    if rec.error_type is not None:
+        raise _playback.RecordedToolError(rec.error_type, rec.error_message)
+    return rec.output
 
 
 def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
@@ -282,13 +299,17 @@ def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
 
         async def call_async() -> Any:
             with span(name, SpanKind.TOOL, args, attributes=_CALL_TOOL) as s:
-                result = await fn(**args)
+                result = _answer(s, name, args)
+                if result is _LIVE:
+                    result = await fn(**args)
                 s.set_output(result)
                 return result
 
         return call_async()
     with span(name, SpanKind.TOOL, args, attributes=_CALL_TOOL) as s:
-        result = fn(**args)
+        result = _answer(s, name, args)
+        if result is _LIVE:
+            result = fn(**args)
         s.set_output(result)
         return result
 
@@ -320,7 +341,8 @@ def trace(
     value as output. Works on sync and async functions. Use as `@trace` or `@trace(kind="agent")`.
     """
 
-    if SpanKind(kind) == SpanKind.TOOL:
+    tool = SpanKind(kind) == SpanKind.TOOL
+    if tool:
         attributes = span_options.get("attributes") or {}
         span_options["attributes"] = {**attributes, INTERCEPTOR_ATTRIBUTE: "trace"}
 
@@ -331,8 +353,11 @@ def trace(
 
             @functools.wraps(f)
             async def async_wrapper(*args, **kwargs):
-                with span(span_name, kind, _call_input(f, args, kwargs), **span_options) as s:
-                    result = await f(*args, **kwargs)
+                inp = _call_input(f, args, kwargs)
+                with span(span_name, kind, inp, **span_options) as s:
+                    result = _answer(s, span_name, inp) if tool else _LIVE
+                    if result is _LIVE:
+                        result = await f(*args, **kwargs)
                     s.set_output(result)
                     return result
 
@@ -340,8 +365,11 @@ def trace(
 
         @functools.wraps(f)
         def wrapper(*args, **kwargs):
-            with span(span_name, kind, _call_input(f, args, kwargs), **span_options) as s:
-                result = f(*args, **kwargs)
+            inp = _call_input(f, args, kwargs)
+            with span(span_name, kind, inp, **span_options) as s:
+                result = _answer(s, span_name, inp) if tool else _LIVE
+                if result is _LIVE:
+                    result = f(*args, **kwargs)
                 s.set_output(result)
                 return result
 
