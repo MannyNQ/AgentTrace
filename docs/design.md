@@ -238,7 +238,7 @@ Also settled:
 - Every translated span carries `agenttrace.convention` (`gen_ai`, `openinference`, or `none`), an attribute, not a column.
 - `CHAIN` maps to `custom`, not `agent`: LangChain wraps nearly every step in a chain. Embeddings are `llm` spans, so their tokens are priced.
 - Message and tool-call content moves into the span's input and output and through the 8 KB offload; other attribute values are cut to 4 KB. The OTLP setup docs say to set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true`, since without it tool spans have no arguments for trajectory scorers to match.
-- The eval runner and `agenttrace replay` install the bridge whenever `opentelemetry-sdk` is importable; production code calls `agenttrace.otel.install()`. Running the bridge and an OTLP exporter together sends each span twice with the same IDs, and the worker keeps one.
+- The eval runner and `agenttrace replay` install the bridge whenever `opentelemetry-sdk` is importable; production code calls `agenttrace.otel.install()`. Running the bridge and an OTLP exporter together sends each span twice with the same IDs, and the worker keeps one. Context is shared only once the bridge is installed, and an OTel LLM span directly under an SDK LLM span is dropped as a duplicate, since the Anthropic SDK records its own spans inside `instrument_anthropic()`'s (ADR-0036).
 - The web app's "key created" view shows the OTLP env lines next to the SDK's, since the key is shown only once. Nothing else in the UI changes: translated spans are ordinary spans.
 - Deferred: OTLP logs and metrics (they'd go under `/otlp` too), gRPC, model-name aliases in the price table, lifting child-span metadata onto the root, and vendor namespaces.
 

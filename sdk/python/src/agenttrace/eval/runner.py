@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from agenttrace import otel
 from agenttrace._json import to_jsonable
 from agenttrace.eval import scorers as sc
 from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
@@ -489,6 +490,7 @@ class AgentRunner:
         assert UPLOAD_BATCH <= MAX_SAMPLES_PER_REQUEST
         # A truncated output's text doubles at worst when encoded again (escaped quotes).
         assert 2 * MAX_OUTPUT_BYTES + MAX_TRAJECTORY_BYTES < MAX_UPLOAD_BYTES
+        otel.install_if_available()  # so an OTel-instrumented agent's spans are captured (ADR-0036)
         remove = add_span_processor(self.capture)
         try:
             abandoned = asyncio.run(self._runs(run_id, jobs))

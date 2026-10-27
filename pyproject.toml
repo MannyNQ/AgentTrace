@@ -13,7 +13,13 @@ members = ["sdk/python", "services/ingest", "services/worker", "examples/demo-ag
 agenttrace = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1.380", "httpx>=0.27"]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+  "httpx>=0.27",
+  "opentelemetry-sdk>=1.30",
+]
 
 [tool.ruff]
 line-length = 100
