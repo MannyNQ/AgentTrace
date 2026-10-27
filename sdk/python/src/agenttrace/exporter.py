@@ -14,6 +14,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from agenttrace import _refusals as refusals
+from agenttrace._quiet import quiet
 from agenttrace.spans import Span
 
 log = logging.getLogger("agenttrace")
@@ -168,7 +169,7 @@ class Exporter:
                 if timeout <= 0:
                     break
             try:
-                with urllib.request.urlopen(req, timeout=timeout):
+                with quiet(), urllib.request.urlopen(req, timeout=timeout):
                     return True
             except urllib.error.HTTPError as e:
                 if 400 <= e.code < 500:  # our bug or a bad key: retrying won't help

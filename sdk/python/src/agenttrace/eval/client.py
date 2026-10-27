@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from agenttrace import _refusals as refusals
+from agenttrace._quiet import quiet
 from agenttrace.eval.results import (
     Finish,
     NewExperiment,
@@ -65,7 +66,7 @@ class Client:
             if attempt:
                 time.sleep(0.5 * 2 ** (attempt - 1))
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:
+                with quiet(), urllib.request.urlopen(req, timeout=self.timeout_s) as r:
                     text = r.read()
                 return json.loads(text) if text else None
             except urllib.error.HTTPError as e:

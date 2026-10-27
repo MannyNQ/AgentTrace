@@ -7,13 +7,27 @@ requires-python = ">=3.12"
 package = false
 
 [tool.uv.workspace]
-members = ["sdk/python", "services/ingest", "services/worker", "examples/demo-agent"]
+members = [
+  "sdk/python",
+  "services/ingest",
+  "services/worker",
+  "examples/demo-agent",
+  "examples/demo-agent-otel",
+]
 
 [tool.uv.sources]
 agenttrace = { workspace = true }
+demo-agent = { workspace = true }
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1.380", "httpx>=0.27"]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+  "pyright>=1.1.380",
+  "httpx>=0.27",
+  "opentelemetry-sdk>=1.30",
+  "opentelemetry-instrumentation-urllib>=0.51b0",
+]
 
 [tool.ruff]
 line-length = 100
@@ -23,13 +37,31 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agenttrace", "agenttrace_ingest", "agenttrace_worker", "demo_agent"]
+known-first-party = [
+  "agenttrace",
+  "agenttrace_ingest",
+  "agenttrace_worker",
+  "demo_agent",
+  "demo_agent_otel",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["sdk/python/tests", "services/ingest/tests", "services/worker/tests", "examples/demo-agent/tests"]
+testpaths = [
+  "sdk/python/tests",
+  "services/ingest/tests",
+  "services/worker/tests",
+  "examples/demo-agent/tests",
+  "examples/demo-agent-otel/tests",
+]
 markers = ["integration: needs the docker compose stack running"]
 addopts = "-m 'not integration'"
 
 [tool.pyright]
-include = ["sdk/python/src", "services/ingest/src", "services/worker/src", "examples/demo-agent/src"]
+include = [
+  "sdk/python/src",
+  "services/ingest/src",
+  "services/worker/src",
+  "examples/demo-agent/src",
+  "examples/demo-agent-otel/src",
+]
 pythonVersion = "3.12"

@@ -27,6 +27,19 @@ function Notice({ state }: { state: SettingsState }) {
           data-secret
         />
       )}
+      {state.env && (
+        <label className="mt-3 block text-xs text-muted">
+          Environment
+          <textarea
+            readOnly
+            value={state.env}
+            rows={state.env.split("\n").length}
+            onFocus={(e) => e.currentTarget.select()}
+            className={`${field} w-full resize-none font-mono text-xs`}
+            data-key-env
+          />
+        </label>
+      )}
     </div>
   );
 }

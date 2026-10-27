@@ -31,6 +31,10 @@ function rootEnv(key: string): string | undefined {
 export const PUBLIC_URL =
   process.env.AGENTTRACE_PUBLIC_URL || rootEnv("AGENTTRACE_PUBLIC_URL") || "http://localhost:3000";
 
+/** Where agents, the CLI, and CI reach ingest, for the setup shown with a new key. */
+export const PUBLIC_ENDPOINT =
+  process.env.AGENTTRACE_ENDPOINT || rootEnv("AGENTTRACE_ENDPOINT") || "http://localhost:8000";
+
 /** A refusal from the API: `error` for people, plus whatever else the API said. */
 export type ApiError = {
   status: number;

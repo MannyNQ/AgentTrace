@@ -20,9 +20,9 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Surface | Where | Driven by |
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
-| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input` | `health`, `post` (curl), `emit` (real SDK) |
+| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `POST /otlp/v1/traces`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input` | `health`, `post` (curl), `emit` (real SDK) |
 | Web UI | sign-in at `/login`, `/setup`, `/invite/<token>`, `/reset/<token>`; the public health page at `/status`; per project under `/p/<slug>/`: traces at `traces` and `traces/<id>`, `datasets`, `experiments`, comparisons at `experiments/<id>/compare/<baseline>`, replays at `replays/<id>`, and `settings` (project and API keys); `/projects` and `/members`. Paths without `/p/<slug>/` redirect into the entity's project | `page` (`/status`), `traces` (server HTML, with the owner's session) + the built-in browser pane |
-| Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance | `agent` |
+| Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance; `uv run demo-agent-otel "<question>"`, over OTLP | `agent`; the otlp recipe |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 
 `H` exports `AGENTTRACE_API_KEY` (from `.env`, else `at-local-dev-key`) and `AGENTTRACE_ENDPOINT=http://127.0.0.1:18000`, so compose registers the same key the SDK sends and every agent run is traced into this instance, never the dev stack. The web server runs with `TRACE_QUIET_PERIOD_S=20`.

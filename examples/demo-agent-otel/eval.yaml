@@ -1,0 +1,21 @@
+# The OpenTelemetry demo agent's evals, over the same `support` dataset as the demo agent's.
+# From the repo root, with the stack running:  uv run agenttrace eval -c examples/demo-agent-otel/eval.yaml
+entry: demo_agent_otel.evals:eval_entry
+dataset: support
+version: latest
+samples: 3
+concurrency: 4
+timeout_s: 30
+scorers:
+  # Items with an expected_output: a phrase the answer must include.
+  - name: answer
+    type: contains
+  # Items with an expected_trajectory: those tool calls, in that order, other calls allowed.
+  - name: steps
+    type: trajectory
+    mode: in_order
+  # Every item: a support question shouldn't take more than 6 tool calls.
+  - name: few-steps
+    type: trajectory
+    mode: max_steps
+    max: 6

@@ -4,6 +4,10 @@ A span is exported once, when it ends (never on start). Nesting follows `context
 works across threads started with a copied context and across asyncio tasks. Span processors see
 every span as it ends, whether or not an exporter is configured: the eval runner reads each
 sample's trajectory this way (ADR-0022).
+
+Once the OTel bridge is installed (ADR-0036), OpenTelemetry's context is the SDK's too: a span's
+parent is whichever span is current, ours or OpenTelemetry's, and ours are current for
+OpenTelemetry's.
 """
 
 import functools
@@ -14,20 +18,44 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, overload
+from typing import Any, Protocol, overload
 
 from agenttrace._json import to_jsonable
+from agenttrace._quiet import untraced as untraced  # public here, as before
+from agenttrace._quiet import untraced_now
 from agenttrace.exporter import get_exporter
 from agenttrace.spans import Span, SpanKind, SpanStatus, TraceMetadata, new_span_id, new_trace_id
 
 log = logging.getLogger("agenttrace")
 
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
-_untraced: ContextVar[bool] = ContextVar("agenttrace_untraced", default=False)
 
 SpanProcessor = Callable[[Span], None]
 _processors: tuple[SpanProcessor, ...] = ()
 _processors_lock = threading.Lock()
+
+
+class SharedContext(Protocol):
+    """OpenTelemetry's context, as the bridge offers it (agenttrace.otel.bridge)."""
+
+    def current(self) -> tuple[str, str] | None:
+        """The current span's (trace_id, span_id), if there is one."""
+        ...
+
+    def enter(self, trace_id: str, span_id: str) -> Callable[[], None]:
+        """Make this span current; returns the function that undoes it."""
+        ...
+
+
+_otel: SharedContext | None = None  # set by the bridge
+# LLM spans that haven't ended, while the bridge is installed: an OpenTelemetry LLM span
+# directly under one is the same call recorded twice (agenttrace.otel.bridge).
+open_llm_spans: set[str] = set()
+
+
+def share_context(ctx: SharedContext) -> None:
+    global _otel
+    _otel = ctx
 
 
 def add_span_processor(processor: SpanProcessor) -> Callable[[], None]:
@@ -45,17 +73,6 @@ def add_span_processor(processor: SpanProcessor) -> Callable[[], None]:
     return remove
 
 
-@contextmanager
-def untraced() -> Iterator[None]:
-    """Spans ended inside the block are dropped: neither exported nor seen by processors. The
-    eval runner's LLM judge calls run this way, so they never land in a trace (ADR-0027)."""
-    token = _untraced.set(True)
-    try:
-        yield
-    finally:
-        _untraced.reset(token)
-
-
 class ActiveSpan:
     """A span that hasn't ended. Set its output and fields while it runs."""
 
@@ -63,16 +80,16 @@ class ActiveSpan:
         self,
         name: str,
         kind: SpanKind,
-        parent: "ActiveSpan | None",
+        parent: tuple[str, str] | None,
         input: Any = None,
         trace_metadata: TraceMetadata | None = None,
         attributes: dict[str, str] | None = None,
     ):
         self.name = name
         self.kind = SpanKind(kind)
-        self.trace_id = parent.trace_id if parent else new_trace_id()
+        self.trace_id = parent[0] if parent else new_trace_id()
         self.span_id = new_span_id()
-        self.parent_span_id = parent.span_id if parent else None
+        self.parent_span_id = parent[1] if parent else None
         self.start_time = datetime.now(UTC)
         self.input = to_jsonable(input)
         self.output: Any = None
@@ -118,8 +135,7 @@ class ActiveSpan:
         self.cache_write_1h_tokens = cache_write_1h_tokens
 
     def _end(self) -> None:
-        exporter, processors = get_exporter(), _processors
-        if (exporter is None and not processors) or _untraced.get():
+        if not _wanted():
             return
         try:
             span = Span(
@@ -146,13 +162,26 @@ class ActiveSpan:
         except Exception:
             log.warning("agenttrace: could not build span %r", self.name, exc_info=True)
             return
-        for processor in processors:
-            try:
-                processor(span)
-            except Exception:
-                log.warning("agenttrace: span processor %r failed", processor, exc_info=True)
-        if exporter is not None:
-            exporter.export(span)
+        emit(span)
+
+
+def _wanted() -> bool:
+    return (get_exporter() is not None or bool(_processors)) and not untraced_now.get()
+
+
+def emit(span: Span) -> None:
+    """Hand an ended span to the processors and the exporter, unless it's untraced. The bridge
+    sends translated OpenTelemetry spans this way."""
+    if not _wanted():
+        return
+    exporter = get_exporter()
+    for processor in _processors:
+        try:
+            processor(span)
+        except Exception:
+            log.warning("agenttrace: span processor %r failed", processor, exc_info=True)
+    if exporter is not None:
+        exporter.export(span)
 
 
 def current_span() -> ActiveSpan | None:
@@ -180,14 +209,24 @@ def span(
         meta = TraceMetadata(
             session_id=session_id, user_id=user_id, tags=tags or [], metadata=metadata or {}
         )
-    active = ActiveSpan(name, SpanKind(kind), _current.get(), input, meta, attributes)
+    otel = _otel
+    parent = otel.current() if otel else None
+    if parent is None and (p := _current.get()) is not None:
+        parent = (p.trace_id, p.span_id)
+    active = ActiveSpan(name, SpanKind(kind), parent, input, meta, attributes)
     token = _current.set(active)
+    leave = otel.enter(active.trace_id, active.span_id) if otel else None
+    if otel and active.kind == SpanKind.LLM:
+        open_llm_spans.add(active.span_id)
     try:
         yield active
     except BaseException as e:
         active.set_error(type(e).__name__)
         raise
     finally:
+        if leave:
+            leave()
+        open_llm_spans.discard(active.span_id)
         _current.reset(token)
         active._end()
 

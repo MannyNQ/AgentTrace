@@ -13,6 +13,7 @@ from agenttrace_ingest import (
     experiment_api,
     experiments,
     locate,
+    otlp,
     project_api,
     replay_api,
     replays,
@@ -169,7 +170,9 @@ def create_app(
 
     app = FastAPI(title="AgentTrace ingest", lifespan=lifespan)
     app.add_middleware(BodyLimit, max_bytes=s.max_request_bytes)
-    app.include_router(spans.router(s, a, queue or spans.RedisQueue(s)))
+    span_queue = queue or spans.RedisQueue(s)
+    app.include_router(spans.router(s, a, span_queue))
+    app.include_router(otlp.router(s, a, span_queue))
     app.include_router(auth_api.router(a))
     app.include_router(auth_api.members_router(a))
     app.include_router(auth_api.keys_router(a))
