@@ -13,9 +13,12 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
+from agenttrace import _refusals as refusals
 from agenttrace.spans import Span
 
 log = logging.getLogger("agenttrace")
+KEY_FROM = "AGENTTRACE_API_KEY, or the api_key passed to agenttrace.configure()"
+MAX_REFUSAL = 500
 
 DEFAULT_ENDPOINT = "http://localhost:8000"
 TRUNCATED_ATTRIBUTE = "agenttrace.truncated"
@@ -169,8 +172,10 @@ class Exporter:
                     return True
             except urllib.error.HTTPError as e:
                 if 400 <= e.code < 500:  # our bug or a bad key: retrying won't help
-                    detail = e.read()[:500].decode(errors="replace")
-                    self._drop(count, f"ingest rejected them: {e.code} {detail}")
+                    why = refusals.explain(e.code, refusals.reason(e.read()), KEY_FROM)
+                    if len(why) > MAX_REFUSAL:  # a bad batch lists an error per field
+                        why = why[:MAX_REFUSAL] + "…"
+                    self._drop(count, f"ingest rejected them: {e.code} {why}")
                     return True  # the batch is settled; later batches may still succeed
                 error = e
             except (urllib.error.URLError, OSError) as e:

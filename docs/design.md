@@ -32,7 +32,7 @@ Failures become tests, and tests grade trajectories (ADR-0001). A failed product
 
 Key constraints from the ADRs:
 
-- Every row is scoped by `project_id` from day one; auth arrives in Phase 6 (ADR-0002).
+- Every row is scoped by `project_id` from day one; auth arrived in Phase 6 (ADR-0002, ADR-0031 to ADR-0034).
 - The SDK generates OTel-format IDs, so `(trace_id, span_id)` is the dedup key (ADR-0003).
 - A trace is complete when its root span ends or after a 5-minute quiet period (ADR-0004).
 - The eval runner runs on the client; the server never executes user code (ADR-0006).
@@ -188,3 +188,35 @@ A failed trace is re-run against a fix, and the result is compared with the orig
 2. SDK and CLI: `agenttrace replay` with `--config`, `--entry`, `--samples`, and `--require-pass`; `replay_of` on each run's root span; root resolution for replays of replays; the draft-item lookup and scoring; git and dirty-flag capture; the pass-count printout; exit codes 0, 1, 2, and 3.
 3. Web: the "Replays" panel and "Replay" button on the trace page, the "Show replays" toggle on the trace list, and the replay page with the original and the runs side by side, the first difference marked, and scorer reasons.
 4. Proof: unit tests for the first difference and replay scoring; CLI tests with a scripted fake agent for exits 0, 2, and 3 and for chain flattening; integration tests for `/v1/replays` and `/v1/traces/{id}/input`, with offloaded and truncated input; and a `replay` entry in the verify skill that breaks the demo agent, adds the trace to a dataset, sets an expectation, replays (fails), fixes the agent, replays (3/3), and checks the replay page. No new CI workflow.
+
+## Decisions settled in Phase 6
+
+1. **Ingest is the only reader of the stores.** Trace, span, and payload reads move behind `/v1/traces`; the web container keeps only `INGEST_URL` (ADR-0031, superseding ADR-0018).
+2. **Ingest owns users and sessions.** Local email and password (argon2id), opaque hashed session tokens in Postgres, the web app forwarding the token from an httpOnly cookie. Session requests name the project in `AgentTrace-Project: <slug>` on the same `/v1` paths. Users belong to one org as `owner` or `member` (ADR-0032).
+3. **API keys have a scope.** `ingest` (spans only) or `full`. The `.env` key stays a `full` key for the default project (ADR-0033).
+4. **Claiming an install takes a setup token**, from `AGENTTRACE_SETUP_TOKEN` or printed in ingest's logs (ADR-0034).
+
+Also settled:
+
+- Several projects per org, with the project in the URL: `/p/<slug>/traces`. A slug is generated from the name at creation, is unique within the org, and never changes; the name stays editable. The default project's slug is `default`.
+- Old paths (`/traces/<id>`, `/experiments/<id>`, `/replays/<id>`, ...) redirect to `/p/<slug>/...` for the entity's project, after the same access check as any read, so links already in PR comments keep working. `/` redirects to the last project used, kept in a cookie, else `default`.
+- Owners only: members, invites, roles, API keys, creating and renaming projects, and project settings such as `retention_days`. Members can do everything else in every project of the org. Removing a member deactivates them and revokes their sessions; keys they created keep working. The last owner can't be demoted or removed.
+- `AGENTTRACE_PUBLIC_URL` is where people open the web app, defaulting to `http://localhost:3000`. The cookie is `Secure` when it's https, and ingest accepts the published dev key only while it's localhost (ADR-0033).
+- Password hashing (argon2id, 64 MiB each) runs on at most 4 threads of its own; requests waiting for one wait as coroutines, so a login flood can't exhaust memory or hold up span ingest, whose guard answers cached keys without a thread.
+- Sessions last 30 days, sliding, with the expiry extended at most once a day. The cookie is httpOnly, `SameSite=Lax`, and `Secure` when `AGENTTRACE_PUBLIC_URL` is https. Logout revokes the session; a password change revokes the user's other sessions. Ten failed logins per email in 15 minutes get 429, counted in Redis. Passwords need 12 or more characters, with no composition rules. Next server actions check the origin, and the browser never talks to ingest, so there is no separate CSRF token.
+- Invites and password resets are owner-created links: single use, 7-day expiry, the role chosen in the invite. `agenttrace-admin reset-password <email>` covers a locked-out owner.
+- The SDK, `agenttrace eval`, `agenttrace replay`, and the GitHub Action keep using `AGENTTRACE_API_KEY`. The SDK needs an `ingest` key; eval and replay need a `full` key. There is no `agenttrace login`. The CLI prints links with the project slug.
+- The read API mirrors what the web app read itself: `GET /v1/traces` (newest first, `before_start` and `before_trace` from the previous page's `next`, replays hidden unless `show_replays`), `GET /v1/traces/{id}` (summary and spans), `.../spans/{span_id}/{input|output}` (the full payload), `.../outcome` (tool calls with full arguments and the root output, for the replay page), and `POST /v1/traces/live` (which of a dataset's source traces still exist). Responses say whether a payload was offloaded but never show storage URIs. Ingest decides trace status, so `TRACE_QUIET_PERIOD_S` moves to it. When ClickHouse or object storage can't be read, these routes answer 503 with which store and why; reading a column a pending ClickHouse migration adds says so. Half a cursor is 422. A replay's original trace must be in the caller's project, like every other reference in a request body.
+- `GET /v1/projects` lists the org's projects for a session; owners `POST` new ones. `GET /v1/project` is the project a request acts on, for keys and sessions alike (the CLI reads its slug), and owners `PATCH` its name or `retention_days` (1 to 3650; new spans only, ADR-0016). A taken slug gets `-2`, `-3`, ...; a taken name is 409.
+- The web app's project pages live under `app/p/[slug]/`. Its proxy (Next's middleware) checks for a session cookie, sends paths without a project to the last one opened (a cookie) or `default`, and sets an `x-agenttrace-project` request header from the URL, overwriting any copy a client sends; the ingest client forwards that and the session to ingest, so pages and server actions never name the project themselves. An expired session redirects to `/login`. Old paths (`/traces/<id>`, `/experiments/<id>`, `/replays/<id>`, `/datasets/<id>`, `/api/traces/...`) ask `GET /v1/locate/{kind}/{id}` which of the user's projects holds the entity and redirect there. The health check moves to a public `/status`, since `/` now redirects. Org pages are `/projects` and `/members`; project settings and keys are `/p/<slug>/settings`; `/account/password` changes the password.
+- Deferred, not to be built in Phase 6: OIDC/SSO, SMTP, per-project access lists, a multi-org UI, an audit log, OTLP ingest, and `agenttrace login`.
+
+## Phase 6 plan
+
+Every request is authenticated, every read and write is checked against the project, and the web app holds no store credentials:
+
+1. Ingest auth core: Postgres migrations (users, memberships, sessions, invites, key scope and fields, project slugs); the auth resolver for keys and sessions with the project header; login, setup, invite, and reset endpoints, with login-failure counters in Redis; the `agenttrace-admin` command; and a test that walks the route table and fails on any `/v1` route without the auth dependency, outside an allowlist (`/health`, login, setup, invite acceptance).
+2. Ingest read API: `/v1/traces` for the list, summaries, spans, and payloads, taking over the queries in `web/src/lib/traces.ts`; `/v1/me` and `/v1/projects`.
+3. Web: setup, login, and invite pages; `/p/<slug>/` routing and the old-path redirects; all reads through ingest; settings pages for members, keys, and projects; store credentials and the API key removed from the web service in compose. The shared key stays a valid `full` key until this step removes it, so the web app works throughout steps 1 and 2.
+4. SDK and CLI: errors that name the missing key scope, and links printed with the slug.
+5. Proof and docs: unit tests for the resolver matrix (key scope, session role, project header match or mismatch, revoked or expired); integration tests with two projects, calling every read and write route with the other project's key and session and expecting 403 or 404 with nothing leaked; an `auth` entry in the verify skill that claims a fresh stack with the setup token, invites a member, creates project 2 with an `ingest` key, sends demo-agent spans there and checks project 1 can't see them, checks the `ingest` key gets 403 on `/v1/datasets`, the member can't open the keys page, an old `/replays/<id>` link redirects, and the web container has no store credentials; and the README's "no authentication" warning replaced with a note to serve it behind https.

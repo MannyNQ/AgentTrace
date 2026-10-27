@@ -14,6 +14,12 @@ x-service-env: &service-env
   # The key ingest registers for the default project (ADR-0017). The default matches .env.example
   # and the demo agent's, so a .env from before Phase 1 still works.
   AGENTTRACE_API_KEY: ${AGENTTRACE_API_KEY:-at-local-dev-key}
+  # ADR-0034: claims the install. Unset, ingest prints a setup token in its logs until claimed.
+  AGENTTRACE_SETUP_TOKEN: ${AGENTTRACE_SETUP_TOKEN:-}
+  # Where people open the web app. Unless it's localhost, ingest refuses the dev key above.
+  AGENTTRACE_PUBLIC_URL: ${AGENTTRACE_PUBLIC_URL:-}
+  # ADR-0004: a trace whose root never ended is complete after this much quiet.
+  TRACE_QUIET_PERIOD_S: ${TRACE_QUIET_PERIOD_S:-300}
 
 services:
   postgres:

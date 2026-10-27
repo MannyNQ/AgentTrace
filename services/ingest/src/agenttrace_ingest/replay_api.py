@@ -1,6 +1,6 @@
-"""/v1/replays, where `agenttrace replay` uploads results (ADR-0029), and
-`/v1/traces/{trace_id}/input`, where it reads what to re-run (ADR-0028). Each route parses,
-calls one rule in `replays`, and returns its record."""
+"""/v1/replays, where `agenttrace replay` uploads results (ADR-0029); it reads what to re-run
+from `/v1/traces/{trace_id}/input` (`trace_api`). Each route parses, calls one rule in
+`replays`, and returns its record."""
 
 from typing import Annotated
 from uuid import UUID
@@ -10,13 +10,12 @@ from pydantic import BaseModel
 
 from agenttrace.eval.results import Finish, NewReplay, ReplayRunBatch
 from agenttrace_ingest import replays as rp
+from agenttrace_ingest.auth import Auth, ProjectAccess
 from agenttrace_ingest.datasets import TraceId
 from agenttrace_ingest.experiments import Prices
-from agenttrace_ingest.spans import KeyResolver, key_auth
-from agenttrace_ingest.trace_inputs import RootInput, TraceRoots
+from agenttrace_ingest.trace_inputs import TraceRoots
 
 PREFIX = "/v1/replays"
-TRACES_PREFIX = "/v1/traces"
 
 
 class ReplayList(BaseModel):
@@ -27,9 +26,9 @@ class Uploaded(BaseModel):
     uploaded: int
 
 
-def router(store: rp.Store, prices: Prices, keys: KeyResolver) -> APIRouter:
+def router(store: rp.Store, roots: TraceRoots, prices: Prices, a: Auth) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
-    auth = Depends(key_auth(keys))
+    auth = Depends(ProjectAccess(a))
 
     @r.get("")
     def list_replays(project: Annotated[UUID, auth], trace_id: TraceId) -> ReplayList:
@@ -40,7 +39,7 @@ def router(store: rp.Store, prices: Prices, keys: KeyResolver) -> APIRouter:
     def create(
         project: Annotated[UUID, auth], body: NewReplay, response: Response
     ) -> rp.ReplayInfo:
-        replay, created = rp.create(store, project, body)
+        replay, created = rp.create(store, roots, project, body)
         if not created:
             response.status_code = 200
         return replay
@@ -56,18 +55,5 @@ def router(store: rp.Store, prices: Prices, keys: KeyResolver) -> APIRouter:
     @r.post("/{replay_id}/finish")
     def finish(project: Annotated[UUID, auth], replay_id: UUID, body: Finish) -> rp.ReplayInfo:
         return rp.finish(store, project, replay_id, body)
-
-    return r
-
-
-def traces_router(roots: TraceRoots, keys: KeyResolver) -> APIRouter:
-    r = APIRouter(prefix=TRACES_PREFIX)
-    auth = Depends(key_auth(keys))
-
-    @r.get("/{trace_id}/input")
-    def trace_input(project: Annotated[UUID, auth], trace_id: TraceId) -> RootInput:
-        """The root span's full input, read as Add to dataset reads it; a truncated input is
-        refused with 422."""
-        return roots.root(project, trace_id)
 
     return r

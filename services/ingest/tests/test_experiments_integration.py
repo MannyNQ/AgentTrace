@@ -7,11 +7,10 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
-from stack import emit_root
+from stack import emit_root, register_key
 
 from agenttrace_ingest.app import create_app
 from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.spans import register_key
 from agenttrace_ingest.stores import clickhouse_client
 
 pytestmark = pytest.mark.integration

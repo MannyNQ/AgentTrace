@@ -8,6 +8,9 @@ This directory is the maintained source for verifying AgentTrace's user-facing b
 - `H doctor` reports `DOCTOR OK`, built from the SHA you mean to verify.
 - The instance is the `agenttrace-verify` compose project on the verify ports: ingest :18000, web :13000. Never drive the dev stack on :8000/:3000.
 - Every run writes to `verify-artifacts/<run-id>/`, the directory `up` printed.
+- `up` claims the install as `verify-owner@example.com` / `verify-owner-password` (ADR-0034). Every web page but `/status` and the sign-in pages needs a session: in the browser pane, sign in at `http://127.0.0.1:13000/login` with those credentials first. `H traces` uses the same owner's session.
+- Web paths in these recipes are inside the default project: `/traces` means `http://127.0.0.1:13000/p/default/traces`. The old paths still work after sign-in, by redirecting into the entity's project (design.md, Phase 6).
+- The web app reads and writes only through ingest with the signed-in user's session (ADR-0031, ADR-0032). The `curl` recipes below use the `.env` key, which is a `full` key for the default project while the public URL is local (ADR-0033).
 
 ## Driving conventions
 
@@ -46,4 +49,5 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Experiments](./experiments.md): the `/v1/experiments` API the eval runner uploads to, with retryable creates and uploads, completion rules, server-side cost, per-scorer and per-item summaries, the `agenttrace eval` CLI that runs the demo agent and uploads, and the experiment pages: list with a dataset filter, per-scorer and per-item results, and per-sample tool calls with the first mismatch marked.
 - [CI gate](./ci-gate.md): comparing an experiment with its merge-base or base-branch baseline, the paired bootstrap and `max_drop`, `agenttrace eval --fail-on-regression` (exit 3) and `--report-md`, the versus-baseline panel, compare page and side-by-side item view, the `llm_judge` scorer, and `action.yml`.
 - [Replay](./replay.md): ClickHouse migrations and `traces.replay_of`, `GET /v1/traces/<id>/input`, the `/v1/replays` API, `agenttrace replay` with draft-item scoring, `--require-pass` (exit 3, or 2 with nothing to score) and replays of replays, the trace list's "Show replays", the trace page's Replays section, and the replay page with each run's first difference.
+- [Auth](./auth.md): claiming an install with the setup token, sign-in and sessions, invites and owner-only pages, projects and scoped API keys, project isolation for keys and sessions, old-path redirects, and a web app without store credentials.
 - [Demo agent](./demo-agent.md): the Keyly support agent answers through its tools, recovers from tool errors, and follows the refund policy.

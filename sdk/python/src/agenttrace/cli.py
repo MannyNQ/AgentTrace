@@ -151,7 +151,9 @@ def run_eval(args: argparse.Namespace) -> int:
     else:
         print(report.text(cmp))
         if args.report_md:
-            md = report.markdown(result.summary, cmp, version.name, args.web_url)
+            md = report.markdown(
+                result.summary, cmp, version.name, _project_url(client, args.web_url)
+            )
             _write(args.report_md, md)
         if args.fail_on_regression and cmp["regressions"]:
             code = 3
@@ -250,11 +252,26 @@ def run_replay(args: argparse.Namespace) -> int:
         if e.abandoned:
             _exit_now(1)
         return 1
-    print(rp.summary(result.summary, args.web_url))
+    print(rp.summary(result.summary, _project_url(client, args.web_url)))
     code = 3 if args.require_pass and not rp.all_pass(result.summary) else 0
     if result.abandoned:
         _exit_now(code)
     return code
+
+
+def _project_url(client, web_url: str | None) -> str | None:
+    """Where the key's project lives in the web app, `<web>/p/<slug>`, for links. An ingest from
+    before projects were in URLs has no /v1/project: the bare address still works, since the web
+    app redirects old paths into the right project."""
+    if not web_url:
+        return None
+    from agenttrace.eval.client import ApiError
+
+    try:
+        slug = client.project()["slug"]
+    except ApiError:
+        return web_url
+    return f"{web_url.rstrip('/')}/p/{slug}"
 
 
 def _exit_now(code: int) -> None:

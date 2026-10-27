@@ -13,6 +13,7 @@ from uuid import UUID
 from agenttrace.eval.results import Finish, NewReplay, ReplayRunResult, ScorerSpec, SpanRef
 from agenttrace_ingest.datasets import Conflict, Item, NotFound, Record, Refused
 from agenttrace_ingest.experiments import Prices, Status, StoredRun, check_text, stored
+from agenttrace_ingest.trace_inputs import TraceRoots
 
 # --- Records: what the store returns and the API serves ---------------------------------------
 
@@ -125,13 +126,21 @@ def get(store: Store, project: UUID, replay_id: UUID) -> ReplayInfo:
     return r
 
 
-def create(store: Store, project: UUID, new: NewReplay) -> tuple[ReplayInfo, bool]:
-    """The replay, and whether this call created it. Retrying a create returns the original."""
+def create(
+    store: Store, roots: TraceRoots, project: UUID, new: NewReplay
+) -> tuple[ReplayInfo, bool]:
+    """The replay, and whether this call created it. Retrying a create returns the original.
+    The trace it re-runs must be in the project, so one project can't file replays under
+    another's traces. Once that original expires, a replay of one of its replay runs still names
+    it; the project's earlier replay of it vouches for it then."""
     existing = store.get(project, new.id)
     if existing is not None:
         if not _same_replay(existing, new):
             raise Conflict("a replay with this id already exists with different settings")
         return existing, False
+    original = new.replay_of.trace_id
+    if not roots.exists(project, original) and not store.list_for_trace(project, original):
+        raise NotFound("trace not found; it may have expired")
     if new.item_id is not None and new.item_rev is not None:
         item = store.item(project, new.item_id, new.item_rev)
         if item is None:

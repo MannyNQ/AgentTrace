@@ -4,9 +4,27 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 ## Tenancy
 
-**Org**: The top-level owner of projects. A self-hosted install starts with one default org.
+**Org**: The top-level owner of projects and users. A self-hosted install has one org, the default one; the schema allows more, but the UI assumes one.
 
-**Project**: One agent or app being monitored. Every span, dataset, and experiment belongs to exactly one project, and every query is scoped by `project_id`. See ADR-0002.
+**Project**: One agent or app being monitored. Every span, dataset, and experiment belongs to exactly one project, and every query is scoped by `project_id`. Every member of the org can see every project. See ADR-0002.
+
+**Project slug**: A project's URL name, as in `/p/<slug>/traces`. Generated from the name at creation, unique within the org, and never changed; the name stays editable. The default project's slug is `default`. Session requests to the API name their project with it in the `AgentTrace-Project` header (ADR-0032).
+
+**User**: A person with an account: an email, an argon2id password hash, and one org membership. Created by claiming the install or accepting an invite. Deactivated, never deleted.
+
+**Member**: A user's place in the org, with a role. Also the role `member`, which can do everything in every project except what's reserved for owners. _Avoid_: per-project member, since there are no per-project access lists.
+
+**Owner**: The role that manages members, invites, roles, API keys, projects, and project settings such as `retention_days`. The org always has at least one.
+
+**Session**: A logged-in user's access, an opaque token held by ingest (hashed) and by the web app in an httpOnly cookie. Lasts 30 days, sliding. See ADR-0032. _Avoid_ confusing it with Session ID, which groups traces.
+
+**API key**: A secret that authenticates the SDK, the CLI, or CI as one project. Shown once, stored as a SHA-256 hash, revoked rather than deleted. The key from `AGENTTRACE_API_KEY` is re-added on every startup and can't be revoked in the UI; the published dev key `at-local-dev-key` is accepted only while `AGENTTRACE_PUBLIC_URL` is localhost. See ADR-0017 and ADR-0033.
+
+**Key scope**: What an API key may do: `ingest` (send spans only, for agents in production) or `full` (the whole project API, for the CLI and CI). See ADR-0033.
+
+**Invite**: An owner-created, single-use link, valid for 7 days, that lets a person create a user with the role chosen in the invite. Password-reset links work the same way. Deactivating a user voids the unused links they made. There is no email.
+
+**Setup token**: The secret needed to claim an install that has no users yet, from `AGENTTRACE_SETUP_TOKEN` or printed in ingest's logs. Claiming creates the first owner. See ADR-0034.
 
 ## Tracing
 
