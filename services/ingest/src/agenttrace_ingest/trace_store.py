@@ -136,6 +136,10 @@ def _summary(row: Sequence[Any]) -> SummaryRow:
 # Before any span: the bound on the spans scan when a filter has no `since`.
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
+# Whether a merged SUMMARY_SELECT row is a complete trace, as `traces.summarize` decides it; binds
+# `f_complete_before`, now less the quiet period.
+COMPLETE = "(t_root_ended = 1 OR t_last_ingested < {f_complete_before:DateTime64(6)})"
+
 
 def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dict[str, Any]]:
     """`f` as SQL over SUMMARY_SELECT: a WHERE part, a HAVING part (each empty or starting with
@@ -164,12 +168,10 @@ def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dic
         having.append("t_start < {f_until:DateTime64(6)}")
         params["f_until"] = f.until
     if f.status:
-        # As `traces.summarize` decides it.
-        complete = "(t_root_ended = 1 OR t_last_ingested < {f_complete_before:DateTime64(6)})"
         having.append(
             {
-                "running": f"NOT {complete}",
-                "error": f"{complete} AND (t_root_error = 1 OR t_root_ended = 0)",
+                "running": f"NOT {COMPLETE}",
+                "error": f"{COMPLETE} AND (t_root_error = 1 OR t_root_ended = 0)",
                 "ok": "t_root_ended = 1 AND t_root_error = 0",
             }[f.status]
         )
@@ -189,6 +191,14 @@ def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dic
     if not f.show_replays:
         having.append("t_replay_of = ''")
     return "".join(f" AND {w}" for w in where), "".join(f" AND {h}" for h in having), params
+
+
+def filtered_traces_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, dict[str, Any]]:
+    """The merged summary rows of the traces passing `f`, as a subquery with SUMMARY_SELECT's
+    `t_` columns, and its parameters. Binds `project` and `f_complete_before`, for COMPLETE."""
+    where, having, params = filter_sql(f, complete_before)
+    sql = f"{SUMMARY_SELECT}{where} GROUP BY trace_id HAVING 1{having}"
+    return sql, {**params, "f_complete_before": complete_before}
 
 
 def _span(row: Sequence[Any]) -> SpanRow:
