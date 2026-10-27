@@ -45,6 +45,7 @@ def test_messages_create_becomes_an_llm_span(collected, http_server):
         "messages": [{"role": "user", "content": "hi"}],
         "tools": [{"name": "lookup", "input_schema": {"type": "object"}}],
     }
+    assert list(llm.input)[:2] == ["system", "messages"]  # the preview shows the conversation
     assert llm.output == {k: v for k, v in MESSAGE.items() if v is not None}
     assert llm.attributes["llm.tools"] == "lookup"
     assert llm.attributes["llm.stop_reason"] == "end_turn"

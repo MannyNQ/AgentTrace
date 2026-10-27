@@ -30,13 +30,13 @@ def to_jsonable(value: Any, _depth: int = 0) -> Any:
 
 def is_lossless(value: Any, _depth: int = 0) -> bool:
     """Whether `to_jsonable(value)` is `value` itself: plain JSON types all the way down, so the
-    recorded copy can stand in for it (ADR-0040). A tuple, a dataclass, a model, or a non-finite
-    float would come back as something else."""
+    recorded copy can stand in for it (ADR-0040). A tuple, a dataclass, a model, an enum, or a
+    non-finite float would come back as something else."""
     if _depth > 32:
         return False
-    if value is None or isinstance(value, str | bool | int):
+    if value is None or type(value) in (str, bool, int):  # an enum member comes back as its value
         return True
-    if isinstance(value, float):
+    if type(value) is float:
         return math.isfinite(value)
     if type(value) is list:
         return all(is_lossless(v, _depth + 1) for v in value)

@@ -242,7 +242,9 @@ def span(
     try:
         yield active
     except BaseException as e:
-        active.set_error(type(e).__name__, _message(e))
+        # Only a tool's message is kept: a fork re-raises it (ADR-0040). Elsewhere it can carry
+        # URLs or driver errors nobody asked to store.
+        active.set_error(type(e).__name__, _message(e) if active.kind == SpanKind.TOOL else None)
         raise
     finally:
         if leave:
@@ -263,7 +265,7 @@ def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
     """Call `fn(**args)` as the tool `name`, recorded as a tool span with `args` as its input.
     For dispatch loops that only know which tool to run at call time; a replay can answer the
     call from its recording (ADR-0040). An async `fn` returns an awaitable, as calling it would."""
-    if inspect.iscoroutinefunction(fn):
+    if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(type(fn).__call__):
 
         async def call_async() -> Any:
             with span(name, SpanKind.TOOL, args) as s:

@@ -19,6 +19,8 @@ log = logging.getLogger("agenttrace")
 SPAN_NAME = "anthropic.messages.create"
 # How the request is sent, not what it asks: left out of the recorded input.
 TRANSPORT_KEYS = frozenset({"extra_headers", "extra_query", "extra_body", "timeout", "stream"})
+# Recorded first, so an offloaded input's 1 KB preview shows the conversation, not tool schemas.
+LEADING_KEYS = ("system", "messages")
 
 
 def instrument_anthropic() -> None:
@@ -65,7 +67,8 @@ def _patch(cls: type, is_async: bool) -> None:
 
 @contextmanager
 def _llm_span(kwargs: dict[str, Any]) -> Iterator[ActiveSpan]:
-    request = {k: v for k, v in kwargs.items() if k not in TRANSPORT_KEYS and _given(v)}
+    ordered = {k: kwargs[k] for k in LEADING_KEYS if k in kwargs} | kwargs
+    request = {k: v for k, v in ordered.items() if k not in TRANSPORT_KEYS and _given(v)}
     attributes = {}
     if tools := kwargs.get("tools"):
         attributes["llm.tools"] = ",".join(str(t.get("name", "?")) for t in tools)

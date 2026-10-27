@@ -49,7 +49,7 @@ def test_exception_marks_error_and_propagates(collected):
         raise KeyError("x")
     s = collected.by_name("boom")
     assert s.status == SpanStatus.ERROR and s.error_type == "KeyError"
-    assert s.attributes["agenttrace.error_message"] == "'x'"
+    assert "agenttrace.error_message" not in s.attributes  # kept on tool spans only
 
 
 def test_call_tool_records_a_tool_span_named_for_the_tool(collected):
@@ -88,11 +88,21 @@ class Order:
         (Order("7"), "false"),  # comes back as a dict
         ({1: "a"}, "false"),  # the key comes back as "1"
         (float("nan"), "false"),
+        (SpanKind.TOOL, "false"),  # comes back as the plain string "tool"
     ],
 )
 def test_tool_spans_say_whether_their_output_was_recorded_exactly(collected, output, lossless):
     call_tool("t", {}, lambda: output)
     assert collected.by_name("t").attributes["agenttrace.output_lossless"] == lossless
+
+
+def test_call_tool_awaits_async_callable_objects(collected):
+    class Search:
+        async def __call__(self, q: str) -> list[str]:
+            return [q]
+
+    assert asyncio.run(call_tool("search", {"q": "x"}, Search())) == ["x"]
+    assert collected.by_name("search").output == ["x"]
 
 
 def test_only_tool_spans_carry_the_lossless_mark(collected):
