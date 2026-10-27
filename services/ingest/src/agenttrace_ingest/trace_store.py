@@ -19,6 +19,9 @@ from agenttrace_ingest.traces import Cursor, SpanRow, SummaryRow, Unavailable
 
 # traces is an AggregatingMergeTree (ADR-0013): merge unmerged parts with the same aggregates the
 # materialized view used. Aliases differ from column names so HAVING can't confuse them.
+# `t_eval` marks eval runs without collecting every tag: a query that doesn't read `t_tags` skips
+# it, which is most of the cost of grouping a project's traces (Phase 8 benchmark). `t_key` is the
+# raw `trace_id`, for joining spans without converting 20M IDs to strings. Binds `eval_tag`.
 SUMMARY_SELECT = """
     SELECT
         toString(trace_id) AS t_trace_id,
@@ -40,7 +43,9 @@ SUMMARY_SELECT = """
         max(replay_of) AS t_replay_of,
         max(service_name) AS t_service_name,
         sum(llm_errors) + sum(tool_errors) + sum(agent_errors) + sum(retrieval_errors)
-          + sum(custom_errors) AS t_errors
+          + sum(custom_errors) AS t_errors,
+        max(has(tags, {eval_tag:String})) AS t_eval,
+        trace_id AS t_key
     FROM traces
     WHERE project_id = {project:UUID}"""
 
@@ -109,7 +114,7 @@ def utc(value: datetime) -> datetime:
 
 def _summary(row: Sequence[Any]) -> SummaryRow:
     (trace_id, start, last_end, last_ingested, spans, cost, llm, unpriced, has_root, ended, error,
-     root_end, root_name, session, user, tags, replay_of, service, errors) = row  # fmt: skip
+     root_end, root_name, session, user, tags, replay_of, service, errors, *_) = row  # fmt: skip
     return SummaryRow(
         trace_id=trace_id,
         start_time=utc(start),
@@ -189,8 +194,7 @@ def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dic
         having.append("t_service_name = {f_service_name:String}")
         params["f_service_name"] = f.service_name
     if not f.show_evals:
-        having.append("NOT has(t_tags, {f_eval_tag:String})")
-        params["f_eval_tag"] = EVAL_TAG
+        having.append("t_eval = 0")
     if not f.show_replays:
         having.append("t_replay_of = ''")
     return "".join(f" AND {w}" for w in where), "".join(f" AND {h}" for h in having), params
@@ -201,7 +205,7 @@ def filtered_traces_sql(f: TraceFilter, complete_before: datetime) -> tuple[str,
     `t_` columns, and its parameters. Binds `project` and `f_complete_before`, for COMPLETE."""
     where, having, params = filter_sql(f, complete_before)
     sql = f"{SUMMARY_SELECT}{where} GROUP BY trace_id HAVING 1{having}"
-    return sql, {**params, "f_complete_before": complete_before}
+    return sql, {**params, "f_complete_before": complete_before, "eval_tag": EVAL_TAG}
 
 
 def _span(row: Sequence[Any]) -> SpanRow:
@@ -252,6 +256,7 @@ class ClickHouseTraces:
                 "before_start": before.start_time,
                 "before_trace": before.trace_id,
                 "limit": limit,
+                "eval_tag": EVAL_TAG,
             },
         )
         return [_summary(r) for r in rows]
@@ -259,7 +264,7 @@ class ClickHouseTraces:
     def summary(self, project: UUID, trace_id: str) -> SummaryRow | None:
         rows = self._query(
             f"{SUMMARY_SELECT} AND trace_id = {{trace:FixedString(32)}} GROUP BY trace_id",
-            {"project": str(project), "trace": trace_id},
+            {"project": str(project), "trace": trace_id, "eval_tag": EVAL_TAG},
         )
         return _summary(rows[0]) if rows else None
 

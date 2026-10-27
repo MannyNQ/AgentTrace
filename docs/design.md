@@ -271,7 +271,7 @@ Also settled:
 - `service_name` on `traces` is filled by `traces_mv` from the root span: `resource.service.name` for OTLP, and for the SDK `AGENTTRACE_SERVICE_NAME`, else `OTEL_SERVICE_NAME`. A ClickHouse migration adds the column and swaps the view's query with `MODIFY QUERY`, as in Phase 5; traces already stored get `''`.
 - Sessions and `full` keys read analytics; `ingest` keys get 403 (ADR-0033). Errors follow the read API: 503 naming the store, 422 for a bad filter.
 - Charts are hand-rolled SVG (line, stacked bar, sparkline) with a small client component for hover, on the app's theme tokens. No chart library. Each panel loads in its own `Suspense`.
-- Budget: the 30d overview loads in under 2 s at 1M traces and 20M spans in one project on the dev stack. A miss adds an hourly rollup or a `start_time` projection on `traces`, with an ADR amending ADR-0037.
+- Budget: the 30d overview loads in under 2 s at 1M traces and 20M spans in one project on the dev stack. A miss adds an hourly rollup or a `start_time` projection on `traces`, with an ADR amending ADR-0037. Measured: 1.40 s, with no rollup (eng-log, 2026-10-27).
 - Deferred: alerting, custom ranges, saved filters and a query builder, and everything Phase 7 deferred (model-name aliases stay deferred; unpriced calls are shown instead).
 
 ## Phase 8 plan

@@ -207,7 +207,7 @@ def test_clickhouse_datetimes_are_utc_whatever_the_local_zone():
     row = summary_row(A)
     summary = _summary(
         [row.trace_id, naive, naive, naive, 1, 0.0, 0, 0, 1, 1, 0, naive, "r", "", "", [], "", "",
-         0]
+         0, 0, A]
     )  # fmt: skip
     assert summary.start_time.tzinfo is not None and summary.root_end_time.tzinfo is not None
     span = span_row(ROOT)

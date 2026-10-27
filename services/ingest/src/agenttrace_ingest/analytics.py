@@ -175,9 +175,11 @@ class Store(Protocol):
         self, project: UUID, f: TraceFilter, complete_before: datetime
     ) -> TraceRow: ...
 
-    def trace_buckets(
+    def trace_series(
         self, project: UUID, f: TraceFilter, complete_before: datetime, bucket: Bucket, tz: str
-    ) -> list[TraceRow]: ...
+    ) -> tuple[TraceRow, list[TraceRow]]:
+        """The totals over the period and each bucket's, in one pass."""
+        ...
 
     def span_kinds(
         self, project: UUID, f: TraceFilter, complete_before: datetime
@@ -190,12 +192,11 @@ class Store(Protocol):
         ...
 
     def model_costs(
-        self, project: UUID, f: TraceFilter, complete_before: datetime
-    ) -> list[ModelCostRow]: ...
-
-    def model_cost_buckets(
         self, project: UUID, f: TraceFilter, complete_before: datetime, bucket: Bucket, tz: str
-    ) -> list[ModelBucketRow]: ...
+    ) -> tuple[list[ModelCostRow], list[ModelBucketRow]]:
+        """Each model's calls, cost, and tokens, most calls first, at most MAX_GROUPS; and each
+        model's spend per bucket. In one pass."""
+        ...
 
 
 # Responses.
@@ -368,15 +369,12 @@ class Analytics:
         self, project: UUID, q: AnalyticsQuery, w: Window, complete_before: datetime
     ) -> tuple[TraceRow, TraceRow | None, list[tuple[datetime, TraceRow]]]:
         f = q.over(w.start, w.end)
-        totals = self.store.trace_totals(project, f, complete_before)
+        totals, by_bucket = self.store.trace_series(project, f, complete_before, w.bucket, w.tz)
         prior = previous(w)
         before = (
             self.store.trace_totals(project, q.over(*prior), complete_before) if prior else None
         )
-        rows = {
-            r.bucket: r
-            for r in self.store.trace_buckets(project, f, complete_before, w.bucket, w.tz)
-        }
+        rows = {r.bucket: r for r in by_bucket}
         series = [(b, rows.get(_epoch(b)) or _empty(_epoch(b))) for b in w.buckets]
         return totals, before, series
 
@@ -415,12 +413,11 @@ class Analytics:
         before = (
             self.store.trace_totals(project, q.over(*prior), complete_before) if prior else None
         )
-        models = sorted(
-            self.store.model_costs(project, f, complete_before), key=lambda m: (-m.cost, m.model)
-        )
+        table, by_bucket = self.store.model_costs(project, f, complete_before, w.bucket, w.tz)
+        models = sorted(table, key=lambda m: (-m.cost, m.model))
         top = [m.model for m in models if m.cost > 0][:TOP_MODELS]
         spend: dict[int, dict[str, float]] = {}
-        for r in self.store.model_cost_buckets(project, f, complete_before, w.bucket, w.tz):
+        for r in by_bucket:
             spend.setdefault(r.bucket, {})[r.model] = r.cost
         buckets = []
         for b in w.buckets:

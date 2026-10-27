@@ -90,8 +90,8 @@ class FakeAnalytics:
         self.filters.append(f)
         return self.totals[len(self.filters) - 1]
 
-    def trace_buckets(self, project, f, complete_before, bucket, tz):
-        return self.buckets
+    def trace_series(self, project, f, complete_before, bucket, tz):
+        return self.trace_totals(project, f, complete_before), self.buckets
 
     def span_kinds(self, project, f, complete_before):
         return self.kinds
@@ -100,11 +100,8 @@ class FakeAnalytics:
         self.filters.append(f)
         return self.groups
 
-    def model_costs(self, project, f, complete_before):
-        return self.costs
-
-    def model_cost_buckets(self, project, f, complete_before, bucket, tz):
-        return self.cost_buckets
+    def model_costs(self, project, f, complete_before, bucket, tz):
+        return self.costs, self.cost_buckets
 
 
 class Api:
@@ -252,5 +249,5 @@ def test_a_zone_clickhouse_lacks_is_the_caller_s_fault(message: str, error: str)
     store.__dict__["_clickhouse"] = FailingClickHouse(DatabaseError(message))
     f = TraceFilter(since=NOW - timedelta(days=1), until=NOW)
     with pytest.raises(Exception) as raised:
-        store.trace_buckets(PROJECT, f, NOW, "hour", "Asia/Nowhere")
+        store.trace_series(PROJECT, f, NOW, "hour", "Asia/Nowhere")
     assert type(raised.value).__name__ == error  # 422 and 503 (dataset_api's handlers)

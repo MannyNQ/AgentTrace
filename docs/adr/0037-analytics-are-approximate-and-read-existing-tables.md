@@ -15,5 +15,5 @@ The overview aggregates a project's spans over up to 30 days: volume, error rate
 ## Consequences
 
 - A rare duplicate span overcounts by one; the trace list and the overview can differ by the same amount, since the list reads summaries the same way.
-- Trace-level numbers group a project's `traces` rows by `trace_id`, whose sort key isn't time, so they scan the project's summaries. The benchmark measures this first.
+- Trace-level numbers group a project's `traces` rows by `trace_id`, whose sort key isn't time, so they scan the project's summaries. The Phase 8 benchmark (1M traces, 20M spans, 30d) loads the page in 1.40 s, after marking eval runs without aggregating tags and reading each part's totals and buckets in one pass (eng-log, 2026-10-27).
 - Cost stays as computed at ingestion (ADR-0010); analytics never reprices.
