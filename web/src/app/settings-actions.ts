@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { refresh } from "next/cache";
 import * as api from "@/lib/auth";
-import { PUBLIC_URL } from "@/lib/ingest";
+import { PUBLIC_ENDPOINT, PUBLIC_URL } from "@/lib/ingest";
+import { keyEnvLines } from "@/lib/key-env";
 
 // Owner-only settings: projects, API keys, and members (ADR-0032, ADR-0033). Ingest refuses a
 // member, so these don't check the role themselves.
@@ -13,6 +14,8 @@ export type SettingsState = {
   message?: string;
   /** Shown once: a new API key, or an invite or reset link. */
   secret?: string;
+  /** Shown once with a new key: the environment to put it in. */
+  env?: string;
 };
 
 function text(form: FormData, key: string): string {
@@ -33,7 +36,11 @@ export async function createKeyAction(_: SettingsState, form: FormData): Promise
   const r = await api.createKey(text(form, "name"), scope);
   if (!r.ok) return { error: r.error.error };
   refresh();
-  return { message: `Key "${r.data.info.name}" created. Copy it now; it won't be shown again.`, secret: r.data.key };
+  return {
+    message: `Key "${r.data.info.name}" created. Copy it now; it won't be shown again.`,
+    secret: r.data.key,
+    env: keyEnvLines(r.data.key, scope, PUBLIC_ENDPOINT),
+  };
 }
 
 export async function revokeKeyAction(id: string): Promise<void> {
