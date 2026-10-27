@@ -1,5 +1,5 @@
-"""Every /v1 route is guarded, apart from the public ones `auth.PUBLIC_ROUTES` names. A new route
-that forgets its guard fails here instead of shipping open (design.md, Phase 6).
+"""Every /v1 and /otlp route is guarded, apart from the public ones `auth.PUBLIC_ROUTES` names. A
+new route that forgets its guard fails here instead of shipping open (design.md, Phase 6).
 
 Each route in the OpenAPI schema is called with no credentials. Guards run before FastAPI
 validates the path or body, so a guarded route answers the guard's 401 whatever it's sent."""
@@ -34,7 +34,7 @@ def unguarded(app: FastAPI) -> set[tuple[str, str]]:
     c = TestClient(app)
     found = set()
     for path, operations in app.openapi()["paths"].items():
-        if not path.startswith("/v1"):
+        if not path.startswith(("/v1", "/otlp")):
             continue
         for method in operations:
             r = c.request(method.upper(), re.sub(r"\{[^}]+\}", ANY_ID, path), json={})
