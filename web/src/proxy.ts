@@ -10,6 +10,8 @@ const INGEST_URL = process.env.INGEST_URL ?? "http://localhost:8000";
 /** Pages for signing in, and the status page, which shows only what ingest's /health shows. */
 const PUBLIC = /^\/(login|setup|status)$|^\/(invite|reset)\/[^/]+$/;
 const PROJECT_PATH = /^\/p\/([^/]+)(?:\/|$)/;
+/** A project's own path: it opens on the overview (design.md, Phase 8). */
+const PROJECT_HOME = /^\/p\/[^/]+\/?$/;
 /** Paths from before projects were in URLs, as PR comments and the CLI printed them. */
 const OLD_PATH = /^\/(?:api\/)?(traces|datasets|experiments|replays)(?:\/([^/]+))?/;
 const KIND: Record<string, string> = {
@@ -35,12 +37,15 @@ export async function proxy(request: NextRequest) {
   }
   const remembered = request.cookies.get(PROJECT_COOKIE)?.value ?? "";
   const last = SLUG.test(remembered) ? remembered : DEFAULT_PROJECT;
-  if (pathname === "/") return NextResponse.redirect(new URL(`/p/${last}`, request.url));
+  if (pathname === "/") return NextResponse.redirect(new URL(`/p/${last}/overview`, request.url));
 
   const project = PROJECT_PATH.exec(pathname);
   if (project && !SLUG.test(project[1])) {
     // No project can have this slug; without the header, the page under /p/[slug] would fail.
     return NextResponse.rewrite(new URL("/not-found-project", request.url), { status: 404 });
+  }
+  if (project && PROJECT_HOME.test(pathname)) {
+    return NextResponse.redirect(new URL(`/p/${project[1]}/overview${search}`, request.url));
   }
   if (project) {
     requestHeaders.set(PROJECT_HEADER, project[1]);

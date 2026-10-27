@@ -177,6 +177,9 @@ def session_on(session: str, p: Project) -> dict[str, str]:
     return {"Authorization": f"Session {session}", "AgentTrace-Project": p.slug}
 
 
+ANALYTICS = ("volume", "latency", "cost", "tools", "models")
+
+
 def at_a(w: World) -> list[tuple[str, str, dict | None]]:
     """Every project route, aimed at A's ids. Bodies are valid, so a refusal comes from the
     project check rather than validation."""
@@ -230,6 +233,7 @@ def at_a(w: World) -> list[tuple[str, str, dict | None]]:
         ("GET", f"/v1/traces/{t}/outcome", None),
         ("GET", f"/v1/traces/{t}/spans/{span}/input", None),
         ("GET", f"/v1/traces/{t}/input", None),
+        *(("GET", f"/v1/analytics/{part}", None) for part in ANALYTICS),
     ]
 
 
@@ -283,4 +287,6 @@ def test_each_project_still_sees_its_own(world: World):
         listed = world.c.get("/v1/traces?limit=200", headers=h).json()["traces"]
         assert a.trace in [t["trace_id"] for t in listed]
         assert world.c.get(f"/v1/datasets/{a.dataset}", headers=h).status_code == 200
+        volume = world.c.get("/v1/analytics/volume", headers=h).json()
+        assert volume["totals"]["traces"] >= 1, volume
         assert json.loads(world.c.get("/v1/project", headers=h).text)["slug"] == a.slug

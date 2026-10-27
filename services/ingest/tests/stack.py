@@ -42,6 +42,16 @@ def emit_root(
     return trace_id
 
 
+def emit_spans(
+    spans: list[Span], project_id: UUID = DEFAULT_PROJECT_ID, prices: PriceTable | None = None
+) -> None:
+    """Store spans the way the worker does, pricing LLM spans from `prices`."""
+    ws = WorkerSettings()
+    put = Payloads(ws).put
+    table = prices or PriceTable()
+    ClickHouse(ws).insert_spans([to_row(s, project_id, 30, table, put) for s in spans])
+
+
 def register_key(
     s: Settings, key: str, project_id: UUID = DEFAULT_PROJECT_ID, scope: str = "full"
 ) -> None:

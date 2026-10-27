@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from agenttrace_ingest.traces import Cursor, SpanRow, SummaryRow
+from agenttrace_ingest.trace_filter import TraceFilter, matches
+from agenttrace_ingest.traces import Cursor, SpanRow, SummaryRow, summarize
 
 T0 = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -32,6 +33,7 @@ def summary_row(trace_id: str, start: datetime = T0, **over: Any) -> SummaryRow:
         "user_id": "",
         "tags": [],
         "replay_of": "",
+        "service_name": "",
         "errors": 0,
     }
     return SummaryRow(**{**fields, **over})
@@ -74,13 +76,20 @@ class FakeTraces:
         self.spans_by[(project, summary.trace_id)] = spans or []
 
     def summaries(
-        self, project: UUID, before: Cursor | None, show_replays: bool, limit: int
+        self,
+        project: UUID,
+        f: TraceFilter,
+        complete_before: datetime,
+        before: Cursor | None,
+        limit: int,
     ) -> list[SummaryRow]:
+        # Read at `complete_before` with no quiet period, a trace is complete exactly when the
+        # store's SQL says so.
         rows = [
             r
-            for (p, _), r in self.summaries_by.items()
+            for (p, t), r in self.summaries_by.items()
             if p == project
-            and (show_replays or r.replay_of == "")
+            and matches(f, summarize(r, complete_before, timedelta(0)), self.spans_by[(p, t)])
             and (
                 before is None or (r.start_time, r.trace_id) < (before.start_time, before.trace_id)
             )

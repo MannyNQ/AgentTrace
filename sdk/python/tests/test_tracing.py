@@ -28,6 +28,22 @@ def test_trace_metadata_on_a_child_is_dropped(collected):
     assert collected.by_name("child").trace is None
 
 
+def test_a_root_span_names_its_service_from_the_environment(collected, monkeypatch):
+    monkeypatch.delenv("AGENTTRACE_SERVICE_NAME", raising=False)
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "from-otel")
+    with span("first"), span("child"):
+        pass
+    monkeypatch.setenv("AGENTTRACE_SERVICE_NAME", "support-agent")
+    with span("second", attributes={"resource.service.name": "explicit"}):
+        pass
+    with span("third"):
+        pass
+    service = lambda name: collected.by_name(name).attributes.get("resource.service.name")  # noqa: E731
+    assert service("first") == "from-otel" and service("child") is None
+    assert service("second") == "explicit"  # an attribute the caller set wins
+    assert service("third") == "support-agent"
+
+
 def test_exception_marks_error_and_propagates(collected):
     with pytest.raises(KeyError), span("boom"):
         raise KeyError("x")

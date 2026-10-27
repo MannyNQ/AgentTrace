@@ -3,12 +3,15 @@ trace did (ADR-0031). Trace completion and status are decided here, when a trace
 (ADR-0013, GLOSSARY.md). Storage is behind `Store`; `trace_store` has the ClickHouse queries."""
 
 from datetime import datetime, timedelta
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import UUID
 
 from agenttrace.eval.results import ToolCall
 from agenttrace_ingest.datasets import DatasetError, NotFound, Record
 from agenttrace_ingest.trace_inputs import decode_payload
+
+if TYPE_CHECKING:
+    from agenttrace_ingest.trace_filter import TraceFilter
 
 SpanKind = Literal["llm", "tool", "agent", "retrieval", "custom"]
 TraceStatus = Literal["ok", "error", "running"]
@@ -43,6 +46,7 @@ class SummaryRow(Record):
     user_id: str
     tags: list[str]
     replay_of: str
+    service_name: str
     errors: int
 
 
@@ -85,6 +89,7 @@ class TraceSummary(Record):
     session_id: str
     last_end_time: datetime
     replay_of: str  # the original trace when this is a replay run (ADR-0028), else ""
+    service_name: str  # the root span's resource.service.name, else ""
 
 
 class Span(Record):
@@ -146,9 +151,16 @@ class Store(Protocol):
     """Every method raises Unavailable when its store can't be read."""
 
     def summaries(
-        self, project: UUID, before: Cursor | None, show_replays: bool, limit: int
+        self,
+        project: UUID,
+        f: "TraceFilter",
+        complete_before: datetime,
+        before: Cursor | None,
+        limit: int,
     ) -> list[SummaryRow]:
-        """Newest first, strictly before `before`."""
+        """The traces passing `f`, newest first, strictly before `before`. A trace last ingested
+        before `complete_before` is complete even if its root never ended, which decides its
+        status as `summarize` does."""
         ...
 
     def summary(self, project: UUID, trace_id: str) -> SummaryRow | None: ...
@@ -183,6 +195,7 @@ def summarize(r: SummaryRow, now: datetime, quiet_period: timedelta) -> TraceSum
         session_id=r.session_id,
         last_end_time=r.last_end_time,
         replay_of=r.replay_of,
+        service_name=r.service_name,
     )
 
 
@@ -195,13 +208,12 @@ class Traces:
     def __init__(self, store: Store, quiet_period: timedelta, now):
         self.store, self.quiet_period, self.now = store, quiet_period, now
 
-    def page(
-        self, project: UUID, before: Cursor | None, show_replays: bool, limit: int
-    ) -> TraceList:
-        """Replay runs are hidden unless `show_replays` (ADR-0029)."""
+    def page(self, project: UUID, f: "TraceFilter", before: Cursor | None, limit: int) -> TraceList:
+        """The traces passing `f` (ADR-0038); by default, production traffic only."""
         limit = max(1, min(limit, MAX_PAGE))
-        rows = self.store.summaries(project, before, show_replays, limit + 1)
-        page, now = rows[:limit], self.now()
+        now = self.now()
+        rows = self.store.summaries(project, f, now - self.quiet_period, before, limit + 1)
+        page = rows[:limit]
         last = page[-1] if page else None
         next_ = (
             Cursor(start_time=last.start_time, trace_id=last.trace_id)

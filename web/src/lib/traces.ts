@@ -1,6 +1,7 @@
 import "server-only";
 import type { ToolCall } from "@/lib/datasets";
 import { ingest } from "@/lib/ingest";
+import { apiParams, type Filter } from "@/lib/filters";
 
 // ADR-0031: traces are read through ingest's /v1/traces, which decides completion and status
 // (ADR-0013) and checks the project. These map its records to the shapes the pages use.
@@ -24,6 +25,8 @@ export type TraceSummary = {
   lastEndTime: Date;
   /** The original trace this one re-ran, when it's a replay run (ADR-0028); else "". */
   replayOf: string;
+  /** The root span's resource.service.name, else "". */
+  serviceName: string;
 };
 
 export type SpanRow = {
@@ -64,6 +67,7 @@ type ApiSummary = {
   session_id: string;
   last_end_time: string;
   replay_of: string;
+  service_name: string;
 };
 
 type ApiSpan = {
@@ -106,6 +110,7 @@ function toSummary(r: ApiSummary): TraceSummary {
     sessionId: r.session_id,
     lastEndTime: new Date(r.last_end_time),
     replayOf: r.replay_of,
+    serviceName: r.service_name,
   };
 }
 
@@ -141,13 +146,15 @@ export function clickHouseError(e: unknown): string {
 
 export type Cursor = { start: string; traceId: string };
 
-/** Replay runs are hidden unless `showReplays` (ADR-0029), so they don't crowd production. */
+/** The traces passing `filter` (ADR-0038): production traffic unless it includes eval or replay
+ * runs (ADR-0029). */
 export async function listTraces(
   limit: number,
-  before?: Cursor,
-  showReplays = false,
+  before: Cursor | undefined,
+  filter: Filter,
 ): Promise<{ traces: TraceSummary[]; next?: Cursor }> {
-  const query = new URLSearchParams({ limit: String(limit), show_replays: String(showReplays) });
+  const query = apiParams(filter);
+  query.set("limit", String(limit));
   if (before) {
     query.set("before_start", before.start);
     query.set("before_trace", before.traceId);

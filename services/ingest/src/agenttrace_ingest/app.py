@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from fastapi import FastAPI, Response
 
 from agenttrace_ingest import (
+    analytics,
+    analytics_api,
     auth,
     auth_api,
     dataset_api,
@@ -21,6 +23,7 @@ from agenttrace_ingest import (
     trace_api,
     traces,
 )
+from agenttrace_ingest.analytics_store import ClickHouseAnalytics
 from agenttrace_ingest.auth_store import PostgresAuth, RedisLimiter
 from agenttrace_ingest.body_limit import BodyLimit
 from agenttrace_ingest.dataset_store import PostgresDatasets
@@ -116,6 +119,7 @@ def create_app(
     replay_store: replays.Store | None = None,
     trace_roots: TraceRoots | None = None,
     trace_store: traces.Store | None = None,
+    analytics_store: analytics.Store | None = None,
     locations: locate.Store | None = None,
 ) -> FastAPI:
     s = settings or Settings()
@@ -190,6 +194,12 @@ def create_app(
         now=lambda: datetime.now(UTC),
     )
     app.include_router(trace_api.router(trace_reads, trace_roots or stored_inputs, a))
+    overview = analytics.Analytics(
+        analytics_store or ClickHouseAnalytics(s),
+        timedelta(seconds=s.trace_quiet_period_s),
+        now=lambda: datetime.now(UTC),
+    )
+    app.include_router(analytics_api.router(overview, a))
     dataset_api.install_error_handlers(
         app,
         (
@@ -197,6 +207,7 @@ def create_app(
             experiment_api.PREFIX,
             replay_api.PREFIX,
             trace_api.PREFIX,
+            analytics_api.PREFIX,
             auth_api.PREFIX,
             auth_api.MEMBERS_PREFIX,
             auth_api.KEYS_PREFIX,

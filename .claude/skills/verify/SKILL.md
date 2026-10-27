@@ -20,8 +20,8 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Surface | Where | Driven by |
 |---|---|---|
 | Self-hosted stack | `docker compose up` (6 services) | `up`, `doctor`, `docker exec` for side effects |
-| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `POST /otlp/v1/traces`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input` | `health`, `post` (curl), `emit` (real SDK) |
-| Web UI | sign-in at `/login`, `/setup`, `/invite/<token>`, `/reset/<token>`; the public health page at `/status`; per project under `/p/<slug>/`: traces at `traces` and `traces/<id>`, `datasets`, `experiments`, comparisons at `experiments/<id>/compare/<baseline>`, replays at `replays/<id>`, and `settings` (project and API keys); `/projects` and `/members`. Paths without `/p/<slug>/` redirect into the entity's project | `page` (`/status`), `traces` (server HTML, with the owner's session) + the built-in browser pane |
+| Ingest HTTP API | `GET /health`, `POST /v1/spans`, `POST /otlp/v1/traces`, `/v1/datasets`, `/v1/experiments` (with `/comparison`), `/v1/replays`, `/v1/traces/<id>/input`, `/v1/analytics/<part>` | `health`, `post` (curl), `emit` (real SDK) |
+| Web UI | sign-in at `/login`, `/setup`, `/invite/<token>`, `/reset/<token>`; the public health page at `/status`; per project under `/p/<slug>/`: the overview at `overview` (where `/` lands), traces at `traces` and `traces/<id>`, `datasets`, `experiments`, comparisons at `experiments/<id>/compare/<baseline>`, replays at `replays/<id>`, and `settings` (project and API keys); `/projects` and `/members`. Paths without `/p/<slug>/` redirect into the entity's project | `page` (`/status`), `traces` (server HTML, with the owner's session) + the built-in browser pane |
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance; `uv run demo-agent-otel "<question>"`, over OTLP | `agent`; the otlp recipe |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 

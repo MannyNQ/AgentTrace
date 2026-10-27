@@ -206,8 +206,9 @@ def test_clickhouse_datetimes_are_utc_whatever_the_local_zone():
     assert utc(naive) == utc(paris) == datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
     row = summary_row(A)
     summary = _summary(
-        [row.trace_id, naive, naive, naive, 1, 0.0, 0, 0, 1, 1, 0, naive, "r", "", "", [], "", 0]
-    )
+        [row.trace_id, naive, naive, naive, 1, 0.0, 0, 0, 1, 1, 0, naive, "r", "", "", [], "", "",
+         0, 0, A]
+    )  # fmt: skip
     assert summary.start_time.tzinfo is not None and summary.root_end_time.tzinfo is not None
     span = span_row(ROOT)
     values = [*span.model_dump().values()]
@@ -283,3 +284,70 @@ def test_half_a_cursor_is_refused(api: Api):
     r = api.get("", status=422, before_start="2026-10-01T12:00:00Z")
     assert "both before_start and before_trace" in r["detail"]["error"]
     api.get("", status=422, before_trace=A)
+
+
+GOOD = {"Authorization": "Bearer good"}
+
+
+def ids(page: dict) -> set[str]:
+    return {t["trace_id"] for t in page["traces"]}
+
+
+def test_only_production_traffic_is_listed_by_default(api: Api):
+    from agenttrace.eval.results import EVAL_TAG
+
+    api.store.add(PROJECT, summary_row(A))
+    api.store.add(PROJECT, summary_row(B, tags=[EVAL_TAG]))
+    api.store.add(PROJECT, summary_row(C, replay_of=A))
+    assert ids(api.get("")) == {A}
+    assert ids(api.get("", show_evals=True)) == {A, B}
+    assert ids(api.get("", show_evals=True, show_replays=True)) == {A, B, C}
+
+
+def test_the_filter_narrows_by_time_tags_user_and_service(api: Api):
+    api.store.add(PROJECT, summary_row(A, T0, tags=["vip", "eu"], user_id="u1"))
+    api.store.add(PROJECT, summary_row(B, T0 + timedelta(hours=1), tags=["vip"]))
+    api.store.add(PROJECT, summary_row(C, T0 + timedelta(hours=2), service_name="support"))
+    at = lambda h: (T0 + timedelta(hours=h)).isoformat()  # noqa: E731
+    assert ids(api.get("", since=at(1))) == {B, C}
+    assert ids(api.get("", until=at(1))) == {A}  # until is exclusive
+    assert ids(api.get("", tag=["vip", "eu"])) == {A}
+    assert ids(api.get("", tag=["vip"])) == {A, B}
+    assert ids(api.get("", user_id="u1")) == {A}
+    assert ids(api.get("", service_name="support")) == {C}
+
+
+def test_the_filter_matches_status_as_the_list_shows_it(api: Api):
+    now = datetime.now(UTC)
+    api.store.add(PROJECT, summary_row(A))
+    api.store.add(PROJECT, summary_row(B, root_ended=False))  # went quiet: error
+    api.store.add(PROJECT, summary_row(C, now, root_ended=False, last_ingested_at=now))
+    for status, want in (("ok", A), ("error", B), ("running", C)):
+        # `status` is the helper's expected HTTP status, so the parameter goes in by hand.
+        page = api.c.get("/v1/traces", params={"status": status}, headers=GOOD).json()
+        assert ids(page) == {want} and page["traces"][0]["status"] == status
+
+
+def test_the_filter_matches_traces_by_their_spans(api: Api):
+    api.store.add(
+        PROJECT, summary_row(A), [span_row(ROOT), span_row(TOOL, kind="tool", name="refund")]
+    )
+    api.store.add(
+        PROJECT,
+        summary_row(B),
+        [span_row(ROOT), span_row(TOOL, kind="tool", name="refund", status="error")],
+    )
+    api.store.add(PROJECT, summary_row(C), [span_row(ROOT)])
+    assert ids(api.get("", span_kind="tool")) == {A, B}
+    assert ids(api.get("", span_name="refund", span_error=True)) == {B}
+    assert ids(api.get("", span_kind="llm")) == set()
+    api.store.add(PROJECT, summary_row(D), [span_row(ROOT), span_row(TOOL, kind="llm", model="m1")])
+    assert ids(api.get("", span_model="m1")) == {D}
+
+
+def test_a_malformed_filter_is_refused(api: Api):
+    api.get("", status=422, since="2026-10-01T12:00:00")  # no time zone
+    api.get("", status=422, since="2026-10-02T00:00:00Z", until="2026-10-01T00:00:00Z")
+    api.get("", status=422, span_error=True)
+    api.get("", status=422, statuses="ok")  # an unknown parameter isn't ignored
+    api.get("", status=422, span_kind="database")

@@ -11,12 +11,17 @@ from uuid import UUID
 from botocore.exceptions import BotoCoreError, ClientError
 from clickhouse_connect.driver.exceptions import ClickHouseError
 
+from agenttrace.eval.results import EVAL_TAG
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import clickhouse_client, read_payload, s3_client
+from agenttrace_ingest.trace_filter import TraceFilter
 from agenttrace_ingest.traces import Cursor, SpanRow, SummaryRow, Unavailable
 
 # traces is an AggregatingMergeTree (ADR-0013): merge unmerged parts with the same aggregates the
 # materialized view used. Aliases differ from column names so HAVING can't confuse them.
+# `t_eval` marks eval runs without collecting every tag: a query that doesn't read `t_tags` skips
+# it, which is most of the cost of grouping a project's traces (Phase 8 benchmark). `t_key` is the
+# raw `trace_id`, for joining spans without converting 20M IDs to strings. Binds `eval_tag`.
 SUMMARY_SELECT = """
     SELECT
         toString(trace_id) AS t_trace_id,
@@ -36,8 +41,11 @@ SUMMARY_SELECT = """
         max(user_id) AS t_user_id,
         groupUniqArrayArray(tags) AS t_tags,
         max(replay_of) AS t_replay_of,
+        max(service_name) AS t_service_name,
         sum(llm_errors) + sum(tool_errors) + sum(agent_errors) + sum(retrieval_errors)
-          + sum(custom_errors) AS t_errors
+          + sum(custom_errors) AS t_errors,
+        max(has(tags, {eval_tag:String})) AS t_eval,
+        trace_id AS t_key
     FROM traces
     WHERE project_id = {project:UUID}"""
 
@@ -62,7 +70,7 @@ AFTER_EVERYTHING = Cursor(start_time=datetime(2999, 1, 1, tzinfo=UTC), trace_id=
 
 # Columns ClickHouse migrations add (migrations/clickhouse). Reading one before its migration has
 # run is an outage with a known cause, not a bug.
-MIGRATED_COLUMNS = ("replay_of",)
+MIGRATED_COLUMNS = ("replay_of", "service_name")
 MAX_REASON_CHARS = 300
 
 
@@ -106,7 +114,7 @@ def utc(value: datetime) -> datetime:
 
 def _summary(row: Sequence[Any]) -> SummaryRow:
     (trace_id, start, last_end, last_ingested, spans, cost, llm, unpriced, has_root, ended, error,
-     root_end, root_name, session, user, tags, replay_of, errors) = row  # fmt: skip
+     root_end, root_name, session, user, tags, replay_of, service, errors, *_) = row  # fmt: skip
     return SummaryRow(
         trace_id=trace_id,
         start_time=utc(start),
@@ -125,8 +133,79 @@ def _summary(row: Sequence[Any]) -> SummaryRow:
         user_id=user,
         tags=tags,
         replay_of=replay_of,
+        service_name=service,
         errors=errors,
     )
+
+
+# Before any span: the bound on the spans scan when a filter has no `since`.
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+# Whether a merged SUMMARY_SELECT row is a complete trace, as `traces.summarize` decides it; binds
+# `f_complete_before`, now less the quiet period.
+COMPLETE = "(t_root_ended = 1 OR t_last_ingested < {f_complete_before:DateTime64(6)})"
+
+
+def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dict[str, Any]]:
+    """`f` as SQL over SUMMARY_SELECT: a WHERE part, a HAVING part (each empty or starting with
+    AND), and their parameters. What a filter means is `trace_filter.matches`.
+
+    Only the span match goes in WHERE: one trace's unmerged rows share its `trace_id`, but each
+    holds part of its aggregates, so everything else is decided on the merged row, in HAVING."""
+    where, having, params = [], [], {}
+    if f.matches_spans:
+        span = ["project_id = {project:UUID}", "start_time >= {f_span_since:DateTime64(6)}"]
+        # A trace's spans start no earlier than the trace, so `since` bounds the spans scan too.
+        params["f_span_since"] = f.since or EPOCH
+        if f.span_kind:
+            span.append("kind = {f_span_kind:String}")
+            params["f_span_kind"] = f.span_kind
+        if f.span_name:
+            span.append("name = {f_span_name:String}")
+            params["f_span_name"] = f.span_name
+        if f.span_model:
+            span.append("model = {f_span_model:String}")
+            params["f_span_model"] = f.span_model
+        if f.span_error:
+            span.append("status = 'error'")
+        where.append(f"trace_id IN (SELECT trace_id FROM spans WHERE {' AND '.join(span)})")
+    if f.since:
+        having.append("t_start >= {f_since:DateTime64(6)}")
+        params["f_since"] = f.since
+    if f.until:
+        having.append("t_start < {f_until:DateTime64(6)}")
+        params["f_until"] = f.until
+    if f.status:
+        having.append(
+            {
+                "running": f"NOT {COMPLETE}",
+                "error": f"{COMPLETE} AND (t_root_error = 1 OR t_root_ended = 0)",
+                "ok": "t_root_ended = 1 AND t_root_error = 0",
+            }[f.status]
+        )
+        params["f_complete_before"] = complete_before
+    if f.tag:
+        having.append("hasAll(t_tags, {f_tags:Array(String)})")
+        params["f_tags"] = f.tag
+    if f.user_id is not None:
+        having.append("t_user_id = {f_user_id:String}")
+        params["f_user_id"] = f.user_id
+    if f.service_name is not None:
+        having.append("t_service_name = {f_service_name:String}")
+        params["f_service_name"] = f.service_name
+    if not f.show_evals:
+        having.append("t_eval = 0")
+    if not f.show_replays:
+        having.append("t_replay_of = ''")
+    return "".join(f" AND {w}" for w in where), "".join(f" AND {h}" for h in having), params
+
+
+def filtered_traces_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, dict[str, Any]]:
+    """The merged summary rows of the traces passing `f`, as a subquery with SUMMARY_SELECT's
+    `t_` columns, and its parameters. Binds `project` and `f_complete_before`, for COMPLETE."""
+    where, having, params = filter_sql(f, complete_before)
+    sql = f"{SUMMARY_SELECT}{where} GROUP BY trace_id HAVING 1{having}"
+    return sql, {**params, "f_complete_before": complete_before, "eval_tag": EVAL_TAG}
 
 
 def _span(row: Sequence[Any]) -> SpanRow:
@@ -155,23 +234,29 @@ class ClickHouseTraces:
             return self._clickhouse.query(sql, parameters=parameters).result_rows
 
     def summaries(
-        self, project: UUID, before: Cursor | None, show_replays: bool, limit: int
+        self,
+        project: UUID,
+        f: TraceFilter,
+        complete_before: datetime,
+        before: Cursor | None,
+        limit: int,
     ) -> list[SummaryRow]:
         before = before or AFTER_EVERYTHING
+        where, having, params = filter_sql(f, complete_before)
         rows = self._query(
-            f"""{SUMMARY_SELECT}
+            f"""{SUMMARY_SELECT}{where}
                 GROUP BY trace_id
                 HAVING (t_start, t_trace_id)
-                       < ({{before_start:DateTime64(6)}}, {{before_trace:String}})
-                   AND ({{show_replays:UInt8}} = 1 OR t_replay_of = '')
+                       < ({{before_start:DateTime64(6)}}, {{before_trace:String}}){having}
                 ORDER BY t_start DESC, t_trace_id DESC
                 LIMIT {{limit:UInt32}}""",
             {
+                **params,
                 "project": str(project),
                 "before_start": before.start_time,
                 "before_trace": before.trace_id,
-                "show_replays": int(show_replays),
                 "limit": limit,
+                "eval_tag": EVAL_TAG,
             },
         )
         return [_summary(r) for r in rows]
@@ -179,7 +264,7 @@ class ClickHouseTraces:
     def summary(self, project: UUID, trace_id: str) -> SummaryRow | None:
         rows = self._query(
             f"{SUMMARY_SELECT} AND trace_id = {{trace:FixedString(32)}} GROUP BY trace_id",
-            {"project": str(project), "trace": trace_id},
+            {"project": str(project), "trace": trace_id, "eval_tag": EVAL_TAG},
         )
         return _summary(rows[0]) if rows else None
 
