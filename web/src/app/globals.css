@@ -7,6 +7,13 @@
   --line: #e4e4e7;
   --good: #16a34a;
   --bad: #dc2626;
+  /* Chart series, in this order (dataviz reference palette, validated light and dark). */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-other: #a1a1aa;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -17,6 +24,12 @@
     --line: #27272a;
     --good: #22c55e;
     --bad: #f87171;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-other: #52525b;
   }
 }
 

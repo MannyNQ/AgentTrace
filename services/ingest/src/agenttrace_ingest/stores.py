@@ -43,12 +43,15 @@ def check_postgres(s: Settings) -> None:
 
 
 def clickhouse_client(s: Settings, **options):
+    # No ClickHouse session: request threads share each client, and a session refuses concurrent
+    # queries. Nothing here keeps session state (temporary tables, SET).
     return clickhouse_connect.get_client(
         host=s.clickhouse_host,
         port=s.clickhouse_port,
         username=s.clickhouse_user,
         password=s.clickhouse_password,
         database=s.clickhouse_database,
+        autogenerate_session_id=False,
         **options,
     )
 

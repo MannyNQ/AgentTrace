@@ -74,9 +74,10 @@ def test_the_filter_sql_selects_what_the_filter_means(api: TestClient):
     now = datetime.now(UTC)
     since = (now - timedelta(minutes=1)).isoformat()
     refund = {"name": "refund", "kind": "tool"}
+    call = {"name": "call", "kind": "llm", "model": "it-model"}
     made = {
         "ok": trace(now, tags=[run, "vip"], user_id="u1",
-                    attributes={"resource.service.name": "support"}, children=[refund]),
+                    attributes={"resource.service.name": "support"}, children=[refund, call]),
         "error": trace(now, tags=[run], error=True, children=[{**refund, "status": "error"}]),
         "running": trace(now, tags=[run], ended=False),
         "eval": trace(now, tags=[run, EVAL_TAG]),
@@ -98,6 +99,7 @@ def test_the_filter_sql_selects_what_the_filter_means(api: TestClient):
         ({"service_name": "support"}, {"ok"}),
         ({"span_kind": "tool"}, {"ok", "error"}),
         ({"span_name": "refund", "span_error": True, "since": since}, {"error"}),
+        ({"span_model": "it-model"}, {"ok"}),
     ]
     for params, want in cases:
         q = {"limit": 200, "tag": [run], **params}  # a case's own tags include `run`

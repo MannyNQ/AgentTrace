@@ -39,22 +39,23 @@ class TraceFilter(BaseModel):
     service_name: Text = None
     show_evals: bool = False
     show_replays: bool = False
-    # The trace has a span of this kind and name, errored when `span_error`.
+    # The trace has a span of this kind, name, and model, errored when `span_error`.
     span_kind: SpanKind | None = None
     span_name: Text = None
+    span_model: Text = None
     span_error: bool = False
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
         if self.since and self.until and self.since >= self.until:
             raise ValueError("since must be before until")
-        if self.span_error and not (self.span_kind or self.span_name):
-            raise ValueError("span_error needs span_kind or span_name")
+        if self.span_error and not (self.span_kind or self.span_name or self.span_model):
+            raise ValueError("span_error needs span_kind, span_name, or span_model")
         return self
 
     @property
     def matches_spans(self) -> bool:
-        return bool(self.span_kind or self.span_name or self.span_error)
+        return bool(self.span_kind or self.span_name or self.span_model or self.span_error)
 
 
 def matches(f: TraceFilter, trace: TraceSummary, spans: list[SpanRow]) -> bool:
@@ -76,5 +77,6 @@ def _span_matches(f: TraceFilter, s: SpanRow) -> bool:
     return (
         (f.span_kind is None or s.kind == f.span_kind)
         and (f.span_name is None or s.name == f.span_name)
+        and (f.span_model is None or s.model == f.span_model)
         and (not f.span_error or s.status == "error")
     )

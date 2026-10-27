@@ -162,3 +162,18 @@ def test_the_filter_and_the_zone_apply(api: TestClient):
     assert kolkata["buckets"][-1]["start"].endswith(":30:00Z")
     week = get(api, "volume", range="7d")
     assert len(week["buckets"]) == 7 and week["totals"]["traces"] == 5  # 30 h ago is this week
+
+
+def test_concurrent_reads_share_one_client(api: TestClient):
+    """The overview's panels load in parallel, on threads sharing one store."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from agenttrace_ingest.analytics_store import ClickHouseAnalytics
+    from agenttrace_ingest.trace_filter import TraceFilter
+
+    store = ClickHouseAnalytics(Settings())
+    now = datetime.now(UTC)
+    f = TraceFilter(since=now - timedelta(days=1), until=now)
+    with ThreadPoolExecutor(8) as pool:
+        rows = list(pool.map(lambda _: store.trace_totals(uuid.uuid4(), f, now), range(16)))
+    assert all(r.traces == 0 for r in rows)

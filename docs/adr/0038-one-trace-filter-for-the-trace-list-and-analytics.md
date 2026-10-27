@@ -8,7 +8,7 @@ Every chart on the overview links to the trace list filtered to what was clicked
 
 ## Decision
 
-- One filter type, parsed once in ingest, is taken by `/v1/traces` and every `/v1/analytics/...` endpoint: time range, status, tags, user ID, `service_name`, production versus eval and replay runs, and "has a span of kind K or name N", optionally errored.
+- One filter type, parsed once in ingest, is taken by `/v1/traces` and every `/v1/analytics/...` endpoint: time range, status, tags, user ID, `service_name`, production versus eval and replay runs, and "has a span of kind K, name N, or model M", optionally errored.
 - Span-level queries apply it as `trace_id IN (SELECT trace_id FROM traces WHERE <filter>)`, with the time range on both the subquery and `spans`, so the `spans` sort key still prunes.
 - `traces` gains `service_name`, filled by `traces_mv` from the root span's `resource.service.name`, which the SDK also sets, from `AGENTTRACE_SERVICE_NAME` or `OTEL_SERVICE_NAME`.
 

@@ -158,6 +158,9 @@ def filter_sql(f: TraceFilter, complete_before: datetime) -> tuple[str, str, dic
         if f.span_name:
             span.append("name = {f_span_name:String}")
             params["f_span_name"] = f.span_name
+        if f.span_model:
+            span.append("model = {f_span_model:String}")
+            params["f_span_model"] = f.span_model
         if f.span_error:
             span.append("status = 'error'")
         where.append(f"trace_id IN (SELECT trace_id FROM spans WHERE {' AND '.join(span)})")

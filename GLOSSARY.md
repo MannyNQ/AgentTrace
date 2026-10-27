@@ -132,7 +132,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Overview**: A project's landing page, `/p/<slug>/overview`: volume, error rates, latency percentiles, cost, and tools over 24h, 7d, or 30d, with each headline number's change from the previous period. Its numbers are approximate (ADR-0037). _Avoid_: dashboard, as the page's name.
 
-**Trace filter**: The one set of conditions the trace list and the overview both take: time range, status, tags, user ID, service name, production or eval and replay runs, and spans of a kind or name. A chart click opens the trace list with the same filter, so the two agree. See ADR-0038.
+**Trace filter**: The one set of conditions the trace list and the overview both take: time range, status, tags, user ID, service name, production or eval and replay runs, and spans of a kind, name, or model. A chart click opens the trace list with the same filter, so the two agree. See ADR-0038.
 
 **Production traffic**: Traces that are neither eval samples' traces nor replay runs. The overview counts only these unless told otherwise.
 

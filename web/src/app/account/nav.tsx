@@ -31,6 +31,9 @@ function Bar({ user, project }: { user: User; project: Project | null }) {
             <Link href={`/p/${project.slug}`} className="font-mono text-xs" data-project={project.slug}>
               {project.name}
             </Link>
+            <Link href={`/p/${project.slug}/overview`} className={link}>
+              Overview
+            </Link>
             <Link href={`/p/${project.slug}/traces`} className={link}>
               Traces
             </Link>

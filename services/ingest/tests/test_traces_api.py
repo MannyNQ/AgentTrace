@@ -341,6 +341,8 @@ def test_the_filter_matches_traces_by_their_spans(api: Api):
     assert ids(api.get("", span_kind="tool")) == {A, B}
     assert ids(api.get("", span_name="refund", span_error=True)) == {B}
     assert ids(api.get("", span_kind="llm")) == set()
+    api.store.add(PROJECT, summary_row(D), [span_row(ROOT), span_row(TOOL, kind="llm", model="m1")])
+    assert ids(api.get("", span_model="m1")) == {D}
 
 
 def test_a_malformed_filter_is_refused(api: Api):
