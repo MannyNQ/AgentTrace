@@ -6,7 +6,7 @@ Open-source observability and evals for LLM agents. Sentry plus pytest for AI ag
 - **Turn failures into tests** with one click.
 - **Grade trajectories in CI**: which tools the agent called, in what order, so a prompt change can't quietly break things.
 
-> **Status: Phase 6 (auth).** The Python SDK traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. Any trace can be added to a dataset, and a published version can be run with `agenttrace eval`: it runs your agent over every item, grades outputs and tool-call trajectories, and uploads an experiment you can browse in the UI. Each experiment is compared with its baseline (the run at the merge-base, else the newest on the base branch), and `agenttrace eval --fail-on-regression` or the GitHub Action in [`action.yml`](action.yml) fails a pull request on a statistically real regression and posts the comparison as a comment. An `llm_judge` scorer grades outputs with an Anthropic model. `agenttrace replay` re-runs a failed trace with your current code and scores it against the dataset item made from it. People sign in to the web app; an owner invites members, creates projects, and makes API keys for each one. See [`docs/design.md`](docs/design.md).
+> **Status: Phase 7 (OpenTelemetry).** The Python SDK, or any OpenTelemetry exporter over OTLP, traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. Any trace can be added to a dataset, and a published version can be run with `agenttrace eval`: it runs your agent over every item, grades outputs and tool-call trajectories, and uploads an experiment you can browse in the UI. Each experiment is compared with its baseline (the run at the merge-base, else the newest on the base branch), and `agenttrace eval --fail-on-regression` or the GitHub Action in [`action.yml`](action.yml) fails a pull request on a statistically real regression and posts the comparison as a comment. An `llm_judge` scorer grades outputs with an Anthropic model. `agenttrace replay` re-runs a failed trace with your current code and scores it against the dataset item made from it. People sign in to the web app; an owner invites members, creates projects, and makes API keys for each one. Agents instrumented with OpenTelemetry, such as Pydantic AI, the Vercel AI SDK, or OpenInference instrumentors, send traces to `/otlp/v1/traces`, and `agenttrace eval` and `agenttrace replay` capture their tool calls too. See [`docs/design.md`](docs/design.md).
 >
 > From Phase 2 on, ingest applies database migrations on startup, so an existing dev stack upgrades in place with `docker compose up -d --build`. A stack from before Phase 1 still needs `docker compose down -v` (this deletes its data).
 
@@ -52,6 +52,29 @@ AGENTTRACE_API_KEY=at-local-dev-key uv run agenttrace replay <trace_id> -c examp
 ```
 
 It calls the agent 3 times with the trace's input and your current code. If the trace was added to the `support` draft and its item has an expectation, each run is scored against it and `--require-pass` exits 3 unless all pass. The trace page lists its replays, and each replay's page shows the runs beside the original with where they first differ.
+
+## OpenTelemetry
+
+Agents already instrumented with OpenTelemetry don't need the SDK to send traces. Point any OTLP/HTTP exporter at ingest with an API key:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8000/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20<key>
+OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true
+```
+
+An `ingest` key is enough, and creating one on the Settings page shows these lines filled in. The header value is percent-encoded, so the space after `Bearer` is `%20`. Turn content capture on: without it, OpenTelemetry's GenAI instrumentation records no tool arguments, and trajectory scorers that match arguments fail.
+
+Ingest reads OpenTelemetry's GenAI conventions and OpenInference. Model calls, tool calls, agent runs, and retrievals become the matching spans; other spans, such as HTTP requests, are kept as `custom` spans. Cached tokens are taken out of input tokens before pricing, as everywhere else. A span ingest can't store is dropped and reported in the response's `partialSuccess`, rather than failing the batch (ADR-0035). GenAI conventions don't say where an agent run's input goes, so for "Add to dataset" and replay, set `input.value` (with `input.mime_type: application/json` for JSON) on the root span.
+
+`agenttrace eval` and `agenttrace replay` install a bridge whenever `opentelemetry-sdk` is installed (`pip install 'agenttrace[otel]'`), so an OpenTelemetry-instrumented agent's tool spans are graded like the SDK's (ADR-0036). In production, `agenttrace.otel.install()` sends OpenTelemetry spans through the SDK instead of an OTLP exporter.
+
+[`examples/demo-agent-otel`](examples/demo-agent-otel) is the demo agent on Pydantic AI, traced with OpenTelemetry only. Its model is scripted, so it needs no API key:
+
+```bash
+uv run demo-agent-otel "Where is order 1042?"
+AGENTTRACE_API_KEY=at-local-dev-key uv run agenttrace eval -c examples/demo-agent-otel/eval.yaml
+```
 
 ## API keys and projects
 
