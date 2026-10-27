@@ -10,7 +10,15 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from agenttrace.eval.results import Finish, NewReplay, ReplayRunResult, ScorerSpec, SpanRef
+from agenttrace.eval.results import (
+    Finish,
+    NewReplay,
+    ReplayRunResult,
+    ScorerSpec,
+    SpanRef,
+    StepWarning,
+    ToolMode,
+)
 from agenttrace_ingest.datasets import Conflict, Item, NotFound, Record, Refused
 from agenttrace_ingest.experiments import Prices, Status, StoredRun, check_text, stored
 from agenttrace_ingest.trace_inputs import TraceRoots
@@ -20,7 +28,9 @@ from agenttrace_ingest.trace_inputs import TraceRoots
 
 class Replay(Record):
     id: UUID
-    replay_of: SpanRef
+    replay_of: SpanRef  # the original trace's root span, for a fork as for a whole replay
+    fork_of: SpanRef | None  # a fork's fork point, in the trace it forked (ADR-0040)
+    tool_mode: ToolMode
     status: Status
     error: str | None
     runs: int
@@ -55,6 +65,8 @@ class ReplayInfo(Replay):
 
 class StoredReplayRun(StoredRun):
     run_index: int
+    diverged_at: int | None
+    warnings: list[StepWarning]
 
 
 class ReplayDetail(ReplayInfo):
@@ -91,7 +103,8 @@ class Store(Protocol):
     def get(self, project: UUID, replay_id: UUID) -> ReplayInfo | None: ...
 
     def list_for_trace(self, project: UUID, trace_id: str) -> list[ReplayInfo]:
-        """Replays of one original trace, newest first."""
+        """Replays of one original trace, and forks of it whatever trace they forked, plus forks
+        of it when it's a replay run; newest first."""
         ...
 
     def open(self, project: UUID, replay_id: UUID, exclusive: bool) -> AbstractContextManager[Tx]:
@@ -111,6 +124,8 @@ def _same_replay(r: Replay, new: NewReplay) -> bool:
     """A retried create matches what's stored; anything else reusing the ID is a conflict."""
     return (
         r.replay_of == new.replay_of
+        and r.fork_of == new.fork_of
+        and r.tool_mode == new.tool_mode
         and r.runs == new.runs
         and r.item_id == new.item_id
         and r.item_rev == new.item_rev
@@ -132,7 +147,9 @@ def create(
     """The replay, and whether this call created it. Retrying a create returns the original.
     The trace it re-runs must be in the project, so one project can't file replays under
     another's traces. Once that original expires, a replay of one of its replay runs still names
-    it; the project's earlier replay of it vouches for it then."""
+    it; the project's earlier replay of it vouches for it then. A fork's trace must still exist,
+    since its steps are what it plays back, and must lead back to the original the fork names,
+    so a fork is listed under the trace it really re-ran."""
     existing = store.get(project, new.id)
     if existing is not None:
         if not _same_replay(existing, new):
@@ -141,6 +158,12 @@ def create(
     original = new.replay_of.trace_id
     if not roots.exists(project, original) and not store.list_for_trace(project, original):
         raise NotFound("trace not found; it may have expired")
+    if new.fork_of is not None:
+        origin = roots.origin(project, new.fork_of.trace_id)
+        if origin.trace_id != original:
+            raise Refused(
+                f"the forked trace re-ran {origin.trace_id}, so that's the original to name"
+            )
     if new.item_id is not None and new.item_rev is not None:
         item = store.item(project, new.item_id, new.item_rev)
         if item is None:

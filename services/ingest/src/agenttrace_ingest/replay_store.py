@@ -1,5 +1,5 @@
-"""Postgres storage for replays (schema: migrations/0004_replays.sql). It reads and writes rows
-only; the decisions are in `replays`."""
+"""Postgres storage for replays (schema: migrations/0004_replays.sql and 0006_forks.sql). It
+reads and writes rows only; the decisions are in `replays`."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,9 +16,10 @@ from agenttrace_ingest.experiments import Status
 from agenttrace_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
 from agenttrace_ingest.settings import Settings
 
-REPLAY_COLUMNS = """r.id, r.original_trace_id, r.original_span_id, r.status, r.error, r.runs,
-    r.item_id, r.item_rev, r.scorers, r.config, r.config_hash, r.git_commit, r.git_branch,
-    r.git_dirty, r.started_at, r.finished_at"""
+REPLAY_COLUMNS = """r.id, r.original_trace_id, r.original_span_id, r.fork_trace_id,
+    r.fork_span_id, r.tool_mode, r.status, r.error, r.runs, r.item_id, r.item_rev, r.scorers,
+    r.config, r.config_hash, r.git_commit, r.git_branch, r.git_dirty, r.started_at,
+    r.finished_at"""
 
 # Listings add each replay's progress, cost, and pass counts per scorer.
 INFO_SELECT = f"""
@@ -40,11 +41,13 @@ INFO_SELECT = f"""
 
 
 def _fields(row: tuple) -> dict[str, Any]:
-    (id_, trace, span, status, error, runs, item_id, item_rev, scorers, config, config_hash,
-     commit, branch, dirty, started, finished) = row  # fmt: skip
+    (id_, trace, span, fork_trace, fork_span, tool_mode, status, error, runs, item_id, item_rev,
+     scorers, config, config_hash, commit, branch, dirty, started, finished) = row  # fmt: skip
     return dict(
         id=id_,
         replay_of=SpanRef(trace_id=trace, span_id=span),
+        fork_of=None if fork_trace is None else SpanRef(trace_id=fork_trace, span_id=fork_span),
+        tool_mode=tool_mode,
         status=status,
         error=error,
         runs=runs,
@@ -97,8 +100,8 @@ class PostgresTx:
                 """INSERT INTO replay_runs
                      (replay_id, run_index, trace_id, started_at, latency_ms, output,
                       output_truncated, trajectory, error, usage, cost_usd, judge_usage,
-                      judge_cost_usd)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      judge_cost_usd, diverged_at, warnings)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (replay_id, run_index) DO UPDATE SET
                      trace_id = EXCLUDED.trace_id, started_at = EXCLUDED.started_at,
                      latency_ms = EXCLUDED.latency_ms, output = EXCLUDED.output,
@@ -106,7 +109,9 @@ class PostgresTx:
                      trajectory = EXCLUDED.trajectory, error = EXCLUDED.error,
                      usage = EXCLUDED.usage, cost_usd = EXCLUDED.cost_usd,
                      judge_usage = EXCLUDED.judge_usage,
-                     judge_cost_usd = EXCLUDED.judge_cost_usd, uploaded_at = now()""",
+                     judge_cost_usd = EXCLUDED.judge_cost_usd,
+                     diverged_at = EXCLUDED.diverged_at, warnings = EXCLUDED.warnings,
+                     uploaded_at = now()""",
                 [
                     (
                         rid,
@@ -122,6 +127,8 @@ class PostgresTx:
                         r.cost_usd,
                         Jsonb([u.model_dump(mode="json") for u in r.judge_usage]),
                         r.judge_cost_usd,
+                        r.diverged_at,
+                        Jsonb([w.model_dump(mode="json") for w in r.warnings]),
                     )
                     for r in runs
                 ],
@@ -170,15 +177,18 @@ class PostgresReplays:
             try:
                 conn.execute(
                     """INSERT INTO replays
-                         (id, project_id, original_trace_id, original_span_id, runs, item_id,
-                          item_rev, scorers, config, config_hash, git_commit, git_branch,
-                          git_dirty)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                         (id, project_id, original_trace_id, original_span_id, fork_trace_id,
+                          fork_span_id, tool_mode, runs, item_id, item_rev, scorers, config,
+                          config_hash, git_commit, git_branch, git_dirty)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         r.id,
                         project,
                         r.replay_of.trace_id,
                         r.replay_of.span_id,
+                        None if r.fork_of is None else r.fork_of.trace_id,
+                        None if r.fork_of is None else r.fork_of.span_id,
+                        r.tool_mode,
                         r.runs,
                         r.item_id,
                         r.item_rev,
@@ -203,9 +213,10 @@ class PostgresReplays:
     def list_for_trace(self, project: UUID, trace_id: str) -> list[ReplayInfo]:
         with self._connect() as conn:
             rows = conn.execute(
-                f"""{INFO_SELECT} WHERE r.project_id = %s AND r.original_trace_id = %s
+                f"""{INFO_SELECT} WHERE r.project_id = %s
+                      AND (r.original_trace_id = %s OR r.fork_trace_id = %s)
                     ORDER BY r.started_at DESC, r.id""",
-                (project, trace_id),
+                (project, trace_id, trace_id),
             ).fetchall()
         return [_info(r) for r in rows]
 
@@ -227,7 +238,7 @@ class PostgresReplays:
             rows = conn.execute(
                 """SELECT u.run_index, u.trace_id, u.started_at, u.latency_ms, u.output,
                           u.output_truncated, u.trajectory, u.error, u.usage, u.cost_usd,
-                          u.judge_usage, u.judge_cost_usd,
+                          u.judge_usage, u.judge_cost_usd, u.diverged_at, u.warnings,
                           coalesce(jsonb_agg(jsonb_build_object(
                               'scorer', c.scorer, 'score', c.score, 'passed', c.passed,
                               'reason', c.reason) ORDER BY c.scorer)
@@ -253,6 +264,8 @@ class PostgresReplays:
                 cost_usd=cost,
                 judge_usage=judge_usage,
                 judge_cost_usd=judge_cost,
+                diverged_at=diverged_at,
+                warnings=warnings,
                 scores=scores,
             )
             for (
@@ -268,6 +281,8 @@ class PostgresReplays:
                 cost,
                 judge_usage,
                 judge_cost,
+                diverged_at,
+                warnings,
                 scores,
             ) in rows  # fmt: skip
         ]

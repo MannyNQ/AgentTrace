@@ -1,5 +1,6 @@
 """/v1/traces: the trace list, one trace and its spans, a span's full payload, what a trace did,
-which traces still exist, and a root span's input for `agenttrace replay` (ADR-0028, ADR-0031).
+which traces still exist, and a root span's input and the steps for `agenttrace replay`
+(ADR-0028, ADR-0031, ADR-0040).
 Each route parses, calls one rule, and returns its record."""
 
 from datetime import datetime
@@ -78,6 +79,11 @@ def router(traces: tr.Traces, roots: TraceRoots, a: Auth) -> APIRouter:
     ) -> tr.Payload:
         """A span's full input or output, from object storage when it was offloaded."""
         return traces.payload(project, trace_id, span_id, which)
+
+    @r.get("/{trace_id}/steps")
+    def steps(project: Annotated[UUID, auth], trace_id: TraceId) -> tr.Steps:
+        """Its LLM and tool spans in start order with full payloads, for a fork (ADR-0040)."""
+        return traces.steps(project, trace_id)
 
     @r.get("/{trace_id}/input")
     def trace_input(project: Annotated[UUID, auth], trace_id: TraceId) -> RootInput:

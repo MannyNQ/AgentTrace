@@ -1,13 +1,21 @@
-"""Reading traces: the trace list, one trace with its spans, a span's full payload, and what a
-trace did (ADR-0031). Trace completion and status are decided here, when a trace is read
-(ADR-0013, GLOSSARY.md). Storage is behind `Store`; `trace_store` has the ClickHouse queries."""
+"""Reading traces: the trace list, one trace with its spans, a span's full payload, what a trace
+did, and its steps for a fork (ADR-0031, ADR-0040). Trace completion and status are decided
+here, when a trace is read (ADR-0013, GLOSSARY.md). Storage is behind `Store`; `trace_store`
+has the ClickHouse queries."""
 
+import json
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 from uuid import UUID
 
 from agenttrace.eval.results import ToolCall
-from agenttrace_ingest.datasets import DatasetError, NotFound, Record
+from agenttrace.exporter import TRUNCATED_ATTRIBUTE
+from agenttrace.tracing import (
+    ERROR_MESSAGE_ATTRIBUTE,
+    INTERCEPTOR_ATTRIBUTE,
+    OUTPUT_RECORDED_ATTRIBUTE,
+)
+from agenttrace_ingest.datasets import DatasetError, NotFound, Record, Refused
 from agenttrace_ingest.trace_inputs import decode_payload
 
 if TYPE_CHECKING:
@@ -18,6 +26,8 @@ TraceStatus = Literal["ok", "error", "running"]
 Which = Literal["input", "output"]
 MAX_PAGE = 200
 MAX_LIVE_IDS = 5000
+MAX_STEPS = 1000  # every step's payloads are read, some from object storage
+MAX_STEP_BYTES = 64 * 1024 * 1024  # and held in memory to answer, so they're bounded too
 
 
 class Unavailable(DatasetError):
@@ -143,6 +153,31 @@ class Outcome(Record):
     root_error: str | None
 
 
+class Step(Record):
+    """One LLM or tool span with its full payloads, and what decides whether a fork can stub it
+    (ADR-0040). `index` counts steps from 0 in start order, as a fork counts them."""
+
+    index: int
+    span_id: str
+    parent_span_id: str
+    kind: Literal["llm", "tool"]
+    name: str
+    start_time: datetime
+    status: Literal["ok", "error"]
+    error_type: str
+    error_message: str | None
+    interceptor: str | None  # the SDK hook that recorded it; None if none did
+    truncated: list[Which]  # payloads the SDK cut to fit a request
+    output_recorded: str | None  # on tool spans: `json`, `text`, or `lossy`
+    input: Any
+    output: Any
+
+
+class Steps(Record):
+    trace_id: str
+    steps: list[Step]
+
+
 class LiveTraces(Record):
     trace_ids: list[str]
 
@@ -197,6 +232,20 @@ def summarize(r: SummaryRow, now: datetime, quiet_period: timedelta) -> TraceSum
         replay_of=r.replay_of,
         service_name=r.service_name,
     )
+
+
+def decode_step(text: str, recorded: str | None) -> Any:
+    """A step's payload as the SDK recorded it. A bare string is stored as itself, so only the
+    span's `text` mark tells it from JSON; without the mark, text that isn't JSON (a cut payload)
+    stays text. An empty payload is None, unless the mark says it was the empty string."""
+    if recorded == "text":
+        return text
+    if text == "":
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
 
 
 def _span(r: SpanRow) -> Span:
@@ -255,6 +304,45 @@ class Traces:
             output=decode_payload(self._text(root, "output")) if root else None,
             root_error=(root.error_type or "error") if root and root.status == "error" else None,
         )
+
+    def steps(self, project: UUID, trace_id: str) -> Steps:
+        """The trace's LLM and tool spans in start order, with full payloads, for a fork to play
+        back. Whether each can be stubbed is the CLI's call, beside its interceptors."""
+        _, spans = self._read(project, trace_id)
+        rows = [s for s in spans if s.kind in ("llm", "tool")]
+        if len(rows) > MAX_STEPS:
+            raise Refused(f"the trace has {len(rows)} steps; a fork plays back at most {MAX_STEPS}")
+        steps, total = [], 0
+        for i, s in enumerate(rows):
+            texts = self._text(s, "input"), self._text(s, "output")
+            total += sum(len(t) for t in texts)
+            if total > MAX_STEP_BYTES:
+                raise Refused(
+                    f"the trace's steps hold over {MAX_STEP_BYTES // 2**20} MB of payloads, more "
+                    "than a fork plays back"
+                )
+            a = s.attributes
+            recorded = a.get(OUTPUT_RECORDED_ATTRIBUTE)
+            cut = a.get(TRUNCATED_ATTRIBUTE, "").split(",")
+            steps.append(
+                Step(
+                    index=i,
+                    span_id=s.span_id,
+                    parent_span_id=s.parent_span_id,
+                    kind="llm" if s.kind == "llm" else "tool",
+                    name=s.name,
+                    start_time=s.start_time,
+                    status=s.status,
+                    error_type=s.error_type,
+                    error_message=a.get(ERROR_MESSAGE_ATTRIBUTE),
+                    interceptor=a.get(INTERCEPTOR_ATTRIBUTE),
+                    truncated=[w for w in ("input", "output") if w in cut],
+                    output_recorded=recorded,
+                    input=decode_step(texts[0], None),
+                    output=decode_step(texts[1], recorded),
+                )
+            )
+        return Steps(trace_id=trace_id, steps=steps)
 
     def live(self, project: UUID, trace_ids: list[str]) -> LiveTraces:
         """Which of these traces still exist; a dataset item's source trace may have expired

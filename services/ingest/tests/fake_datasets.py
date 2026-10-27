@@ -18,7 +18,7 @@ from agenttrace_ingest.datasets import (
     Refused,
     VersionInfo,
 )
-from agenttrace_ingest.trace_inputs import RootInput
+from agenttrace_ingest.trace_inputs import RootInput, origin_of
 
 
 @dataclass
@@ -196,16 +196,19 @@ class FakeDatasets:
 
 class FakeTraces:
     """Root inputs by trace ID; a NotFound or Refused value is raised instead. A trace's root span
-    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs. With
-    `project`, every trace belongs to that project only; without it, to every project."""
+    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs, and
+    `origins` fork runs' `replay_origin`. With `project`, every trace belongs to that project
+    only; without it, to every project."""
 
     def __init__(
         self,
         inputs: dict[str, Any],
         replay_of: dict[str, SpanRef] | None = None,
         project: UUID | None = None,
+        origins: dict[str, SpanRef] | None = None,
     ):
         self.inputs, self.replay_of, self.project = inputs, replay_of or {}, project
+        self.origins = origins or {}
 
     def exists(self, project: UUID, trace_id: str) -> bool:
         mine = self.project is None or project == self.project
@@ -222,8 +225,14 @@ class FakeTraces:
             trace_id=trace_id,
             span_id=trace_id[:16],
             input=self.root_input(project, trace_id),
-            replay_of=self.replay_of.get(trace_id),
+            replay_of=origin_of(self.replay_of.get(trace_id), self.origins.get(trace_id)),
         )
+
+    def origin(self, project: UUID, trace_id: str) -> SpanRef:
+        if not self.exists(project, trace_id):
+            raise NotFound("trace not found; it may have expired")
+        found = origin_of(self.replay_of.get(trace_id), self.origins.get(trace_id))
+        return found or SpanRef(trace_id=trace_id, span_id=trace_id[:16])
 
 
 class FakePins:
