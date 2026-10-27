@@ -18,7 +18,7 @@ from agenttrace_ingest.datasets import (
     Refused,
     VersionInfo,
 )
-from agenttrace_ingest.trace_inputs import RootInput, resolve_origin
+from agenttrace_ingest.trace_inputs import RootInput, origin_of
 
 
 @dataclass
@@ -196,16 +196,19 @@ class FakeDatasets:
 
 class FakeTraces:
     """Root inputs by trace ID; a NotFound or Refused value is raised instead. A trace's root span
-    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs. With
-    `project`, every trace belongs to that project only; without it, to every project."""
+    ID is the first half of its trace ID; `replay_of` marks traces that are replay runs, and
+    `origins` fork runs' `replay_origin`. With `project`, every trace belongs to that project
+    only; without it, to every project."""
 
     def __init__(
         self,
         inputs: dict[str, Any],
         replay_of: dict[str, SpanRef] | None = None,
         project: UUID | None = None,
+        origins: dict[str, SpanRef] | None = None,
     ):
         self.inputs, self.replay_of, self.project = inputs, replay_of or {}, project
+        self.origins = origins or {}
 
     def exists(self, project: UUID, trace_id: str) -> bool:
         mine = self.project is None or project == self.project
@@ -218,29 +221,18 @@ class FakeTraces:
         return value
 
     def root(self, project: UUID, trace_id: str) -> RootInput:
-        value = self.root_input(project, trace_id)
-        parent = self.replay_of.get(trace_id)
         return RootInput(
             trace_id=trace_id,
             span_id=trace_id[:16],
-            input=value,
-            replay_of=None if parent is None else resolve_origin(parent, self._lookup(project)),
+            input=self.root_input(project, trace_id),
+            replay_of=origin_of(self.replay_of.get(trace_id), self.origins.get(trace_id)),
         )
 
     def origin(self, project: UUID, trace_id: str) -> SpanRef:
         if not self.exists(project, trace_id):
             raise NotFound("trace not found; it may have expired")
-        return resolve_origin(
-            SpanRef(trace_id=trace_id, span_id=trace_id[:16]), self._lookup(project)
-        )
-
-    def _lookup(self, project: UUID):
-        def lookup(trace_id: str) -> tuple[str, SpanRef | None] | None:
-            if not self.exists(project, trace_id):
-                return None
-            return trace_id[:16], self.replay_of.get(trace_id)
-
-        return lookup
+        found = origin_of(self.replay_of.get(trace_id), self.origins.get(trace_id))
+        return found or SpanRef(trace_id=trace_id, span_id=trace_id[:16])
 
 
 class FakePins:

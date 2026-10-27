@@ -2,7 +2,6 @@
 (GLOSSARY.md, ADR-0028)."""
 
 import json
-from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Protocol
 from uuid import UUID
@@ -14,12 +13,13 @@ from agenttrace_ingest.stores import clickhouse_client, read_payload, s3_client
 
 TRUNCATED_ATTRIBUTE = "agenttrace.truncated"  # sdk/python/src/agenttrace/exporter.py
 REPLAY_OF_ATTRIBUTE = "agenttrace.replay_of"  # sdk/python/src/agenttrace/eval/replay.py
+REPLAY_ORIGIN_ATTRIBUTE = "agenttrace.replay_origin"  # the same file
 
 
 class RootInput(Record):
     """A trace's root span and its full input. `replay_of` is set when the trace is itself a
-    replay run, naming the root span of the original it re-ran: for a fork of a fork, the one at
-    the start of the chain (ADR-0040)."""
+    replay run, naming the root span of the original it re-ran: for a fork, even of a fork, the
+    one at the start of the chain (ADR-0040)."""
 
     trace_id: str
     span_id: str
@@ -38,32 +38,16 @@ class TraceRoots(Protocol):
 
     def origin(self, project: UUID, trace_id: str) -> SpanRef:
         """The root span of the original this trace re-ran, or its own root span when it isn't
-        a replay run, as `resolve_origin` finds it. Raises NotFound."""
+        a replay run, as `origin_of` decides. Raises NotFound."""
         ...
 
 
-MAX_CHAIN = 64
-# A trace's root span ID and its `replay_of`, or None when the trace is gone.
-RootLookup = Callable[[str], tuple[str, SpanRef | None] | None]
-
-
-def resolve_origin(ref: SpanRef, lookup: RootLookup) -> SpanRef:
-    """Follows `replay_of` from `ref` to the trace that isn't a replay run, and returns its root
-    span. A whole-trace replay points at its original's root already; a fork points at a step in
-    the trace it forked, which may itself be a replay run (ADR-0040). A trace in the chain that
-    has expired ends the walk at the last reference known; a cycle, which only hand-made spans
-    could form, ends it too."""
-    seen: set[str] = set()
-    while ref.trace_id not in seen and len(seen) < MAX_CHAIN:
-        seen.add(ref.trace_id)
-        found = lookup(ref.trace_id)
-        if found is None:
-            return ref
-        root_span, parent = found
-        if parent is None:
-            return SpanRef(trace_id=ref.trace_id, span_id=root_span)
-        ref = parent
-    return ref
+def origin_of(replay_of: SpanRef | None, replay_origin: SpanRef | None) -> SpanRef | None:
+    """The original a replay run re-ran, from its root span's attributes, or None for a trace
+    that isn't one. A fork run names it in `replay_origin`, since its `replay_of` is the fork
+    point; a whole-trace replay's `replay_of` is the original's root already. Neither needs the
+    traces between them, which may have expired (ADR-0040)."""
+    return replay_origin or replay_of
 
 
 def parse_ref(value: str) -> SpanRef | None:
@@ -117,22 +101,13 @@ class StoredTraceInputs:
         row = self._root_row(project, trace_id)
         if row is None:
             raise NotFound("trace not found; it may have expired")
-        span_id, *_, replay_of = row
-        parent = parse_ref(replay_of)
-        if parent is None:
-            return SpanRef(trace_id=trace_id, span_id=span_id)
-        return resolve_origin(parent, self._lookup_in(project))
-
-    def _lookup_in(self, project: UUID) -> RootLookup:
-        def lookup(trace_id: str) -> tuple[str, SpanRef | None] | None:
-            row = self._root_row(project, trace_id)
-            return None if row is None else (row[0], parse_ref(row[-1]))
-
-        return lookup
+        span_id, *_, replay_of, replay_origin = row
+        found = origin_of(parse_ref(replay_of), parse_ref(replay_origin))
+        return found or SpanRef(trace_id=trace_id, span_id=span_id)
 
     def _root_row(self, project: UUID, trace_id: str) -> tuple | None:
-        """(span_id, input_preview, input_uri, truncated, replay_of) of the root span; None when
-        the trace or its root span isn't stored."""
+        """(span_id, input_preview, input_uri, truncated, replay_of, replay_origin) of the root
+        span; None when the trace or its root span isn't stored."""
         ch = self._clickhouse
         params = {"project": str(project), "trace": trace_id}
         # The summary's time range bounds the scan on the spans sort key (ADR-0013).
@@ -147,7 +122,7 @@ class StoredTraceInputs:
         start, end, _ = summary[0]
         rows = ch.query(
             """SELECT toString(span_id), input_preview, input_uri, attributes[{truncated:String}],
-                      attributes[{replay_of:String}]
+                      attributes[{replay_of:String}], attributes[{replay_origin:String}]
                FROM spans FINAL
                WHERE project_id = {project:UUID} AND trace_id = {trace:FixedString(32)}
                  AND parent_span_id = '' AND start_time BETWEEN {start:DateTime64(6)}
@@ -159,6 +134,7 @@ class StoredTraceInputs:
                 "end": end,
                 "truncated": TRUNCATED_ATTRIBUTE,
                 "replay_of": REPLAY_OF_ATTRIBUTE,
+                "replay_origin": REPLAY_ORIGIN_ATTRIBUTE,
             },
         ).result_rows
         return tuple(rows[0]) if rows else None
@@ -169,16 +145,15 @@ class StoredTraceInputs:
             if self.exists(project, trace_id):
                 raise Refused("the trace's root span hasn't arrived, so there's no input to copy")
             raise NotFound("trace not found; it may have expired")
-        span_id, preview, uri, truncated, replay_of = row
+        span_id, preview, uri, truncated, replay_of, replay_origin = row
         if "input" in truncated.split(","):
             raise Refused("the SDK cut this trace's input to fit a request, so it can't be copied")
         text = read_payload(self.s, self._s3, uri) if uri else preview
         if text == "":
             raise Refused("the trace's root span has no input")
-        parent = parse_ref(replay_of)
         return RootInput(
             trace_id=trace_id,
             span_id=span_id,
             input=decode_payload(text),
-            replay_of=None if parent is None else resolve_origin(parent, self._lookup_in(project)),
+            replay_of=origin_of(parse_ref(replay_of), parse_ref(replay_origin)),
         )

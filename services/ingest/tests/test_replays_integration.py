@@ -13,7 +13,11 @@ from agenttrace_ingest.app import create_app
 from agenttrace_ingest.migrate import migrate_clickhouse
 from agenttrace_ingest.settings import Settings
 from agenttrace_ingest.stores import clickhouse_client
-from agenttrace_ingest.trace_inputs import REPLAY_OF_ATTRIBUTE, TRUNCATED_ATTRIBUTE
+from agenttrace_ingest.trace_inputs import (
+    REPLAY_OF_ATTRIBUTE,
+    REPLAY_ORIGIN_ATTRIBUTE,
+    TRUNCATED_ATTRIBUTE,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -170,9 +174,11 @@ def test_a_fork_of_a_fork_resolves_and_is_stored_with_its_runs(api: TestClient):
         {"question": "refund order 42"}, attributes={REPLAY_OF_ATTRIBUTE: f"{original}:{root}"}
     )
     step = "9" * 16
-    fork_run = emit_root(
-        {"question": "refund order 42"}, attributes={REPLAY_OF_ATTRIBUTE: f"{run}:{step}"}
-    )
+    fork_of_run = {
+        REPLAY_OF_ATTRIBUTE: f"{run}:{step}",
+        REPLAY_ORIGIN_ATTRIBUTE: f"{original}:{root}",
+    }
+    fork_run = emit_root({"question": "refund order 42"}, attributes=fork_of_run)
     # A whole-trace replay of the fork run goes back to the original, not to the run it forked.
     ref = api.get(f"/v1/traces/{fork_run}/input").json()["replay_of"]
     assert ref == {"trace_id": original, "span_id": root}

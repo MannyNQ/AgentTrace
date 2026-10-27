@@ -14,8 +14,8 @@ ADR-0028 deferred fork-from-step and tool stubbing. It pictured a fork as rebuil
 - A prefix LLM request that differs from its recording still gets the stub, and the differing fields are recorded as a warning. A prefix tool call with no match makes the run go live from that step, recorded as `diverged_at`. Under `--stub-tools`, a live-suffix tool call with no match errors the run.
 - A tool span is stubbable only if its output survived recording unchanged (it round-trips through JSON) and untruncated; the SDK marks that when the span is recorded.
 - A stubbed tool call that errored raises `agenttrace.RecordedToolError` with the recorded type name and message, since the original exception class isn't recorded.
-- A fork's `replay_of` points at the fork point in the trace it forked. That trace may itself be a replay run, so forks chain; whole-trace replays still resolve to the original root.
-- `replays` gains `fork_span_id` (null for a whole-trace replay) and `tool_mode` (`live` or `recorded`); each run records `diverged_at` and its LLM-request warnings. Scoring is unchanged (ADR-0030).
+- A fork's `replay_of` points at the fork point in the trace it forked. That trace may itself be a replay run, so forks chain; whole-trace replays still resolve to the original root. A fork run's root span also carries `agenttrace.replay_origin`, the original's root span, so the original is found in one read even after the replay runs between them expire, which happens first when the original is pinned.
+- `replays` gains the fork point as `fork_trace_id` and `fork_span_id` (null for a whole-trace replay) and `tool_mode` (`live` or `recorded`); each run records `diverged_at` and its LLM-request warnings. A fork is listed under its original and under the trace it forked. Scoring is unchanged (ADR-0030).
 
 ## Considered options
 

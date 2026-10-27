@@ -27,6 +27,7 @@ Which = Literal["input", "output"]
 MAX_PAGE = 200
 MAX_LIVE_IDS = 5000
 MAX_STEPS = 1000  # every step's payloads are read, some from object storage
+MAX_STEP_BYTES = 64 * 1024 * 1024  # and held in memory to answer, so they're bounded too
 
 
 class Unavailable(DatasetError):
@@ -311,8 +312,15 @@ class Traces:
         rows = [s for s in spans if s.kind in ("llm", "tool")]
         if len(rows) > MAX_STEPS:
             raise Refused(f"the trace has {len(rows)} steps; a fork plays back at most {MAX_STEPS}")
-        steps = []
+        steps, total = [], 0
         for i, s in enumerate(rows):
+            texts = self._text(s, "input"), self._text(s, "output")
+            total += sum(len(t) for t in texts)
+            if total > MAX_STEP_BYTES:
+                raise Refused(
+                    f"the trace's steps hold over {MAX_STEP_BYTES // 2**20} MB of payloads, more "
+                    "than a fork plays back"
+                )
             a = s.attributes
             recorded = a.get(OUTPUT_RECORDED_ATTRIBUTE)
             cut = a.get(TRUNCATED_ATTRIBUTE, "").split(",")
@@ -330,8 +338,8 @@ class Traces:
                     interceptor=a.get(INTERCEPTOR_ATTRIBUTE),
                     truncated=[w for w in ("input", "output") if w in cut],
                     output_recorded=recorded,
-                    input=decode_step(self._text(s, "input"), None),
-                    output=decode_step(self._text(s, "output"), recorded),
+                    input=decode_step(texts[0], None),
+                    output=decode_step(texts[1], recorded),
                 )
             )
         return Steps(trace_id=trace_id, steps=steps)

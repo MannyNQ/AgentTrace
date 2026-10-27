@@ -447,3 +447,13 @@ def test_steps_are_project_scoped_and_bounded(api: Api, monkeypatch):
     api.get(f"/{A}/steps", key="spans-only", status=403)
     monkeypatch.setattr(traces, "MAX_STEPS", 2)
     assert "at most 2" in api.get(f"/{A}/steps", status=422)["detail"]["error"]
+
+
+def test_steps_refuse_more_payload_than_a_fork_plays_back(api: Api, monkeypatch):
+    from agenttrace_ingest import traces
+
+    api.store.objects["s3://payloads/big"] = "x" * 100
+    spans = [span_row(TOOL, kind="tool", input_uri="s3://payloads/big", input_preview="x")]
+    api.store.add(PROJECT, summary_row(A), spans)
+    monkeypatch.setattr(traces, "MAX_STEP_BYTES", 99)
+    assert "MB of payloads" in api.get(f"/{A}/steps", status=422)["detail"]["error"]

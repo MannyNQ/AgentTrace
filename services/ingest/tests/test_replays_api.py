@@ -46,6 +46,7 @@ class Api:
                 FORK_RUN: SpanRef(trace_id=REPLAY_RUN, span_id=STEP),
             },
             project=PROJECT,
+            origins={FORK_RUN: SpanRef(trace_id=FAILED, span_id=FAILED[:16])},
         )
         self.traces = traces
         app = create_app(
@@ -304,6 +305,14 @@ def test_a_fork_must_name_the_original_its_trace_re_ran():
         status=422,
     )
     assert FAILED in got["detail"]["error"]
+
+
+def test_a_fork_run_still_names_its_original_once_the_run_it_forked_expires():
+    api = Api()
+    del api.traces.inputs[REPLAY_RUN]  # the original is pinned; the run between expired
+    got = api.call("GET", f"/v1/traces/{FORK_RUN}/input", status=200)
+    assert got["replay_of"] == {"trace_id": FAILED, "span_id": FAILED[:16]}
+    api.create(scored=False, **fork_of(FORK_RUN))
 
 
 def test_a_fork_of_an_expired_trace_is_not_found():
