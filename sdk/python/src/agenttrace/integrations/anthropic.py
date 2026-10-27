@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from agenttrace.spans import SpanKind
-from agenttrace.tracing import ActiveSpan, span
+from agenttrace.tracing import INTERCEPTOR_ATTRIBUTE, ActiveSpan, span
 
 log = logging.getLogger("agenttrace")
 
@@ -69,7 +69,7 @@ def _patch(cls: type, is_async: bool) -> None:
 def _llm_span(kwargs: dict[str, Any]) -> Iterator[ActiveSpan]:
     ordered = {k: kwargs[k] for k in LEADING_KEYS if k in kwargs} | kwargs
     request = {k: v for k, v in ordered.items() if k not in TRANSPORT_KEYS and _given(v)}
-    attributes = {}
+    attributes = {INTERCEPTOR_ATTRIBUTE: "anthropic"}
     if tools := kwargs.get("tools"):
         attributes["llm.tools"] = ",".join(str(t.get("name", "?")) for t in tools)
     with span(SPAN_NAME, SpanKind.LLM, request, attributes=attributes) as s:

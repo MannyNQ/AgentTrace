@@ -351,3 +351,99 @@ def test_a_malformed_filter_is_refused(api: Api):
     api.get("", status=422, span_error=True)
     api.get("", status=422, statuses="ok")  # an unknown parameter isn't ignored
     api.get("", status=422, span_kind="database")
+
+
+def test_steps_are_the_llm_and_tool_spans_with_full_payloads(api: Api):
+    api.store.objects["s3://payloads/x/in"] = '{"model": "m", "messages": []}'
+    llm = {"agenttrace.interceptor": "anthropic"}
+    tool = {"agenttrace.interceptor": "call_tool", "agenttrace.output_recorded": "json"}
+    api.store.add(
+        PROJECT,
+        summary_row(A, span_count=5),
+        [
+            span_row(ROOT, input_preview='{"question": "hi"}'),
+            span_row(
+                "4" * 16,
+                T0 + timedelta(milliseconds=1),
+                parent_span_id=ROOT,
+                kind="llm",
+                name="anthropic.messages.create",
+                input_preview='{"model"',
+                input_uri="s3://payloads/x/in",
+                output_preview='{"id": "msg_1"}',
+                attributes=llm,
+            ),
+            span_row(
+                TOOL,
+                T0 + timedelta(milliseconds=2),
+                parent_span_id=ROOT,
+                kind="tool",
+                name="lookup_order",
+                input_preview='{"order_id": "7"}',
+                output_preview='{"status": "shipped"}',
+                attributes=tool,
+            ),
+            span_row(
+                TOOL2,
+                T0 + timedelta(milliseconds=3),
+                parent_span_id=ROOT,
+                kind="tool",
+                name="lookup_order",
+                status="error",
+                error_type="ToolError",
+                input_preview='{"order_id": "0"}',
+                attributes={**tool, "agenttrace.error_message": "No order 0"},
+            ),
+            span_row("5" * 16, T0 + timedelta(milliseconds=4), parent_span_id=ROOT, kind="custom"),
+        ],
+    )
+    steps = api.get(f"/{A}/steps")["steps"]
+    assert [(s["index"], s["kind"], s["span_id"]) for s in steps] == [
+        (0, "llm", "4" * 16),
+        (1, "tool", TOOL),
+        (2, "tool", TOOL2),
+    ]
+    assert steps[0]["input"] == {"model": "m", "messages": []}  # read from object storage
+    assert steps[0]["output"] == {"id": "msg_1"}
+    assert steps[0]["interceptor"] == "anthropic"
+    assert steps[1]["input"] == {"order_id": "7"} and steps[1]["output"] == {"status": "shipped"}
+    assert steps[1]["output_recorded"] == "json" and steps[1]["truncated"] == []
+    assert (steps[2]["status"], steps[2]["error_type"], steps[2]["error_message"]) == (
+        "error",
+        "ToolError",
+        "No order 0",
+    )
+    assert steps[2]["output"] is None
+
+
+@pytest.mark.parametrize(
+    ("preview", "recorded", "output"),
+    [
+        ("123", "text", "123"),  # a string that looks like a number stays a string
+        ("123", "json", 123),
+        ("", "text", ""),
+        ("", "json", None),
+        ('{"cut', "lossy", '{"cut'),  # not JSON, so it stays text
+    ],
+)
+def test_a_step_output_is_decoded_as_the_sdk_recorded_it(api: Api, preview, recorded, output):
+    attributes = {"agenttrace.output_recorded": recorded}
+    spans = [span_row(TOOL, kind="tool", output_preview=preview, attributes=attributes)]
+    api.store.add(PROJECT, summary_row(A), spans)
+    assert api.get(f"/{A}/steps")["steps"][0]["output"] == output
+
+
+def test_steps_say_which_payloads_the_sdk_cut(api: Api):
+    cut = {"agenttrace.truncated": "input,output"}
+    api.store.add(PROJECT, summary_row(A), [span_row(TOOL, kind="llm", attributes=cut)])
+    assert api.get(f"/{A}/steps")["steps"][0]["truncated"] == ["input", "output"]
+
+
+def test_steps_are_project_scoped_and_bounded(api: Api, monkeypatch):
+    from agenttrace_ingest import traces
+
+    api.store.add(PROJECT, summary_row(A), [span_row(f"{i:016x}", kind="tool") for i in range(3)])
+    api.get(f"/{A}/steps", key="other", status=404)
+    api.get(f"/{A}/steps", key="spans-only", status=403)
+    monkeypatch.setattr(traces, "MAX_STEPS", 2)
+    assert "at most 2" in api.get(f"/{A}/steps", status=422)["detail"]["error"]

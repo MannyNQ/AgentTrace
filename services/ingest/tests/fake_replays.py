@@ -87,7 +87,8 @@ class FakeReplays:
         found = [
             self._info(r)
             for r in self.replays.values()
-            if r.project == project and r.row.replay_of.trace_id == trace_id
+            if r.project == project
+            and trace_id in (r.row.replay_of.trace_id, r.row.fork_of and r.row.fork_of.trace_id)
         ]
         return sorted(found, key=lambda r: r.started_at, reverse=True)
 

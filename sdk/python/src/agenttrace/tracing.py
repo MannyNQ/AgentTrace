@@ -32,8 +32,12 @@ log = logging.getLogger("agenttrace")
 _current: ContextVar["ActiveSpan | None"] = ContextVar("agenttrace_current_span", default=None)
 
 SERVICE_NAME_ATTRIBUTE = "resource.service.name"
-# On tool spans: whether the output was recorded exactly, so a replay can stub it (ADR-0040).
-OUTPUT_LOSSLESS_ATTRIBUTE = "agenttrace.output_lossless"
+# On tool spans, how the output was recorded: `json` exactly, `text` as a bare string (which the
+# stored payload can't tell from JSON), or `lossy`. A fork stubs only the first two (ADR-0040).
+OUTPUT_RECORDED_ATTRIBUTE = "agenttrace.output_recorded"
+# Which SDK hook recorded the span, so a fork knows it can answer the call: `anthropic`,
+# `call_tool`, or `trace`. Unset on `span()` blocks and bridged spans, which can't be stubbed.
+INTERCEPTOR_ATTRIBUTE = "agenttrace.interceptor"
 ERROR_MESSAGE_ATTRIBUTE = "agenttrace.error_message"
 MAX_ERROR_MESSAGE = 1000
 
@@ -128,7 +132,7 @@ class ActiveSpan:
     def set_output(self, value: Any) -> None:
         self.output = to_jsonable(value)
         if self.kind == SpanKind.TOOL:
-            self.attributes[OUTPUT_LOSSLESS_ATTRIBUTE] = "true" if is_lossless(value) else "false"
+            self.attributes[OUTPUT_RECORDED_ATTRIBUTE] = _recorded(value)
 
     def set_attribute(self, key: str, value: Any) -> None:
         self.attributes[key] = value if isinstance(value, str) else str(value)
@@ -254,11 +258,20 @@ def span(
         active._end()
 
 
+def _recorded(value: Any) -> str:
+    if type(value) is str:
+        return "text"
+    return "json" if is_lossless(value) else "lossy"
+
+
 def _message(e: BaseException) -> str | None:
     try:
         return str(e) or None
     except Exception:  # a broken __str__ mustn't replace the exception being raised
         return None
+
+
+_CALL_TOOL = {INTERCEPTOR_ATTRIBUTE: "call_tool"}
 
 
 def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
@@ -268,13 +281,13 @@ def call_tool(name: str, args: dict[str, Any], fn: Callable[..., Any]) -> Any:
     if inspect.iscoroutinefunction(fn) or inspect.iscoroutinefunction(type(fn).__call__):
 
         async def call_async() -> Any:
-            with span(name, SpanKind.TOOL, args) as s:
+            with span(name, SpanKind.TOOL, args, attributes=_CALL_TOOL) as s:
                 result = await fn(**args)
                 s.set_output(result)
                 return result
 
         return call_async()
-    with span(name, SpanKind.TOOL, args) as s:
+    with span(name, SpanKind.TOOL, args, attributes=_CALL_TOOL) as s:
         result = fn(**args)
         s.set_output(result)
         return result
@@ -306,6 +319,10 @@ def trace(
     """Decorator: each call becomes a span, with the call's arguments as input and its return
     value as output. Works on sync and async functions. Use as `@trace` or `@trace(kind="agent")`.
     """
+
+    if SpanKind(kind) == SpanKind.TOOL:
+        attributes = span_options.get("attributes") or {}
+        span_options["attributes"] = {**attributes, INTERCEPTOR_ATTRIBUTE: "trace"}
 
     def decorate(f: Callable) -> Callable:
         span_name = name or f.__qualname__

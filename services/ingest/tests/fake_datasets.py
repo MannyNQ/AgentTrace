@@ -18,7 +18,7 @@ from agenttrace_ingest.datasets import (
     Refused,
     VersionInfo,
 )
-from agenttrace_ingest.trace_inputs import RootInput
+from agenttrace_ingest.trace_inputs import RootInput, resolve_origin
 
 
 @dataclass
@@ -218,12 +218,29 @@ class FakeTraces:
         return value
 
     def root(self, project: UUID, trace_id: str) -> RootInput:
+        value = self.root_input(project, trace_id)
+        parent = self.replay_of.get(trace_id)
         return RootInput(
             trace_id=trace_id,
             span_id=trace_id[:16],
-            input=self.root_input(project, trace_id),
-            replay_of=self.replay_of.get(trace_id),
+            input=value,
+            replay_of=None if parent is None else resolve_origin(parent, self._lookup(project)),
         )
+
+    def origin(self, project: UUID, trace_id: str) -> SpanRef:
+        if not self.exists(project, trace_id):
+            raise NotFound("trace not found; it may have expired")
+        return resolve_origin(
+            SpanRef(trace_id=trace_id, span_id=trace_id[:16]), self._lookup(project)
+        )
+
+    def _lookup(self, project: UUID):
+        def lookup(trace_id: str) -> tuple[str, SpanRef | None] | None:
+            if not self.exists(project, trace_id):
+                return None
+            return trace_id[:16], self.replay_of.get(trace_id)
+
+        return lookup
 
 
 class FakePins:

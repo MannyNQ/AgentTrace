@@ -49,6 +49,7 @@ def test_messages_create_becomes_an_llm_span(collected, http_server):
     assert llm.output == {k: v for k, v in MESSAGE.items() if v is not None}
     assert llm.attributes["llm.tools"] == "lookup"
     assert llm.attributes["llm.stop_reason"] == "end_turn"
+    assert llm.attributes["agenttrace.interceptor"] == "anthropic"
 
 
 def test_transport_options_and_unset_sentinels_stay_out_of_the_input(collected, http_server):

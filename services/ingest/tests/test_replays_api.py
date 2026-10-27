@@ -21,6 +21,8 @@ FAILED = "a" * 32  # a production trace that went wrong
 REPLAY_RUN = "b" * 32  # a replay run of FAILED
 TRUNCATED = "c" * 32
 UNRELATED = "d" * 32
+FORK_RUN = "f" * 32  # a fork of REPLAY_RUN at its step STEP
+STEP = "9" * 16
 
 
 KEYS = {"good": PROJECT, "other": OTHER}
@@ -37,8 +39,12 @@ class Api:
                 REPLAY_RUN: {"question": "refund order 42"},
                 TRUNCATED: Refused("the SDK cut this trace's input to fit a request"),
                 UNRELATED: {"question": "hi"},
+                FORK_RUN: {"question": "refund order 42"},
             },
-            replay_of={REPLAY_RUN: SpanRef(trace_id=FAILED, span_id=FAILED[:16])},
+            replay_of={
+                REPLAY_RUN: SpanRef(trace_id=FAILED, span_id=FAILED[:16]),
+                FORK_RUN: SpanRef(trace_id=REPLAY_RUN, span_id=STEP),
+            },
             project=PROJECT,
         )
         self.traces = traces
@@ -254,3 +260,77 @@ def test_an_expired_trace_never_replayed_is_not_found():
     del api.traces.inputs[UNRELATED]
     gone = {"trace_id": UNRELATED, "span_id": UNRELATED[:16]}
     api.call("POST", "/v1/replays", api.new(scored=False, replay_of=gone), status=404)
+
+
+def test_a_fork_of_a_fork_run_names_the_original_at_the_start_of_the_chain():
+    got = Api().call("GET", f"/v1/traces/{FORK_RUN}/input", status=200)
+    assert got["replay_of"] == {"trace_id": FAILED, "span_id": FAILED[:16]}
+
+
+def fork_of(trace_id: str, span_id: str = STEP) -> dict:
+    return {"fork_of": {"trace_id": trace_id, "span_id": span_id}}
+
+
+def test_a_fork_records_its_fork_point_and_tool_mode():
+    api = Api()
+    replay = api.create(scored=False, **fork_of(REPLAY_RUN), tool_mode="recorded")
+    assert replay["replay_of"] == {"trace_id": FAILED, "span_id": FAILED[:16]}
+    assert replay["fork_of"] == {"trace_id": REPLAY_RUN, "span_id": STEP}
+    assert replay["tool_mode"] == "recorded"
+    whole = api.create(scored=False)
+    assert (whole["fork_of"], whole["tool_mode"]) == (None, "live")
+
+
+def test_a_fork_is_listed_under_its_original_and_under_the_run_it_forked():
+    api = Api()
+    fork = api.create(scored=False, **fork_of(REPLAY_RUN))
+    whole = api.create(scored=False)
+
+    def listed(trace_id: str) -> list[str]:
+        found = api.call("GET", "/v1/replays", params={"trace_id": trace_id}, status=200)
+        return [r["id"] for r in found["replays"]]
+
+    assert listed(FAILED) == [whole["id"], fork["id"]]
+    assert listed(REPLAY_RUN) == [fork["id"]]
+
+
+def test_a_fork_must_name_the_original_its_trace_re_ran():
+    api = Api()
+    wrong = {"trace_id": UNRELATED, "span_id": UNRELATED[:16]}
+    got = api.call(
+        "POST",
+        "/v1/replays",
+        api.new(scored=False, replay_of=wrong, **fork_of(REPLAY_RUN)),
+        status=422,
+    )
+    assert FAILED in got["detail"]["error"]
+
+
+def test_a_fork_of_an_expired_trace_is_not_found():
+    api = Api()
+    del api.traces.inputs[REPLAY_RUN]
+    api.call("POST", "/v1/replays", api.new(scored=False, **fork_of(REPLAY_RUN)), status=404)
+
+
+def test_a_retried_create_with_another_fork_point_conflicts():
+    api = Api()
+    body = api.new(scored=False, **fork_of(REPLAY_RUN))
+    api.call("POST", "/v1/replays", body, status=201)
+    api.call("POST", "/v1/replays", body, status=200)
+    api.call("POST", "/v1/replays", body | fork_of(REPLAY_RUN, "8" * 16), status=409)
+    api.call("POST", "/v1/replays", body | {"tool_mode": "recorded"}, status=409)
+
+
+def test_fork_runs_keep_where_they_diverged_and_their_warnings():
+    api = Api()
+    replay = api.create(scored=False, **fork_of(FAILED, FAILED[:16]))
+    warning = {"step": 0, "fields": ["system"]}
+    api.upload(
+        replay["id"],
+        api.run(0, score=None, diverged_at=3, warnings=[warning]),
+        api.run(1, score=None),
+    )
+    runs = api.call("GET", f"/v1/replays/{replay['id']}", status=200)["replay_runs"]
+    assert [(r["diverged_at"], r["warnings"]) for r in runs] == [(3, [warning]), (None, [])]
+    bad = api.run(0, score=None, warnings=[{"step": 0, "fields": []}])
+    api.upload(replay["id"], bad, status=422)

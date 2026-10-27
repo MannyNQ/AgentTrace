@@ -61,7 +61,8 @@ def test_call_tool_records_a_tool_span_named_for_the_tool(collected):
     assert s.kind == SpanKind.TOOL
     assert s.input == {"order_id": "7"}  # the arguments given, without defaults filled in
     assert s.output == {"order_id": "7"}
-    assert s.attributes["agenttrace.output_lossless"] == "true"
+    assert s.attributes["agenttrace.output_recorded"] == "json"
+    assert s.attributes["agenttrace.interceptor"] == "call_tool"
 
 
 def test_call_tool_awaits_async_tools_and_records_their_errors(collected):
@@ -81,19 +82,42 @@ class Order:
 
 
 @pytest.mark.parametrize(
-    ("output", "lossless"),
+    ("output", "recorded"),
     [
-        ({"a": [1, 2.5, None, True, "s"]}, "true"),
-        ((1, 2), "false"),  # comes back as a list
-        (Order("7"), "false"),  # comes back as a dict
-        ({1: "a"}, "false"),  # the key comes back as "1"
-        (float("nan"), "false"),
-        (SpanKind.TOOL, "false"),  # comes back as the plain string "tool"
+        ({"a": [1, 2.5, None, True, "s"]}, "json"),
+        (None, "json"),
+        ("123", "text"),  # stored bare, so it can't be told from the number by its payload
+        ((1, 2), "lossy"),  # comes back as a list
+        (Order("7"), "lossy"),  # comes back as a dict
+        ({1: "a"}, "lossy"),  # the key comes back as "1"
+        (float("nan"), "lossy"),
+        (SpanKind.TOOL, "lossy"),  # comes back as the plain string "tool"
     ],
 )
-def test_tool_spans_say_whether_their_output_was_recorded_exactly(collected, output, lossless):
+def test_tool_spans_say_how_their_output_was_recorded(collected, output, recorded):
     call_tool("t", {}, lambda: output)
-    assert collected.by_name("t").attributes["agenttrace.output_lossless"] == lossless
+    assert collected.by_name("t").attributes["agenttrace.output_recorded"] == recorded
+
+
+def test_traced_tools_are_marked_as_answerable_and_other_spans_are_not(collected):
+    @trace(name="lookup", kind="tool", attributes={"team": "a"})
+    def lookup(order_id: str) -> dict:
+        return {}
+
+    @trace(name="agent", kind="agent")
+    def agent() -> None:
+        lookup("7")
+        with span("raw", "tool") as s:
+            s.set_output({})
+
+    agent()
+    assert collected.by_name("lookup").attributes == {
+        "team": "a",
+        "agenttrace.interceptor": "trace",
+        "agenttrace.output_recorded": "json",
+    }
+    assert "agenttrace.interceptor" not in collected.by_name("agent").attributes
+    assert "agenttrace.interceptor" not in collected.by_name("raw").attributes
 
 
 def test_call_tool_awaits_async_callable_objects(collected):
@@ -105,10 +129,10 @@ def test_call_tool_awaits_async_callable_objects(collected):
     assert collected.by_name("search").output == ["x"]
 
 
-def test_only_tool_spans_carry_the_lossless_mark(collected):
+def test_only_tool_spans_say_how_their_output_was_recorded(collected):
     with span("work") as s:
         s.set_output((1, 2))
-    assert "agenttrace.output_lossless" not in collected.by_name("work").attributes
+    assert "agenttrace.output_recorded" not in collected.by_name("work").attributes
 
 
 def test_separate_top_level_spans_are_separate_traces(collected):

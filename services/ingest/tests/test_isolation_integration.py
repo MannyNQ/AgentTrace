@@ -233,6 +233,7 @@ def at_a(w: World) -> list[tuple[str, str, dict | None]]:
         ("GET", f"/v1/traces/{t}/outcome", None),
         ("GET", f"/v1/traces/{t}/spans/{span}/input", None),
         ("GET", f"/v1/traces/{t}/input", None),
+        ("GET", f"/v1/traces/{t}/steps", None),
         *(("GET", f"/v1/analytics/{part}", None) for part in ANALYTICS),
     ]
 

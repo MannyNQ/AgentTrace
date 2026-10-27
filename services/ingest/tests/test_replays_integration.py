@@ -2,11 +2,13 @@
 trace input endpoint, and `/v1/replays` in Postgres (ADR-0028, ADR-0029)."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from stack import emit_root, register_key
+from stack import emit_root, emit_spans, register_key
 
+from agenttrace import Span
 from agenttrace_ingest.app import create_app
 from agenttrace_ingest.migrate import migrate_clickhouse
 from agenttrace_ingest.settings import Settings
@@ -159,3 +161,99 @@ def test_a_never_published_item_can_be_deleted_after_a_scored_replay(api: TestCl
     assert r.status_code == 204, r.text
     detail = api.get(f"/v1/replays/{replay}").json()
     assert (detail["item_id"], detail["item_rev"], detail["item"]) == (item["item_id"], 1, None)
+
+
+def test_a_fork_of_a_fork_resolves_and_is_stored_with_its_runs(api: TestClient):
+    original = emit_root({"question": "refund order 42"})
+    root = api.get(f"/v1/traces/{original}/input").json()["span_id"]
+    run = emit_root(
+        {"question": "refund order 42"}, attributes={REPLAY_OF_ATTRIBUTE: f"{original}:{root}"}
+    )
+    step = "9" * 16
+    fork_run = emit_root(
+        {"question": "refund order 42"}, attributes={REPLAY_OF_ATTRIBUTE: f"{run}:{step}"}
+    )
+    # A whole-trace replay of the fork run goes back to the original, not to the run it forked.
+    ref = api.get(f"/v1/traces/{fork_run}/input").json()["replay_of"]
+    assert ref == {"trace_id": original, "span_id": root}
+
+    replay = str(uuid.uuid4())
+    body = {
+        "id": replay,
+        "replay_of": ref,
+        "fork_of": {"trace_id": fork_run, "span_id": step},
+        "tool_mode": "recorded",
+        "runs": 1,
+    }
+    assert api.post("/v1/replays", json=body).status_code == 201
+    wrong = {**body, "id": str(uuid.uuid4()), "replay_of": {"trace_id": run, "span_id": root}}
+    assert api.post("/v1/replays", json=wrong).status_code == 422
+
+    warning = {"step": 0, "fields": ["system", "tools"]}
+    result = {
+        "run_index": 0,
+        "started_at": "2026-10-01T00:00:00Z",
+        "latency_ms": 1.0,
+        "diverged_at": 4,
+        "warnings": [warning],
+    }
+    for _ in range(2):  # a retried upload replaces the run, divergence and warnings included
+        assert api.post(f"/v1/replays/{replay}/runs", json={"runs": [result]}).status_code == 200
+    detail = api.get(f"/v1/replays/{replay}").json()
+    assert detail["fork_of"] == {"trace_id": fork_run, "span_id": step}
+    assert detail["tool_mode"] == "recorded"
+    [stored] = detail["replay_runs"]
+    assert (stored["diverged_at"], stored["warnings"]) == (4, [warning])
+    for trace in (original, fork_run):
+        listed = api.get(f"/v1/replays?trace_id={trace}").json()["replays"]
+        assert replay in [x["id"] for x in listed]
+
+
+def test_steps_come_from_clickhouse_with_offloaded_payloads(api: TestClient):
+    trace, root = uuid.uuid4().hex, "1" * 16
+    t0 = datetime.now(UTC) - timedelta(seconds=5)
+    big = {"model": "m", "messages": [{"role": "user", "content": "x" * 20_000}]}
+
+    def at(ms: int, **fields) -> Span:
+        start = t0 + timedelta(milliseconds=ms)
+        return Span(
+            trace_id=trace,
+            start_time=start,
+            end_time=start + timedelta(milliseconds=1),
+            parent_span_id=None if fields["span_id"] == root else root,
+            **fields,
+        )
+
+    emit_spans(
+        [
+            at(0, span_id=root, name="agent", kind="agent", input={"question": "q"}),
+            at(
+                1,
+                span_id="2" * 16,
+                name="anthropic.messages.create",
+                kind="llm",
+                input=big,
+                output={"id": "msg_1"},
+                attributes={"agenttrace.interceptor": "anthropic"},
+            ),
+            at(
+                2,
+                span_id="3" * 16,
+                name="lookup",
+                kind="tool",
+                input={"id": "7"},
+                output="123",
+                attributes={
+                    "agenttrace.interceptor": "call_tool",
+                    "agenttrace.output_recorded": "text",
+                },
+            ),
+        ]
+    )
+    steps = api.get(f"/v1/traces/{trace}/steps").json()["steps"]
+    assert [(s["index"], s["kind"], s["name"]) for s in steps] == [
+        (0, "llm", "anthropic.messages.create"),
+        (1, "tool", "lookup"),
+    ]
+    assert steps[0]["input"] == big  # offloaded to S3 and read back whole
+    assert steps[1]["output"] == "123" and steps[1]["interceptor"] == "call_tool"
