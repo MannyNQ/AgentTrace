@@ -129,6 +129,14 @@ function toSummary(r: SummaryRow, now: Date): TraceSummary {
   };
 }
 
+/** A ClickHouse read failure as a page shows it. Columns a ClickHouse migration adds (Phase 5's
+ * `replay_of`) are missing until ingest runs on the new code: it applies them when it starts. */
+export function clickHouseError(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!message.includes("replay_of")) return message;
+  return `${message}. Ingest hasn't applied its ClickHouse migrations yet: rebuild and restart it (docker compose up -d --build).`;
+}
+
 export type Cursor = { start: string; traceId: string };
 
 /** Replay runs are hidden unless `showReplays` (ADR-0029), so they don't crowd production. */

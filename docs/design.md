@@ -177,7 +177,7 @@ Also settled:
 - The trace list hides replay traces unless "Show replays" is on.
 - The trace page gets a "Replays" panel (time, commit and dirty flag, pass counts if scored) and a "Replay" button that shows the CLI command to copy, since the server can't run it (ADR-0006). A replay page shows the original and the k runs side by side with the Phase 4 side-by-side component, the first difference marked, and scorer reasons. There is no top-level replays list.
 - The server computes each run's cost on arrival, and the CLI reuses the byte-bounded uploader.
-- ClickHouse schema changes are migrations too. Ingest applies numbered SQL files from `agenttrace_ingest/migrations/clickhouse/` on startup and records each in a ClickHouse `schema_migrations` table, as it does for Postgres. The init SQL stays as it is, so existing stacks upgrade in place. Phase 5's file adds `replay_of` to `traces` and recreates `traces_mv`; traces already stored get `''`, which is right, since none of them are replays.
+- ClickHouse schema changes are migrations too. Ingest applies numbered SQL files from `agenttrace_ingest/migrations/clickhouse/` on startup and records each in a ClickHouse `schema_migrations` table, as it does for Postgres. The init SQL stays as it is, so existing stacks upgrade in place. Phase 5's file adds `replay_of` to `traces` and swaps `traces_mv`'s query in place with `MODIFY QUERY`, so no insert goes unsummarized; traces already stored get `''`, which is right, since none of them are replays. Migrations retry in the background while ClickHouse is down, so ingest still takes spans.
 - Phase 6 is still auth.
 
 ## Phase 5 plan

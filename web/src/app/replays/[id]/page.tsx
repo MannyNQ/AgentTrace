@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import type { ToolCall } from "@/lib/datasets";
 import { getReplay, type ReplayRun } from "@/lib/replays";
-import { liveTraces, traceOutcome } from "@/lib/traces";
+import { clickHouseError, liveTraces, traceOutcome } from "@/lib/traces";
 import { firstDifference } from "@/lib/trajectory";
 import { formatCost, formatDuration, formatTime } from "@/lib/format";
 import { Crumbs } from "../../datasets/ui";
@@ -24,7 +24,8 @@ export default function ReplayPage(props: Props) {
   );
 }
 
-type Original = Awaited<ReturnType<typeof traceOutcome>>;
+/** The original as read from ClickHouse: null once it has expired, or why it couldn't be read. */
+type Original = Awaited<ReturnType<typeof traceOutcome>> | { error: string };
 
 /** The original trace and every replay run side by side, each run's first difference marked. */
 async function ReplayView({ params }: Pick<Props, "params">) {
@@ -34,7 +35,7 @@ async function ReplayView({ params }: Pick<Props, "params">) {
   if (!r) notFound();
   const originalId = r.replay_of.trace_id;
   const [original, live] = await Promise.all([
-    traceOutcome(originalId).catch(() => null),
+    traceOutcome(originalId).catch((e): Original => ({ error: clickHouseError(e) })),
     liveTraces(r.replay_runs.flatMap((run) => (run.trace_id ? [run.trace_id] : []))),
   ]);
   const thresholds = new Map(r.scorers.map((s) => [s.name, s.threshold]));
@@ -106,7 +107,7 @@ async function ReplayView({ params }: Pick<Props, "params">) {
                 <RunCard
                   key={run.run_index}
                   run={run}
-                  original={original?.trajectory ?? null}
+                  original={original && !("error" in original) ? original.trajectory : null}
                   thresholds={thresholds}
                   live={live}
                 />
@@ -131,6 +132,11 @@ function OriginalSide({ traceId, original }: { traceId: string; original: Origin
       {!original ? (
         <p className="mt-2 text-sm text-muted" data-original-expired>
           The original trace has expired, so there&apos;s nothing to compare the runs with.
+        </p>
+      ) : "error" in original ? (
+        <p className="mt-2 text-sm" data-original-error>
+          <span className="font-medium text-bad">Couldn&apos;t read the original trace from ClickHouse.</span>{" "}
+          <span className="text-muted">{original.error}</span>
         </p>
       ) : (
         <div className="mt-3 space-y-4 rounded-md border border-line p-3">
