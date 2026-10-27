@@ -1,5 +1,7 @@
 """`agenttrace replay` (ADR-0028): run the entry point again on a recorded trace's root input,
 `runs` times, through the eval runner, and stream the replay runs to `/v1/replays` (ADR-0029).
+With a fork plan, each run plays the recorded steps back up to the fork point and runs live from
+there; with tool stubbing, every tool call is answered from the recording (ADR-0040).
 
 Each replay run's root span carries `agenttrace.replay_of`, `<trace_id>:<span_id>` of the original
 trace's root span. Replaying a replay run points at its original instead, so the link never
@@ -12,19 +14,23 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from agenttrace._playback import Playback
 from agenttrace.eval import scorers as sc
 from agenttrace.eval.client import ApiError, Client, VersionItem
 from agenttrace.eval.config import EvalConfig
+from agenttrace.eval.fork import Plan
 from agenttrace.eval.results import (
     Finish,
     NewReplay,
     ReplayRunResult,
     ScorerSpec,
     SpanRef,
+    StepWarning,
     ToolCall,
 )
 from agenttrace.eval.runner import (
     MAX_ERROR,
+    AgentRun,
     AgentRunner,
     Git,
     RunResult,
@@ -120,9 +126,10 @@ class ReplayRunner(AgentRunner):
         concurrency: int,
         timeout_s: float,
         report: Callable[[str], None] = print,
+        plan: Plan | None = None,
     ):
         super().__init__(concurrency, timeout_s, entry, how.scorers, thresholds, report)
-        self.client, self.original, self.how = client, o, how
+        self.client, self.original, self.how, self.plan = client, o, how, plan
         # An unscored replay still runs through an item: the input alone, so no scorer applies.
         self.item = how.item or VersionItem("", 0, {"input": o.input})
 
@@ -130,11 +137,37 @@ class ReplayRunner(AgentRunner):
         return {"replay_id": run_id, "run": str(index)}
 
     def _attributes(self) -> dict[str, str]:
-        ref = self.original.ref
-        return {REPLAY_OF_ATTRIBUTE: f"{ref.trace_id}:{ref.span_id}"}
+        origin = self.original.ref
+        fork = self.plan.fork_of if self.plan else None
+        if fork is None:
+            return {REPLAY_OF_ATTRIBUTE: f"{origin.trace_id}:{origin.span_id}"}
+        return {
+            REPLAY_OF_ATTRIBUTE: f"{fork.trace_id}:{fork.span_id}",
+            REPLAY_ORIGIN_ATTRIBUTE: f"{origin.trace_id}:{origin.span_id}",
+        }
+
+    def _playback(self) -> Playback | None:
+        return self.plan.playback() if self.plan else None
 
     def _record(self, s: _Sample, fields: dict[str, Any]) -> ReplayRunResult:
-        return ReplayRunResult(run_index=s.index, **fields)
+        p = s.playback
+        if p is None:
+            return ReplayRunResult(run_index=s.index, **fields)
+        warnings = [StepWarning(step=w.step, fields=w.fields) for w in p.warnings]
+        return ReplayRunResult(
+            run_index=s.index, diverged_at=p.diverged_at, warnings=warnings, **fields
+        )
+
+    def _line(self, done: int, total: int, s: _Sample, r: AgentRun, skipped: list[str]) -> str:
+        line = super()._line(done, total, s, r, skipped)
+        if s.playback is None:
+            return line
+        if s.playback.diverged_at is not None:
+            line += f"  (left the recording at step {s.playback.diverged_at}; live from there)"
+        if n := len(s.playback.warnings):
+            steps = ", ".join(str(w.step) for w in s.playback.warnings)
+            line += f"  ({n} prefix requests differ from the recording: steps {steps})"
+        return line
 
     def _upload(self, run_id: str, batch: list[Any]) -> None:
         self.client.upload_replay_runs(run_id, batch)
@@ -150,6 +183,8 @@ class ReplayRunner(AgentRunner):
         new = NewReplay(
             id=uuid.UUID(replay_id),
             replay_of=self.original.ref,
+            fork_of=self.plan.fork_of if self.plan else None,
+            tool_mode="recorded" if self.plan and self.plan.stub_tools else "live",
             runs=runs,
             item_id=None if item is None else uuid.UUID(item.item_id),
             item_rev=None if item is None else item.rev,

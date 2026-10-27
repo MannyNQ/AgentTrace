@@ -8,7 +8,12 @@ import pytest
 
 from agenttrace import cli
 from agenttrace.eval.client import ApiError, Client, VersionItem
-from agenttrace.eval.replay import REPLAY_OF_ATTRIBUTE, REPLAY_SPAN, REPLAY_TAG
+from agenttrace.eval.replay import (
+    REPLAY_OF_ATTRIBUTE,
+    REPLAY_ORIGIN_ATTRIBUTE,
+    REPLAY_SPAN,
+    REPLAY_TAG,
+)
 
 FAILED = "a" * 32  # the production trace that went wrong
 REPLAY_RUN = "b" * 32  # an earlier replay run of FAILED
@@ -42,7 +47,9 @@ class FakeApi:
         self.created: list = []
         self.runs: list = []
         self.finished: list = []
+        self.steps: list[dict] = []
         for name in (
+            "trace_steps",
             "dataset",
             "draft_item_for_trace",
             "trace_input",
@@ -71,6 +78,10 @@ class FakeApi:
             "input": INPUT,
             "replay_of": replay_of,
         }
+
+    def trace_steps(self, trace_id: str) -> list[dict]:
+        assert trace_id == FAILED  # the trace named, whose steps are played back
+        return self.steps
 
     def create_replay(self, r) -> dict:
         self.created.append(r)
@@ -214,3 +225,209 @@ def test_require_pass_fails_when_every_scorer_skips_every_run(api, tmp_path, cap
     assert replay(FAILED) == 0
     assert "no run was graded" in capsys.readouterr().out
     assert replay(FAILED, "--require-pass") == 3
+
+
+# --- Forks and tool stubbing (ADR-0040) ------------------------------------------------------
+
+FORK_AGENT = """
+import os
+from pathlib import Path
+
+import anthropic
+from agenttrace import RecordedToolError, call_tool, instrument_anthropic
+
+instrument_anthropic()
+SYSTEM = {system!r}
+ORDER = {order!r}
+
+
+def lookup(order):
+    Path("tool-ran").write_text(order)  # a side effect the stub must not repeat
+    return {{"order": order, "status": "shipped"}}
+
+
+def entry(input):
+    client = anthropic.Anthropic(api_key="k", base_url=os.environ["FORK_LLM"], max_retries=0)
+    ask = dict(model="claude-opus-5-5", max_tokens=10, system=SYSTEM)
+    messages = [{{"role": "user", "content": input["question"]}}]
+    first = client.messages.create(**ask, messages=messages)
+    try:
+        result = call_tool("lookup", {{"order": ORDER}}, lookup)
+    except RecordedToolError as e:
+        result = str(e)
+    messages += [
+        {{"role": "assistant", "content": first.content}},
+        {{"role": "user", "content": str(result)}},
+    ]
+    return client.messages.create(**ask, messages=messages).content[0].text
+"""
+LLM_1, TOOL_1, LLM_2 = "1" * 16, "2" * 16, "3" * 16
+
+
+def message(text: str | None = None, tool_use: bool = False) -> dict:
+    content = (
+        [{"type": "tool_use", "id": "t1", "name": "lookup", "input": {"order": "42"}}]
+        if tool_use
+        else [{"type": "text", "text": text}]
+    )
+    return {
+        "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+        "content": content, "stop_reason": "tool_use" if tool_use else "end_turn",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+    }  # fmt: skip
+
+
+def step(index: int, span_id: str, kind: str, **over) -> dict:
+    return {
+        "index": index, "span_id": span_id, "parent_span_id": ROOT, "kind": kind,
+        "name": "anthropic.messages.create" if kind == "llm" else "lookup", "status": "ok",
+        "error_type": "", "error_message": None,
+        "interceptor": "anthropic" if kind == "llm" else "call_tool", "truncated": [],
+        "output_recorded": None if kind == "llm" else "json", "input": None, "output": None,
+    } | over  # fmt: skip
+
+
+def recorded_steps(system: str = "be brief") -> list[dict]:
+    ask = {"model": "claude-opus-5-5", "max_tokens": 10, "system": system}
+    first = {**ask, "messages": [{"role": "user", "content": INPUT["question"]}]}
+    looked_up = {"order": "42", "status": "recorded"}
+    return [
+        step(0, LLM_1, "llm", input=first, output=message(tool_use=True)),
+        step(1, TOOL_1, "tool", input={"order": "42"}, output=looked_up),
+        step(2, LLM_2, "llm", input=ask, output=message("it shipped")),
+    ]
+
+
+@pytest.fixture
+def fork_api(api, tmp_path, monkeypatch, http_server):
+    """The original: an LLM call asking for `lookup`, the tool call, and an LLM call answering.
+    The live model answers with the text `live`, and `calls` counts what reached it."""
+    (tmp_path / "eval.yaml").write_text(EVAL_YAML.replace("replay_agent", "fork_agent"))
+    fork_agent(tmp_path)
+    api.calls = []
+
+    def answer(path, headers, body):
+        api.calls.append(body)
+        return 200, message("live")
+
+    monkeypatch.setenv("FORK_LLM", http_server(answer))
+    api.steps = recorded_steps()
+    yield api
+    sys.modules.pop("fork_agent", None)
+
+
+def fork_agent(tmp_path, system: str = "be brief", order: str = "42") -> None:
+    (tmp_path / "fork_agent.py").write_text(FORK_AGENT.format(system=system, order=order))
+    sys.modules.pop("fork_agent", None)
+
+
+def test_a_fork_plays_the_prefix_back_and_runs_live_from_the_fork_point(
+    fork_api, tmp_path, collected, capsys
+):
+    assert replay(FAILED, "--from", LLM_2[:8], "--samples", "1") == 0
+    assert len(fork_api.calls) == 1  # only the fork point reached the model
+    assert not (tmp_path / "tool-ran").exists()  # the prefix's tool was answered, not run
+    created = fork_api.created[0]
+    assert created.fork_of.trace_id == FAILED and created.fork_of.span_id == LLM_2
+    assert created.replay_of.span_id == ROOT and created.tool_mode == "live"
+    [run] = fork_api.runs
+    assert run.output == "live" and run.diverged_at is None and run.warnings == []
+    assert run.trajectory[0].tool == "lookup"  # the stubbed call is still a step of the run
+    root = next(s for s in collected.spans if s.name == REPLAY_SPAN)
+    assert root.attributes[REPLAY_OF_ATTRIBUTE] == f"{FAILED}:{LLM_2}"
+    assert root.attributes[REPLAY_ORIGIN_ATTRIBUTE] == f"{FAILED}:{ROOT}"
+    stubbed = [s for s in collected.spans if s.attributes.get("agenttrace.stubbed") == "true"]
+    assert [s.name for s in stubbed] == ["anthropic.messages.create", "lookup"]
+    assert (stubbed[0].input_tokens, stubbed[0].output_tokens) == (0, 0)  # nothing was billed
+    assert stubbed[1].output == {"order": "42", "status": "recorded"}
+    assert "at step 2 (llm anthropic.messages.create" in capsys.readouterr().err
+
+
+def test_a_changed_prompt_still_gets_the_stub_and_a_warning(fork_api, tmp_path, capsys):
+    fork_agent(tmp_path, system="be brief and kind")
+    assert replay(FAILED, "--from", LLM_2, "--samples", "1") == 0
+    assert len(fork_api.calls) == 1
+    [run] = fork_api.runs
+    assert [(w.step, w.fields) for w in run.warnings] == [(0, ["system"])]
+    assert "1 prefix requests differ from the recording: steps 0" in capsys.readouterr().err
+
+
+def test_a_prefix_tool_call_the_recording_never_made_goes_live_and_says_where(
+    fork_api, tmp_path, capsys
+):
+    fork_agent(tmp_path, order="43")
+    assert replay(FAILED, "--from", LLM_2, "--samples", "1") == 0
+    assert (tmp_path / "tool-ran").read_text() == "43"
+    [run] = fork_api.runs
+    assert run.diverged_at == 1
+    assert "left the recording at step 1" in capsys.readouterr().err
+
+
+def test_forking_at_a_tool_runs_that_tool_live(fork_api, tmp_path):
+    assert replay(FAILED, "--from", TOOL_1, "--samples", "1") == 0
+    assert (tmp_path / "tool-ran").exists()
+    assert len(fork_api.calls) == 1  # the reply asking for the tool was stubbed
+    assert fork_api.runs[0].diverged_at is None
+
+
+def test_stub_tools_runs_the_model_live_and_no_tool(fork_api, tmp_path):
+    assert replay(FAILED, "--stub-tools", "--samples", "1") == 0
+    assert len(fork_api.calls) == 2 and not (tmp_path / "tool-ran").exists()
+    created = fork_api.created[0]
+    assert created.fork_of is None and created.tool_mode == "recorded"
+
+
+def test_stub_tools_errors_a_run_whose_call_has_no_recording(fork_api, tmp_path):
+    fork_agent(tmp_path, order="43")
+    assert replay(FAILED, "--stub-tools", "--samples", "1") == 0
+    assert not (tmp_path / "tool-ran").exists()
+    [run] = fork_api.runs
+    assert run.error is not None and run.error.startswith("NoRecording: ")
+
+
+def test_a_recorded_tool_error_is_raised_again(fork_api, tmp_path, collected):
+    fork_api.steps[1] |= {
+        "status": "error", "error_type": "ToolError", "error_message": "no order 42",
+        "output_recorded": None, "output": None,
+    }  # fmt: skip
+    assert replay(FAILED, "--from", LLM_2, "--samples", "1") == 0
+    tool = next(s for s in collected.spans if s.name == "lookup")
+    assert (tool.error_type, tool.attributes["agenttrace.error_message"]) == (
+        "ToolError",
+        "no order 42",
+    )
+    assert "no order 42" in fork_api.calls[0].decode()  # the agent saw the recorded error
+
+
+@pytest.mark.parametrize(
+    ("change", "says"),
+    [
+        ({1: {"interceptor": None}}, f"step 1 (tool lookup, span {TOOL_1}) can't be played back"),
+        ({1: {"interceptor": None}}, "it wasn't recorded by call_tool()"),
+        ({1: {"output_recorded": "lossy"}}, "its output didn't survive recording"),
+        ({1: {"output_recorded": None}}, "may predate Phase 9's SDK"),
+        ({0: {"truncated": ["input"]}}, "the SDK cut its input"),
+        ({0: {"status": "error"}}, "a failed LLM call isn't recorded in full"),
+        ({0: {"interceptor": None}}, "wasn't recorded by instrument_anthropic()"),
+        ({2: {"parent_span_id": TOOL_1}}, "runs inside tool step 1"),
+    ],
+)  # fmt: skip
+def test_a_fork_the_recording_can_t_stand_in_for_is_refused_naming_the_step(
+    fork_api, capsys, change, says
+):
+    for i, fields in change.items():
+        fork_api.steps[i] |= fields
+    target = LLM_2 if 2 not in change else "4" * 16
+    if 2 in change:
+        fork_api.steps.append(step(3, target, "llm", input={}, output=message("x")))
+    assert replay(FAILED, "--from", target) == 2
+    assert says in capsys.readouterr().err
+    assert fork_api.created == []
+
+
+def test_a_fork_point_must_be_a_step(fork_api, capsys):
+    assert replay(FAILED, "--from", "f" * 16) == 2
+    assert "isn't an LLM or tool span of trace" in capsys.readouterr().err
+    fork_api.steps[2]["interceptor"] = None
+    assert replay(FAILED, "--from", LLM_2) == 2
+    assert "can't tell when the run gets there" in capsys.readouterr().err

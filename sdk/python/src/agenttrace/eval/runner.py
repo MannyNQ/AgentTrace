@@ -33,6 +33,7 @@ from typing import Any
 
 from agenttrace import otel
 from agenttrace._json import to_jsonable
+from agenttrace._playback import Playback, activate, deactivate
 from agenttrace.eval import scorers as sc
 from agenttrace.eval.client import ApiError, Client, DatasetVersion, VersionItem
 from agenttrace.eval.config import EvalConfig
@@ -257,6 +258,7 @@ class _Sample:
     error: str | None = None
     timed_out_thread: bool = False
     spans: list[Span] = field(default_factory=list)
+    playback: Playback | None = None  # what answered a replay run's calls (ADR-0040)
 
 
 def _case(item: VersionItem, s: _Sample, calls: list[ToolCall]) -> sc.Case:
@@ -359,6 +361,10 @@ class AgentRunner:
     def _attributes(self) -> dict[str, str] | None:
         return None
 
+    def _playback(self) -> Playback | None:
+        """A fresh playback for each run that answers calls from a recording, else None."""
+        return None
+
     def _record(self, s: _Sample, fields: dict[str, Any]) -> AgentRun:
         """The uploaded record: `fields` are the ones every agent run has."""
         raise NotImplementedError
@@ -390,6 +396,8 @@ class AgentRunner:
                 attributes=self._attributes(),
             ) as root:
                 self.capture.watch(root.trace_id)
+                playback = self._playback()
+                token = activate(playback)  # before copying the context, so the thread has it
                 try:
                     if self.is_async:
                         call = self.entry(inp)
@@ -406,6 +414,11 @@ class AgentRunner:
                 except Exception as e:
                     error = f"{type(e).__name__}: {e}"[:MAX_ERROR]
                     root.set_error(type(e).__name__)
+                finally:
+                    deactivate(token)
+                if playback is not None and playback.failure:  # even if the agent caught it
+                    error = playback.failure[:MAX_ERROR]
+                    root.set_error("NoRecording")
             s = _Sample(
                 item=item,
                 index=index,
@@ -416,6 +429,7 @@ class AgentRunner:
                 error=None if error is None else _clean(error),
                 timed_out_thread=abandoned,
                 spans=self.capture.take(root.trace_id),
+                playback=playback,
             )
             result, skipped = await asyncio.get_running_loop().run_in_executor(
                 scoring, self._result, s
