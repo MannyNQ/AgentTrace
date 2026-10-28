@@ -1,0 +1,3 @@
+  ✓ lookup_order({'order_id': '1042'}) -> {"order_id": "1042", "status": "shipped", "carrier": "UPS", "eta": "2026-10-28", "items": [{"sku": "KB-75", "qty": 1}], 
+
+Order 1042 has shipped with UPS and should arrive tomorrow, October 28, 2026. It has one KB-75 keyboard, and the total was $129.00. If it hasn't shown up by the end of tomorrow, let me know and I'll look into it.

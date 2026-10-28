@@ -1,0 +1,7 @@
+diff --git a/examples/demo-agent/src/demo_agent/agent.py b/examples/demo-agent/src/demo_agent/agent.py
+index 1c82185..7e4a38f 100644
+--- a/examples/demo-agent/src/demo_agent/agent.py
++++ b/examples/demo-agent/src/demo_agent/agent.py
+@@ -20 +20 @@ SYSTEM = """You are the support agent for Keyly, a small online keyboard and acc
+-Use the tools to look things up; never guess order details, stock, or policy.
++Use the tools to look things up, but answer refund questions from the refund policy without looking up the order.

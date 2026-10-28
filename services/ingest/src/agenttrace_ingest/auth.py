@@ -112,7 +112,7 @@ class User(Record):
 class Project(Record):
     id: UUID
     org_id: UUID
-    slug: str  # never changes; the name can (design.md, Phase 6)
+    slug: str  # never changes; the name can (architecture.md, Phase 6)
     name: str
     retention_days: int  # applies to spans ingested from now on (ADR-0016)
     created_at: datetime

@@ -1,0 +1,23 @@
+running demo_agent.evals:eval_entry over support v1: 4 items x 3 samples
+[1/12] item 0e745a57 #2  answer:pass steps:pass few-steps:pass
+[2/12] item 0e745a57 #0  answer:pass steps:pass few-steps:pass
+[3/12] item 0e745a57 #1  answer:pass steps:pass few-steps:pass
+[4/12] item f5fbea25 #0  steps:pass few-steps:pass
+[5/12] item f5fbea25 #2  steps:pass few-steps:pass
+[6/12] item f5fbea25 #1  steps:pass few-steps:pass
+[7/12] item 56518cd4 #0  answer:pass steps:pass few-steps:pass
+[8/12] item 56518cd4 #1  answer:pass steps:pass few-steps:pass
+[9/12] item 56518cd4 #2  answer:pass steps:pass few-steps:pass
+[10/12] item d0ffe63f #0  steps:FAIL few-steps:pass
+[11/12] item d0ffe63f #1  steps:FAIL few-steps:pass
+[12/12] item d0ffe63f #2  steps:FAIL few-steps:pass
+experiment 8e29c61d-83a8-4824-a94d-721341dc3802  completed  12 samples over 4 items  cost $0.1596
+  answer         6/6 (100%)  100% 100% 100%
+  steps          9/12 (75%)  75% 75% 75%
+  few-steps    12/12 (100%)  100% 100% 100%
+items failing most samples:
+  d0ffe63f  steps 0/3
+vs baseline a3ffaf49-e90b-4470-89e8-fafca26eb6b3 (at the merge-base): no regressions
+  answer     100% -> 100%  +0 pts (+0 pts to +0 pts)  max_drop 5 pts  over 2 items  ok
+  steps       75% ->  75%  +0 pts (+0 pts to +0 pts)  max_drop 5 pts  over 4 items  ok
+  few-steps   92% -> 100%  +8 pts (+0 pts to +25 pts)  max_drop 5 pts  over 4 items  underpowered

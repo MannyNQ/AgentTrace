@@ -1,4 +1,5 @@
-"""Projects can't see into each other, against the compose stack (design.md, Phase 6 plan step 5).
+"""Projects can't see into each other, against the compose stack (architecture.md, Phase 6 plan
+step 5).
 
 Project A gets a trace, a published dataset, an experiment, a replay, and a key. Project B, in
 the same org, then calls every project route at A's ids, once with B's full key and once with an

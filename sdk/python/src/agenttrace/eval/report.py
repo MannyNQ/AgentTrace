@@ -89,7 +89,7 @@ def markdown(
     dataset: str,
     web_url: str | None = None,
 ) -> str:
-    """The PR comment (design.md, Phase 4): verdict, scorer table, cost and latency, item
+    """The PR comment (architecture.md, Phase 4): verdict, scorer table, cost and latency, item
     regressions, and items not compared."""
     web = web_url.rstrip("/") if web_url else None
     e, b = cmp["experiment"], cmp["baseline"]

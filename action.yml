@@ -1,4 +1,4 @@
-# The AgentTrace CI gate (design.md, Phase 4). Runs `agenttrace eval`, compares the experiment
+# The AgentTrace CI gate (architecture.md, Phase 4). Runs `agenttrace eval`, compares the experiment
 # with its baseline (ADR-0007, ADR-0026), and on a pull request fails the check on a regression
 # (ADR-0025) and posts the comparison as one sticky comment per eval.yaml. On pushes it runs
 # without gating, which records the base branch's baselines.

@@ -1,5 +1,5 @@
 /**
- * The environment a new API key goes into, shown once beside the key (design.md, Phase 7). An
+ * The environment a new API key goes into, shown once beside the key (architecture.md, Phase 7). An
  * `ingest` key also gets the OpenTelemetry lines, for agents that send OTLP (ADR-0035); a `full`
  * key is for the CLI and CI, which use the SDK's.
  */

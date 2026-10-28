@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-// Hand-rolled SVG charts for the overview (design.md, Phase 8): rendered on the server, one link
+// Hand-rolled SVG charts for the overview (architecture.md, Phase 8): rendered on the server, one link
 // per bucket to the traces behind it, and the bucket's numbers in its <title> as the hover
 // readout. Colors are the theme's series tokens (globals.css), assigned in a fixed order.
 

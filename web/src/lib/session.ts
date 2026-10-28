@@ -28,7 +28,7 @@ export function clientAddress(forwardedFor: string | null, hops: number): string
   const entry = (forwardedFor ?? "").split(",").at(-hops)?.trim();
   return entry || null;
 }
-/** A project slug as ingest makes them (design.md, Phase 6). */
+/** A project slug as ingest makes them (architecture.md, Phase 6). */
 export const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const ORIGIN = "http://same.invalid";
