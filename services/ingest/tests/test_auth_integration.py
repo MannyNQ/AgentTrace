@@ -243,7 +243,7 @@ def test_failed_logins_count_in_redis_and_clear():
     limiter.hold(email, client, 1234.5)
     assert limiter.held_until(email, client) == 1234.5
     assert limiter.held_until(email, "198.51.100.4") == 0
-    for key in (f"login-failures:{email}", f"login-client-failures:{client}"):
+    for key in (f"login-email-failures:{email}", f"login-client-failures:{client}"):
         assert 0 < limiter.r.ttl(key) <= 15 * 60  # type: ignore[operator]
     limiter.succeeded(email, "198.51.100.4")
     assert limiter.held_until(email, client) == 1234.5  # another client's success

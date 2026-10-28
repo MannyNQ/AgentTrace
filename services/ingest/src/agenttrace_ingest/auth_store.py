@@ -429,7 +429,7 @@ class RedisLimiter:
     # One hash per email, with each client's count (`n:<client>`) and hold (`until:<client>`), so
     # clearing an email after a sign-in or a reset is one DEL. Each failure pushes its window out.
     def _key(self, email: str) -> str:
-        return f"login-failures:{email}"
+        return f"login-email-failures:{email}"
 
     def _client_key(self, client: str) -> str:
         return f"login-client-failures:{client}"
