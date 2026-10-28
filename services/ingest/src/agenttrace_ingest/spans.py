@@ -39,12 +39,10 @@ class RedisQueue:
                 maxlen=self.maxlen,
                 approximate=True,
             )
-        except redis.ResponseError as e:
+        except redis.OutOfMemoryError as e:
             # Redis runs with maxmemory and noeviction (docker-compose.yml), so a backlog the
             # workers can't drain refuses new batches instead of taking the host's memory.
-            if str(e).startswith("OOM"):
-                raise HTTPException(503, "the span queue is full; retry later") from e
-            raise
+            raise HTTPException(503, "the span queue is full; retry later") from e
 
 
 def router(s: Settings, a: Auth, queue: SpanQueue) -> APIRouter:

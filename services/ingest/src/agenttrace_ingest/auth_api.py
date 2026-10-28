@@ -5,7 +5,7 @@ returns its record. Routes that hash a password run it through `Auth.hashing`.""
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from agenttrace_ingest import auth as au
@@ -74,7 +74,7 @@ class NewKeyBody(Body):
     scope: au.Scope
 
 
-def router(a: au.Auth) -> APIRouter:
+def router(a: au.Auth, trusted_forwarders: list[au.IPNetwork]) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
     signed_in = Depends(au.SignedIn(a))
 
@@ -88,8 +88,9 @@ def router(a: au.Auth) -> APIRouter:
         return await a.hashing(a.claim, body.token, body.email, body.password)
 
     @r.post("/login")
-    async def login(body: Login) -> au.NewSession:
-        return await a.hashing(a.login, body.email, body.password)
+    async def login(body: Login, request: Request) -> au.NewSession:
+        client = au.client_address(request, trusted_forwarders)
+        return await a.hashing(a.login, body.email, body.password, client)
 
     @r.post("/logout", status_code=204)
     def logout(session: Annotated[tuple[au.User, str], signed_in]) -> Response:

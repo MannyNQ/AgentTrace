@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agenttrace_ingest.app import create_app
-from agenttrace_ingest.auth import DEFAULT_PROJECT_ID, User, hash_token
+from agenttrace_ingest.auth import DEFAULT_PROJECT_ID, FREE_LOGIN_FAILURES, User, hash_token
 from agenttrace_ingest.auth_store import PostgresAuth, RedisLimiter
 from agenttrace_ingest.datasets import Conflict
 from agenttrace_ingest.settings import Settings
@@ -235,14 +235,30 @@ def test_projects_tell_a_taken_slug_from_a_taken_name(store, org):
 
 def test_failed_logins_count_in_redis_and_clear():
     limiter = RedisLimiter(Settings())
-    email = f"{uuid.uuid4().hex[:12]}@example.com"
-    for _ in range(3):
-        limiter.failed(email)
-    assert limiter.failures(email) == 3
-    ttl = limiter.r.ttl(f"login-failures:{email}")
-    assert 0 < ttl <= 15 * 60  # type: ignore[operator]
-    limiter.clear(email)
-    assert limiter.failures(email) == 0
+    email, client = f"{uuid.uuid4().hex[:12]}@example.com", f"203.0.113.{uuid.uuid4().int % 250}"
+    other = "198.51.100.4"
+    ekey, ckey = f"login-email-failures:{email}", f"login-client-failures:{client}"
+    now = 1_000_000.0
+    try:
+        for _ in range(FREE_LOGIN_FAILURES - 1):
+            assert limiter.admit(email, client, now) == (0.0, False)
+        assert limiter.admit(email, client, now) == (0.0, False)  # the 5th: admitted, then holds
+        assert limiter.admit(email, client, now) == (1.0, False)
+        assert limiter.admit(email, other, now) == (0.0, False)  # another client isn't held
+        assert int(limiter.r.get(ckey)) == FREE_LOGIN_FAILURES  # type: ignore[arg-type]
+        assert 0 < limiter.r.ttl(ckey) <= 15 * 60  # type: ignore[operator]
+        assert limiter.r.ttl(ekey) == -1  # no key TTL: each field expires on its own
+        ttls = limiter.r.execute_command(
+            "HTTL", ekey, "FIELDS", 2, f"n:{client}", f"until:{client}"
+        )
+        assert all(0 < t <= 15 * 60 for t in ttls)
+        limiter.succeeded(email, client)  # clears the pair, gives back one client failure
+        assert limiter.admit(email, client, now) == (0.0, False)
+        assert int(limiter.r.get(ckey)) == FREE_LOGIN_FAILURES  # type: ignore[arg-type]
+        limiter.clear(email)  # an admin reset: every client
+        assert not limiter.r.exists(ekey)
+    finally:
+        limiter.r.delete(ekey, ckey, f"login-client-failures:{other}")
 
 
 def test_the_tests_leave_the_install_as_they_found_it(store):

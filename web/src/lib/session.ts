@@ -9,6 +9,25 @@ export const PROJECT_COOKIE = "agenttrace_project";
  * sends, so the ingest client can trust it as the project a request acts on. */
 export const PROJECT_HEADER = "x-agenttrace-project";
 export const DEFAULT_PROJECT = "default";
+/** Names the browser's address to ingest, which limits failed sign-ins per address (ADR-0041). */
+export const CLIENT_HEADER = "AgentTrace-Client-IP";
+
+/** The browser's address from `X-Forwarded-For`, given how many reverse proxies sit in front of
+ * the web app. Next only sets the header when a request arrives without one, so the trustworthy
+ * entry is the one the nearest proxy appended: `hops` from the right. Earlier entries are
+ * whatever the browser sent. With no proxy (`hops` 1 also covers it), a browser that sends its
+ * own header picks its address; ingest's per-email waits still apply. `hops` is from
+ * `proxyHops`, so at least 1. */
+export function proxyHops(raw: string | undefined): number {
+  // Anything else would index X-Forwarded-For wrongly: `.at(NaN)` reads the browser's own entry.
+  const hops = /^\s*\d+\s*$/.test(raw ?? "") ? Number(raw) : 1;
+  return Math.max(hops, 1);
+}
+
+export function clientAddress(forwardedFor: string | null, hops: number): string | null {
+  const entry = (forwardedFor ?? "").split(",").at(-hops)?.trim();
+  return entry || null;
+}
 /** A project slug as ingest makes them (design.md, Phase 6). */
 export const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
