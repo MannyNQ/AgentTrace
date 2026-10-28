@@ -9,7 +9,9 @@ Storage is behind `Store`; the rules are here.
 
 import hashlib
 import hmac
+import ipaddress
 import logging
+import math
 import secrets
 import time
 from collections.abc import Callable
@@ -39,8 +41,18 @@ SESSION_EXTEND_EVERY = timedelta(days=1)  # sliding, but written at most once a 
 LINK_LIFETIME = timedelta(days=7)
 MIN_PASSWORD_CHARS = 12
 MAX_PASSWORD_CHARS = 1024
-MAX_LOGIN_FAILURES = 10  # per email, in LOGIN_FAILURE_WINDOW_S
+# Failed logins (ADR-0041). Per email and client: this many are free, then each earns that pair
+# a wait twice as long as the last, up to MAX_LOGIN_BACKOFF_S. Keyed by client too, so failures
+# from one address never make the user wait at another. Per client, across emails, this many in
+# the window turn it away: that's what stops credential stuffing and random-email floods.
+FREE_LOGIN_FAILURES = 5
+MAX_LOGIN_BACKOFF_S = 15 * 60
+MAX_CLIENT_LOGIN_FAILURES = 50
 LOGIN_FAILURE_WINDOW_S = 15 * 60
+# The web app names the browser's address in this header. Ingest believes it only from a peer
+# in `Settings.trusted_forwarders`; from anyone else, the peer's own address is the client.
+CLIENT_HEADER = "AgentTrace-Client-IP"
+IPNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 KEY_CACHE_S = 60.0  # how long a resolved key is trusted, and how often `last_used_at` is written
 # The key in .env.example, the README, and the demo agent: public, so it's only honoured while
 # AGENTTRACE_PUBLIC_URL is local (ADR-0033).
@@ -292,14 +304,53 @@ class Store(Protocol):
 
 
 class Limiter(Protocol):
-    """Counts failed logins per email over `LOGIN_FAILURE_WINDOW_S`. Raises `Unavailable` when
-    it can't count, and signing in is refused rather than left unlimited."""
+    """Counts failed logins per email and client and per client, each over
+    `LOGIN_FAILURE_WINDOW_S` of quiet, and holds an email-and-client pair until a time. Raises
+    `Unavailable` when it can't count, and signing in is refused rather than left unlimited."""
 
-    def failures(self, email: str) -> int: ...
+    def held_until(self, email: str, client: str) -> float:
+        """When the pair may try again, in epoch seconds; 0 when it isn't held."""
+        ...
 
-    def failed(self, email: str) -> None: ...
+    def client_failures(self, client: str) -> int: ...
 
-    def clear(self, email: str) -> None: ...
+    def failed(self, email: str, client: str) -> int:
+        """Counts a failure for the pair and for the client; returns the pair's count."""
+        ...
+
+    def hold(self, email: str, client: str, until: float) -> None: ...
+
+    def succeeded(self, email: str, client: str) -> None:
+        """Forgets the pair's failures and hold; other clients' stay."""
+        ...
+
+    def clear(self, email: str) -> None:
+        """Forgets the email's failures and holds, from every client."""
+        ...
+
+
+def login_backoff_s(failures: int) -> float:
+    """How long an email-and-client pair waits after its `failures`-th failure."""
+    if failures < FREE_LOGIN_FAILURES:
+        return 0.0
+    return float(min(2 ** (failures - FREE_LOGIN_FAILURES), MAX_LOGIN_BACKOFF_S))
+
+
+def client_address(request: Request, trusted: list[IPNetwork]) -> str:
+    """The caller's address: the web app's CLIENT_HEADER when the peer is trusted to send it,
+    else the peer's."""
+    peer = request.client.host if request.client else "unknown"
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return peer
+    named = request.headers.get(CLIENT_HEADER, "").strip()
+    if named and any(peer_ip in net for net in trusted):
+        try:
+            return str(ipaddress.ip_address(named))
+        except ValueError:
+            pass
+    return str(peer_ip)
 
 
 # --- Rules ----------------------------------------------------------------------------------
@@ -504,23 +555,33 @@ class Auth:
 
     # --- Signing in and out ---
 
-    def login(self, email: str, password: str) -> NewSession:
+    def login(self, email: str, password: str, client: str) -> NewSession:
         try:
             email = normalize_email(email)
         except Refused:
             raise Unauthorized("wrong email or password") from None
-        if self.limiter.failures(email) >= MAX_LOGIN_FAILURES:
-            raise TooManyAttempts("too many failed sign-ins; try again in 15 minutes")
+        if self.limiter.client_failures(client) >= MAX_CLIENT_LOGIN_FAILURES:
+            raise TooManyAttempts("too many failed sign-ins from your address; try again later")
+        now = self.now().timestamp()
+        wait = self.limiter.held_until(email, client) - now
+        if wait > 0:
+            # Refused before hashing, even for the right password: a held pair is no oracle.
+            s = math.ceil(wait)
+            raise TooManyAttempts(
+                f"too many failed sign-ins; try again in {s} second{'' if s == 1 else 's'}"
+            )
         found = self.store.login(email)
         # Hash something either way, so an unknown email takes as long as a wrong password.
         ok = self._verify(found[1] if found else self._dummy_hash, password)
         if found is None or not ok or found[0].deactivated:
-            self.limiter.failed(email)
+            if backoff := login_backoff_s(self.limiter.failed(email, client)):
+                self.limiter.hold(email, client, now + backoff)
             raise Unauthorized("wrong email or password")
         user, stored = found
         if self.passwords.check_needs_rehash(stored):
             self.store.set_password(user.id, self.passwords.hash(password))
-        self.limiter.clear(email)
+        # Only this client's: the owner signing in mustn't hand an attacker fresh free tries.
+        self.limiter.succeeded(email, client)
         return self._new_session(user)
 
     def logout(self, token: str) -> None:

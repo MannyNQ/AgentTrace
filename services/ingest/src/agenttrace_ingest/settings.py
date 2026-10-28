@@ -1,4 +1,8 @@
+import ipaddress
+
 from pydantic_settings import BaseSettings
+
+PRIVATE_NETWORKS = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
 
 
 class Settings(BaseSettings):
@@ -27,6 +31,16 @@ class Settings(BaseSettings):
     @property
     def public_url(self) -> str:
         return self.agenttrace_public_url or "http://localhost:3000"
+
+    # Peers whose AgentTrace-Client-IP header ingest believes (ADR-0041), as comma-separated
+    # addresses or CIDR ranges. Empty counts as unset: loopback and private networks, where the
+    # web app reaches ingest from.
+    agenttrace_trusted_forwarders: str = ""
+
+    @property
+    def trusted_forwarders(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        nets = (self.agenttrace_trusted_forwarders or PRIVATE_NETWORKS).split(",")
+        return [ipaddress.ip_network(n.strip()) for n in nets if n.strip()]
 
     max_spans_per_request: int = 1000
     max_request_bytes: int = 5 * 1024 * 1024

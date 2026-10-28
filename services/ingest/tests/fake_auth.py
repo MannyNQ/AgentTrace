@@ -340,13 +340,29 @@ class FakeAuth:
 
 @dataclass
 class FakeLimiter:
-    counts: dict[str, int] = field(default_factory=dict)
+    counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    holds: dict[tuple[str, str], float] = field(default_factory=dict)
+    clients: dict[str, int] = field(default_factory=dict)
 
-    def failures(self, email: str) -> int:
-        return self.counts.get(email, 0)
+    def held_until(self, email: str, client: str) -> float:
+        return self.holds.get((email, client), 0.0)
 
-    def failed(self, email: str) -> None:
-        self.counts[email] = self.counts.get(email, 0) + 1
+    def client_failures(self, client: str) -> int:
+        return self.clients.get(client, 0)
+
+    def failed(self, email: str, client: str) -> int:
+        self.clients[client] = self.clients.get(client, 0) + 1
+        self.counts[email, client] = self.counts.get((email, client), 0) + 1
+        return self.counts[email, client]
+
+    def hold(self, email: str, client: str, until: float) -> None:
+        self.holds[email, client] = until
+
+    def succeeded(self, email: str, client: str) -> None:
+        self.counts.pop((email, client), None)
+        self.holds.pop((email, client), None)
 
     def clear(self, email: str) -> None:
-        self.counts.pop(email, None)
+        for pairs in (self.counts, self.holds):
+            for pair in [p for p in pairs if p[0] == email]:
+                del pairs[pair]

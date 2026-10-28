@@ -426,8 +426,13 @@ class RedisLimiter:
     def __init__(self, s: Settings):
         self.r = redis.Redis.from_url(s.redis_url, socket_timeout=2)
 
+    # One hash per email, with each client's count (`n:<client>`) and hold (`until:<client>`), so
+    # clearing an email after a sign-in or a reset is one DEL. Each failure pushes its window out.
     def _key(self, email: str) -> str:
         return f"login-failures:{email}"
+
+    def _client_key(self, client: str) -> str:
+        return f"login-client-failures:{client}"
 
     @contextmanager
     def _reaching(self) -> Iterator[None]:
@@ -436,17 +441,32 @@ class RedisLimiter:
         except redis.RedisError as e:
             raise Unavailable(f"can't reach Redis, which counts failed sign-ins: {e}") from e
 
-    def failures(self, email: str) -> int:
+    def held_until(self, email: str, client: str) -> float:
         with self._reaching():
-            return int(self.r.get(self._key(email)) or 0)  # type: ignore[arg-type]
+            return float(self.r.hget(self._key(email), f"until:{client}") or 0)  # type: ignore[arg-type]
 
-    def failed(self, email: str) -> None:
-        # The window starts at the first failure and isn't pushed out by later ones.
+    def client_failures(self, client: str) -> int:
+        with self._reaching():
+            return int(self.r.get(self._client_key(client)) or 0)  # type: ignore[arg-type]
+
+    def failed(self, email: str, client: str) -> int:
         with self._reaching():
             pipe = self.r.pipeline()
-            pipe.incr(self._key(email))
-            pipe.expire(self._key(email), LOGIN_FAILURE_WINDOW_S, nx=True)
-            pipe.execute()
+            pipe.hincrby(self._key(email), f"n:{client}", 1)
+            pipe.expire(self._key(email), LOGIN_FAILURE_WINDOW_S)
+            # Per client, the window starts at the first failure and isn't pushed out by later
+            # ones, so a client turned away can try again 15 minutes after it started.
+            pipe.incr(self._client_key(client))
+            pipe.expire(self._client_key(client), LOGIN_FAILURE_WINDOW_S, nx=True)
+            return int(pipe.execute()[0])
+
+    def hold(self, email: str, client: str, until: float) -> None:
+        with self._reaching():
+            self.r.hset(self._key(email), f"until:{client}", until)
+
+    def succeeded(self, email: str, client: str) -> None:
+        with self._reaching():
+            self.r.hdel(self._key(email), f"n:{client}", f"until:{client}")
 
     def clear(self, email: str) -> None:
         with self._reaching():

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { PROJECT_HEADER, SESSION_COOKIE } from "@/lib/session";
+import { CLIENT_HEADER, clientAddress, PROJECT_HEADER, SESSION_COOKIE } from "@/lib/session";
 
 // ADR-0031: the web app reads and writes only through the ingest API, which checks every request
 // against the user's session and the project in the URL (ADR-0032). It holds no store
@@ -35,6 +35,9 @@ export const PUBLIC_URL =
 export const PUBLIC_ENDPOINT =
   process.env.AGENTTRACE_ENDPOINT || rootEnv("AGENTTRACE_ENDPOINT") || "http://localhost:8000";
 
+/** How many reverse proxies sit in front of the web app, for reading the browser's address. */
+const PROXY_HOPS = Number(process.env.AGENTTRACE_PROXY_HOPS || rootEnv("AGENTTRACE_PROXY_HOPS") || 1);
+
 /** A refusal from the API: `error` for people, plus whatever else the API said. */
 export type ApiError = {
   status: number;
@@ -63,9 +66,12 @@ type Options = {
 
 async function call<T>(method: string, path: string, body?: unknown, options: Options = {}): Promise<Result<T>> {
   const auth: Record<string, string> = {};
+  const incoming = await headers();
+  const client = clientAddress(incoming.get("x-forwarded-for"), PROXY_HOPS);
+  if (client) auth[CLIENT_HEADER] = client;
   if (!options.anonymous) {
     const session = (await cookies()).get(SESSION_COOKIE)?.value;
-    const project = (await headers()).get(PROJECT_HEADER);
+    const project = incoming.get(PROJECT_HEADER);
     if (session) auth.Authorization = `Session ${session}`;
     if (project) auth["AgentTrace-Project"] = project;
   }

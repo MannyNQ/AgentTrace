@@ -235,14 +235,26 @@ def test_projects_tell_a_taken_slug_from_a_taken_name(store, org):
 
 def test_failed_logins_count_in_redis_and_clear():
     limiter = RedisLimiter(Settings())
-    email = f"{uuid.uuid4().hex[:12]}@example.com"
-    for _ in range(3):
-        limiter.failed(email)
-    assert limiter.failures(email) == 3
-    ttl = limiter.r.ttl(f"login-failures:{email}")
-    assert 0 < ttl <= 15 * 60  # type: ignore[operator]
+    email, client = f"{uuid.uuid4().hex[:12]}@example.com", f"203.0.113.{uuid.uuid4().int % 250}"
+    before = limiter.client_failures(client)
+    assert [limiter.failed(email, client) for _ in range(3)] == [1, 2, 3]
+    assert limiter.failed(email, "198.51.100.4") == 1  # counted per client
+    assert limiter.client_failures(client) == before + 3
+    limiter.hold(email, client, 1234.5)
+    assert limiter.held_until(email, client) == 1234.5
+    assert limiter.held_until(email, "198.51.100.4") == 0
+    for key in (f"login-failures:{email}", f"login-client-failures:{client}"):
+        assert 0 < limiter.r.ttl(key) <= 15 * 60  # type: ignore[operator]
+    limiter.succeeded(email, "198.51.100.4")
+    assert limiter.held_until(email, client) == 1234.5  # another client's success
+    limiter.succeeded(email, client)
+    assert limiter.held_until(email, client) == 0
+    assert limiter.failed(email, client) == 1  # started over
+    limiter.hold(email, client, 99.0)
+    limiter.clear(email)  # an admin reset: every client
+    assert limiter.held_until(email, client) == 0
     limiter.clear(email)
-    assert limiter.failures(email) == 0
+    limiter.r.delete(f"login-client-failures:{client}")
 
 
 def test_the_tests_leave_the_install_as_they_found_it(store):

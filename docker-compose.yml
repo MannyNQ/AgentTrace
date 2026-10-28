@@ -21,6 +21,8 @@ x-service-env: &service-env
   AGENTTRACE_SETUP_TOKEN: ${AGENTTRACE_SETUP_TOKEN:-}
   # Where people open the web app. Unless it's localhost, ingest refuses the dev key above.
   AGENTTRACE_PUBLIC_URL: ${AGENTTRACE_PUBLIC_URL:-}
+  # ADR-0041: peers whose AgentTrace-Client-IP header ingest believes. Unset: loopback and private.
+  AGENTTRACE_TRUSTED_FORWARDERS: ${AGENTTRACE_TRUSTED_FORWARDERS:-}
   # ADR-0004: a trace whose root never ended is complete after this much quiet.
   TRACE_QUIET_PERIOD_S: ${TRACE_QUIET_PERIOD_S:-300}
 

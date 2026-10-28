@@ -208,7 +208,7 @@ def create_app(
     span_queue = queue or spans.RedisQueue(s)
     app.include_router(spans.router(s, a, span_queue))
     app.include_router(otlp.router(s, a, span_queue))
-    app.include_router(auth_api.router(a))
+    app.include_router(auth_api.router(a, s.trusted_forwarders))
     app.include_router(auth_api.members_router(a))
     app.include_router(auth_api.keys_router(a))
     app.include_router(project_api.router(a, locations or StoredLocations(s)))

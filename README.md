@@ -86,7 +86,7 @@ Each API key belongs to one project and has a scope. An `ingest` key only sends 
 
 Before you serve it beyond your machine:
 
-- Serve the web app over https, behind a reverse proxy that terminates TLS, and set `AGENTTRACE_PUBLIC_URL` to that address. Session cookies are then marked `Secure`, and ingest stops accepting `at-local-dev-key`.
+- Serve the web app over https, behind a reverse proxy that terminates TLS, and set `AGENTTRACE_PUBLIC_URL` to that address. Session cookies are then marked `Secure`, and ingest stops accepting `at-local-dev-key`. The proxy must append the browser's address to `X-Forwarded-For` (nginx: `$proxy_add_x_forwarded_for`): failed sign-ins are limited per address (ADR-0041). Behind more than one proxy, such as a CDN and nginx, set `AGENTTRACE_PROXY_HOPS` to how many.
 - Set `AGENTTRACE_API_KEY` in `.env` to a long random key of your own, for example from `openssl rand -base64 32`. Left empty, compose falls back to `at-local-dev-key`, which ingest then refuses, logging an error on every start. Keys made in the web app work alongside it.
 - Claim the install right away, ideally with an `AGENTTRACE_SETUP_TOKEN` you chose: until it's claimed, anyone holding the token can.
 - Expose only the web app, and ingest's port if agents outside the host send spans. `docker-compose.yml` publishes every port on `127.0.0.1` only; set `AGENTTRACE_INGEST_BIND=0.0.0.0` to publish ingest's. Still change the stores' passwords from the ones in `.env.example`.

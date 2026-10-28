@@ -17,14 +17,18 @@ from fastapi.testclient import TestClient
 from agenttrace import new_span_id, new_trace_id
 from agenttrace_ingest.app import create_app, purge_expired_forever
 from agenttrace_ingest.auth import (
+    CLIENT_HEADER,
     DEV_KEY,
+    FREE_LOGIN_FAILURES,
     HASHING_THREADS,
     KEY_CACHE_S,
+    MAX_CLIENT_LOGIN_FAILURES,
     MAX_HASHING_WAITERS,
-    MAX_LOGIN_FAILURES,
+    MAX_LOGIN_BACKOFF_S,
     SESSION_EXTEND_EVERY,
     SESSION_LIFETIME,
     Auth,
+    Unauthorized,
     hash_token,
     is_local,
 )
@@ -51,7 +55,7 @@ class Queue:
 
 
 class Api:
-    def __init__(self, **settings):
+    def __init__(self, peer: str = "testclient", **settings):
         self.store = FakeAuth.with_keys({"full-key": PROJECT, "other-key": OTHER})
         self.store.add_key("ingest-key", PROJECT, "ingest")
         self.store.add_project(FOREIGN, "foreign", org_id=FOREIGN_ORG)
@@ -68,7 +72,7 @@ class Api:
             pins=FakePins(),
             queue=self.queue,
         )
-        self.c = TestClient(app)
+        self.c = TestClient(app, client=(peer, 50000))
 
     def call(
         self,
@@ -79,8 +83,11 @@ class Api:
         session: str | None = None,
         project: str | None = None,
         status: int | None = None,
+        client: str | None = None,
     ):
         headers = {}
+        if client is not None:
+            headers[CLIENT_HEADER] = client
         if key is not None:
             headers["Authorization"] = f"Bearer {key}"
         if session is not None:
@@ -106,10 +113,9 @@ class Api:
         r = self.call("POST", f"/v1/auth/links/{link.json()['token']}/accept", body, status=201)
         return r.json()["token"]
 
-    def login(self, email: str, password: str, status=200):
-        return self.call(
-            "POST", "/v1/auth/login", {"email": email, "password": password}, status=status
-        )
+    def login(self, email: str, password: str, status=200, client: str | None = None):
+        body = {"email": email, "password": password}
+        return self.call("POST", "/v1/auth/login", body, status=status, client=client)
 
     def user_id(self, session: str) -> str:
         return self.call("GET", "/v1/auth/me", session=session, status=200).json()["user"]["id"]
@@ -408,19 +414,66 @@ def test_wrong_password_and_unknown_email_look_the_same(api: Api):
     assert wrong == unknown
 
 
-def test_ten_failures_lock_the_email_even_for_the_right_password(api: Api):
+def test_repeated_failures_make_that_client_wait_even_for_the_right_password(api: Api):
     api.claim()
-    for _ in range(MAX_LOGIN_FAILURES):
+    for _ in range(FREE_LOGIN_FAILURES):
         api.login(OWNER[0], "not-the-password", status=401)
-    api.login(OWNER[0], OWNER[1], status=429)
+    r = api.login(OWNER[0], OWNER[1], status=429)
+    assert "try again in 1 second" in api.error(r)
 
 
-def test_a_successful_login_clears_the_failures(api: Api):
+def test_an_attacker_s_failures_don_t_lock_the_owner_out_elsewhere():
+    api = Api(peer="10.0.0.2")  # the web app, forwarding each browser's address
     api.claim()
-    for _ in range(MAX_LOGIN_FAILURES - 1):
+    for _ in range(FREE_LOGIN_FAILURES + 3):
+        api.login(OWNER[0], "not-the-password", status=None, client="203.0.113.9")
+    api.login(OWNER[0], "not-the-password", status=429, client="203.0.113.9")
+    api.login(*OWNER, status=200, client="198.51.100.4")
+
+
+def test_the_wait_doubles_and_stops_growing_at_the_cap():
+    api = Api()
+    api.claim()
+    t = [1_000_000.0]
+    a = Auth(api.store, api.limiter, now=lambda: datetime.fromtimestamp(t[0], UTC))
+    waits = []
+    for _ in range(FREE_LOGIN_FAILURES + 12):
+        with pytest.raises(Unauthorized):
+            a.login(OWNER[0], "not-the-password", "203.0.113.9")
+        until = api.limiter.held_until(OWNER[0], "203.0.113.9")
+        waits.append(max(0.0, until - t[0]))
+        t[0] = max(t[0], until)  # wait it out, then fail again
+    assert waits[: FREE_LOGIN_FAILURES - 1] == [0.0] * (FREE_LOGIN_FAILURES - 1)
+    assert waits[FREE_LOGIN_FAILURES - 1 : FREE_LOGIN_FAILURES + 3] == [1, 2, 4, 8]
+    assert waits[-1] == MAX_LOGIN_BACKOFF_S
+    a.login(*OWNER, "203.0.113.9")  # once waited out, the right password works
+
+
+def test_a_client_failing_across_many_emails_is_turned_away():
+    api = Api(peer="10.0.0.2")
+    api.claim()
+    for i in range(MAX_CLIENT_LOGIN_FAILURES):
+        api.login(f"u{i}@example.com", "not-the-password", status=401, client="203.0.113.9")
+    api.login(OWNER[0], OWNER[1], status=429, client="203.0.113.9")
+    api.login(*OWNER, status=200, client="198.51.100.4")
+
+
+def test_the_client_header_is_trusted_only_from_a_private_peer():
+    api = Api(peer="203.0.113.50")  # a caller on the internet, claiming to be the web app
+    api.claim()
+    for i in range(MAX_CLIENT_LOGIN_FAILURES):
+        api.login(f"u{i}@example.com", "not-the-password", status=401, client=f"192.0.2.{i}")
+    api.login(*OWNER, status=429, client="192.0.2.200")  # counted against its own address
+
+
+def test_a_successful_login_clears_that_client_s_count(api: Api):
+    api.claim()
+    for _ in range(FREE_LOGIN_FAILURES - 1):
         api.login(OWNER[0], "not-the-password", status=401)
     api.login(OWNER[0], OWNER[1], status=200)
-    assert api.limiter.failures(OWNER[0]) == 0
+    assert api.limiter.held_until(OWNER[0], "testclient") == 0
+    for _ in range(FREE_LOGIN_FAILURES - 1):  # the count started over
+        api.login(OWNER[0], "not-the-password", status=401)
 
 
 def test_changing_the_password_signs_out_other_sessions(api: Api):
@@ -437,7 +490,7 @@ def test_changing_the_password_signs_out_other_sessions(api: Api):
 
 def test_admin_set_password_signs_the_user_out_and_unlocks_them(api: Api):
     owner = api.claim()
-    for _ in range(MAX_LOGIN_FAILURES):
+    for _ in range(FREE_LOGIN_FAILURES):
         api.login(OWNER[0], "not-the-password", status=401)
     Auth(api.store, api.limiter).set_password(OWNER[0], "recovered-password")
     api.call("GET", "/v1/auth/me", session=owner, status=401)
@@ -687,13 +740,14 @@ class DownLimiter:
         self.calls += 1
         raise Unavailable("can't reach Redis, which counts failed sign-ins: refused")
 
-    failures = failed = clear = _down
+    held_until = client_failures = failed = hold = succeeded = clear = _down
 
 
 def test_signing_in_while_redis_is_down_is_503_not_500(api: Api):
     api.claim()
     down = DownLimiter()
-    api.limiter.failures = api.limiter.failed = api.limiter.clear = down._down  # type: ignore[method-assign]
+    for name in ("held_until", "client_failures", "failed", "hold", "succeeded", "clear"):
+        setattr(api.limiter, name, down._down)
     r = api.login(*OWNER, status=503)
     assert "can't reach Redis" in api.error(r)
 
@@ -708,9 +762,17 @@ def test_an_admin_reset_while_redis_is_down_changes_nothing(api: Api):
 
 def test_the_redis_limiter_reports_an_unreachable_redis():
     limiter = RedisLimiter(Settings(redis_url="redis://127.0.0.1:1/0"))
-    for call in (limiter.failures, limiter.failed, limiter.clear):
+    calls = [
+        lambda: limiter.held_until("ops@example.com", "203.0.113.9"),
+        lambda: limiter.client_failures("203.0.113.9"),
+        lambda: limiter.failed("ops@example.com", "203.0.113.9"),
+        lambda: limiter.hold("ops@example.com", "203.0.113.9", 1.0),
+        lambda: limiter.succeeded("ops@example.com", "203.0.113.9"),
+        lambda: limiter.clear("ops@example.com"),
+    ]
+    for call in calls:
         with pytest.raises(Unavailable, match="can't reach Redis"):
-            call("ops@example.com")
+            call()
 
 
 def test_the_purge_loop_survives_a_failed_pass():
@@ -729,3 +791,20 @@ def test_the_purge_loop_survives_a_failed_pass():
 
     anyio.run(run)
     assert len(calls) >= 2
+
+
+def test_the_trusted_forwarders_can_be_narrowed():
+    api = Api(peer="10.0.0.2", agenttrace_trusted_forwarders="10.0.0.9/32")  # not this peer
+    api.claim()
+    for i in range(MAX_CLIENT_LOGIN_FAILURES):
+        api.login(f"u{i}@example.com", "not-the-password", status=401, client=f"192.0.2.{i}")
+    api.login(*OWNER, status=429, client="192.0.2.200")
+
+
+def test_the_owner_signing_in_doesn_t_reset_an_attacker_s_wait():
+    api = Api(peer="10.0.0.2")
+    api.claim()
+    for _ in range(FREE_LOGIN_FAILURES):
+        api.login(OWNER[0], "not-the-password", status=401, client="203.0.113.9")
+    api.login(*OWNER, status=200, client="198.51.100.4")
+    api.login(*OWNER, status=429, client="203.0.113.9")
