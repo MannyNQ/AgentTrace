@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clientAddress, safeNext } from "./session.ts";
+import { clientAddress, proxyHops, safeNext } from "./session.ts";
 
 test("a same-site path is a place to return to after signing in", () => {
   assert.equal(safeNext("/p/default/traces?replays=1"), "/p/default/traces?replays=1");
@@ -41,4 +41,9 @@ test("no usable address is no address", () => {
   assert.equal(clientAddress(null, 1), null);
   assert.equal(clientAddress("", 1), null);
   assert.equal(clientAddress("203.0.113.9", 2), null); // fewer hops than configured
+});
+
+test("a proxy count that isn't a positive whole number counts as one", () => {
+  for (const raw of [undefined, "", "two", "0", "-1", "1.5", " 1 "]) assert.equal(proxyHops(raw), 1, String(raw));
+  assert.equal(proxyHops("2"), 2);
 });

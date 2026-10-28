@@ -12,7 +12,11 @@ import redis
 from psycopg.rows import DictRow, dict_row
 
 from agenttrace_ingest.auth import (
+    FREE_LOGIN_FAILURES,
     LOGIN_FAILURE_WINDOW_S,
+    MAX_CLIENT_LOGIN_FAILURES,
+    MAX_LOGIN_BACKOFF_S,
+    Admission,
     KeyInfo,
     KeyRow,
     Link,
@@ -422,17 +426,47 @@ class PostgresAuth:
             return sessions.rowcount, links.rowcount
 
 
+# KEYS: the email's hash, the client's counter. ARGV: client, now, then the ADR-0041 numbers.
+# Returns {client_full, wait_s}, the wait as a string since Redis truncates Lua numbers.
+ADMIT = """
+local n_field, until_field = 'n:' .. ARGV[1], 'until:' .. ARGV[1]
+local now, free, max_backoff = tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4])
+local max_client, window = tonumber(ARGV[5]), ARGV[6]
+if tonumber(redis.call('GET', KEYS[2]) or '0') >= max_client then return {1, '0'} end
+local wait = tonumber(redis.call('HGET', KEYS[1], until_field) or '0') - now
+if wait > 0 then return {0, tostring(wait)} end
+local n = redis.call('HINCRBY', KEYS[1], n_field, 1)
+if n >= free then
+  redis.call('HSET', KEYS[1], until_field, tostring(now + math.min(2 ^ (n - free), max_backoff)))
+end
+redis.call('HEXPIRE', KEYS[1], window, 'FIELDS', 2, n_field, until_field)
+redis.call('INCR', KEYS[2])
+redis.call('EXPIRE', KEYS[2], window, 'NX')
+return {0, '0'}
+"""
+SUCCEEDED = """
+redis.call('HDEL', KEYS[1], 'n:' .. ARGV[1], 'until:' .. ARGV[1])
+if tonumber(redis.call('GET', KEYS[2]) or '0') > 0 then redis.call('DECR', KEYS[2]) end
+"""
+
+
 class RedisLimiter:
+    """ADR-0041 in Redis 7.4+. One hash per email, with each client's count (`n:<client>`) and
+    hold (`until:<client>`) expiring per field (HEXPIRE), so clearing an email is one DEL and
+    one client's failures don't keep another's alive. The client's counter keeps the window
+    from its first failure, so a client turned away can try again 15 minutes after it started."""
+
     def __init__(self, s: Settings):
         self.r = redis.Redis.from_url(s.redis_url, socket_timeout=2)
+        self._admit = self.r.register_script(ADMIT)
+        self._succeeded = self.r.register_script(SUCCEEDED)
 
-    # One hash per email, with each client's count (`n:<client>`) and hold (`until:<client>`), so
-    # clearing an email after a sign-in or a reset is one DEL. Each failure pushes its window out.
-    def _key(self, email: str) -> str:
+    @staticmethod
+    def _email_key(email: str) -> str:
         return f"login-email-failures:{email}"
 
-    def _client_key(self, client: str) -> str:
-        return f"login-client-failures:{client}"
+    def _keys(self, email: str, client: str) -> list[str]:
+        return [self._email_key(email), f"login-client-failures:{client}"]
 
     @contextmanager
     def _reaching(self) -> Iterator[None]:
@@ -441,33 +475,17 @@ class RedisLimiter:
         except redis.RedisError as e:
             raise Unavailable(f"can't reach Redis, which counts failed sign-ins: {e}") from e
 
-    def held_until(self, email: str, client: str) -> float:
+    def admit(self, email: str, client: str, now: float) -> Admission:
+        args = [client, now, FREE_LOGIN_FAILURES, MAX_LOGIN_BACKOFF_S]
+        args += [MAX_CLIENT_LOGIN_FAILURES, LOGIN_FAILURE_WINDOW_S]
         with self._reaching():
-            return float(self.r.hget(self._key(email), f"until:{client}") or 0)  # type: ignore[arg-type]
-
-    def client_failures(self, client: str) -> int:
-        with self._reaching():
-            return int(self.r.get(self._client_key(client)) or 0)  # type: ignore[arg-type]
-
-    def failed(self, email: str, client: str) -> int:
-        with self._reaching():
-            pipe = self.r.pipeline()
-            pipe.hincrby(self._key(email), f"n:{client}", 1)
-            pipe.expire(self._key(email), LOGIN_FAILURE_WINDOW_S)
-            # Per client, the window starts at the first failure and isn't pushed out by later
-            # ones, so a client turned away can try again 15 minutes after it started.
-            pipe.incr(self._client_key(client))
-            pipe.expire(self._client_key(client), LOGIN_FAILURE_WINDOW_S, nx=True)
-            return int(pipe.execute()[0])
-
-    def hold(self, email: str, client: str, until: float) -> None:
-        with self._reaching():
-            self.r.hset(self._key(email), f"until:{client}", until)
+            full, wait = self._admit(keys=self._keys(email, client), args=args)  # type: ignore[misc]
+        return Admission(float(wait), bool(full))
 
     def succeeded(self, email: str, client: str) -> None:
         with self._reaching():
-            self.r.hdel(self._key(email), f"n:{client}", f"until:{client}")
+            self._succeeded(keys=self._keys(email, client), args=[client])
 
     def clear(self, email: str) -> None:
         with self._reaching():
-            self.r.delete(self._key(email))
+            self.r.delete(self._email_key(email))

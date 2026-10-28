@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from typing import Literal, Protocol, TypeVar
+from typing import Literal, NamedTuple, Protocol, TypeVar
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -303,25 +303,26 @@ class Store(Protocol):
         ...
 
 
+class Admission(NamedTuple):
+    wait_s: float  # > 0: the email-and-client pair is held this much longer
+    client_full: bool  # the client has used up MAX_CLIENT_LOGIN_FAILURES
+
+
 class Limiter(Protocol):
-    """Counts failed logins per email and client and per client, each over
-    `LOGIN_FAILURE_WINDOW_S` of quiet, and holds an email-and-client pair until a time. Raises
-    `Unavailable` when it can't count, and signing in is refused rather than left unlimited."""
+    """Counts failed logins per email-and-client pair, each over `LOGIN_FAILURE_WINDOW_S` of that
+    pair's quiet, and per client over a window from its first failure. Raises `Unavailable` when
+    it can't count, and signing in is refused rather than left unlimited."""
 
-    def held_until(self, email: str, client: str) -> float:
-        """When the pair may try again, in epoch seconds; 0 when it isn't held."""
+    def admit(self, email: str, client: str, now: float) -> Admission:
+        """In one atomic step: refuses while the client is full or the pair is held; otherwise
+        counts this attempt as a failure for both up front, holds the pair for
+        `login_backoff_s(count)` from `now`, and admits it. Counting before the password is
+        checked is what keeps a burst of concurrent guesses from all slipping through."""
         ...
-
-    def client_failures(self, client: str) -> int: ...
-
-    def failed(self, email: str, client: str) -> int:
-        """Counts a failure for the pair and for the client; returns the pair's count."""
-        ...
-
-    def hold(self, email: str, client: str, until: float) -> None: ...
 
     def succeeded(self, email: str, client: str) -> None:
-        """Forgets the pair's failures and hold; other clients' stay."""
+        """Undoes an admitted attempt that signed in: clears the pair, and gives the client back
+        the one failure `admit` counted. Other clients' counts stay."""
         ...
 
     def clear(self, email: str) -> None:
@@ -340,17 +341,23 @@ def client_address(request: Request, trusted: list[IPNetwork]) -> str:
     """The caller's address: the web app's CLIENT_HEADER when the peer is trusted to send it,
     else the peer's."""
     peer = request.client.host if request.client else "unknown"
-    try:
-        peer_ip = ipaddress.ip_address(peer)
-    except ValueError:
+    peer_ip = _ip(peer)
+    if peer_ip is None:
         return peer
-    named = request.headers.get(CLIENT_HEADER, "").strip()
-    if named and any(peer_ip in net for net in trusted):
-        try:
-            return str(ipaddress.ip_address(named))
-        except ValueError:
-            pass
+    named = _ip(request.headers.get(CLIENT_HEADER, ""))
+    if named is not None and any(peer_ip in net for net in trusted):
+        return str(named)
     return str(peer_ip)
+
+
+def _ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The address in `text`, with an IPv4-mapped IPv6 address (`::ffff:10.0.0.2`, from a
+    dual-stack socket) as its IPv4 address, so it matches IPv4 ranges and counts as one client."""
+    try:
+        ip = ipaddress.ip_address(text.strip())
+    except ValueError:
+        return None
+    return (ip.ipv4_mapped or ip) if isinstance(ip, ipaddress.IPv6Address) else ip
 
 
 # --- Rules ----------------------------------------------------------------------------------
@@ -560,13 +567,12 @@ class Auth:
             email = normalize_email(email)
         except Refused:
             raise Unauthorized("wrong email or password") from None
-        if self.limiter.client_failures(client) >= MAX_CLIENT_LOGIN_FAILURES:
+        admission = self.limiter.admit(email, client, self.now().timestamp())
+        if admission.client_full:
             raise TooManyAttempts("too many failed sign-ins from your address; try again later")
-        now = self.now().timestamp()
-        wait = self.limiter.held_until(email, client) - now
-        if wait > 0:
+        if admission.wait_s > 0:
             # Refused before hashing, even for the right password: a held pair is no oracle.
-            s = math.ceil(wait)
+            s = math.ceil(admission.wait_s)
             raise TooManyAttempts(
                 f"too many failed sign-ins; try again in {s} second{'' if s == 1 else 's'}"
             )
@@ -574,9 +580,7 @@ class Auth:
         # Hash something either way, so an unknown email takes as long as a wrong password.
         ok = self._verify(found[1] if found else self._dummy_hash, password)
         if found is None or not ok or found[0].deactivated:
-            if backoff := login_backoff_s(self.limiter.failed(email, client)):
-                self.limiter.hold(email, client, now + backoff)
-            raise Unauthorized("wrong email or password")
+            raise Unauthorized("wrong email or password")  # `admit` already counted it
         user, stored = found
         if self.passwords.check_needs_rehash(stored):
             self.store.set_password(user.id, self.passwords.hash(password))

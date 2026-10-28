@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { CLIENT_HEADER, clientAddress, PROJECT_HEADER, SESSION_COOKIE } from "@/lib/session";
+import { CLIENT_HEADER, clientAddress, PROJECT_HEADER, proxyHops, SESSION_COOKIE } from "@/lib/session";
 
 // ADR-0031: the web app reads and writes only through the ingest API, which checks every request
 // against the user's session and the project in the URL (ADR-0032). It holds no store
@@ -36,7 +36,7 @@ export const PUBLIC_ENDPOINT =
   process.env.AGENTTRACE_ENDPOINT || rootEnv("AGENTTRACE_ENDPOINT") || "http://localhost:8000";
 
 /** How many reverse proxies sit in front of the web app, for reading the browser's address. */
-const PROXY_HOPS = Number(process.env.AGENTTRACE_PROXY_HOPS || rootEnv("AGENTTRACE_PROXY_HOPS") || 1);
+const PROXY_HOPS = proxyHops(process.env.AGENTTRACE_PROXY_HOPS || rootEnv("AGENTTRACE_PROXY_HOPS"));
 
 /** A refusal from the API: `error` for people, plus whatever else the API said. */
 export type ApiError = {

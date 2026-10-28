@@ -16,9 +16,16 @@ export const CLIENT_HEADER = "AgentTrace-Client-IP";
  * the web app. Next only sets the header when a request arrives without one, so the trustworthy
  * entry is the one the nearest proxy appended: `hops` from the right. Earlier entries are
  * whatever the browser sent. With no proxy (`hops` 1 also covers it), a browser that sends its
- * own header picks its address; ingest's per-email waits still apply. */
+ * own header picks its address; ingest's per-email waits still apply. `hops` is from
+ * `proxyHops`, so at least 1. */
+export function proxyHops(raw: string | undefined): number {
+  // Anything else would index X-Forwarded-For wrongly: `.at(NaN)` reads the browser's own entry.
+  const hops = /^\s*\d+\s*$/.test(raw ?? "") ? Number(raw) : 1;
+  return Math.max(hops, 1);
+}
+
 export function clientAddress(forwardedFor: string | null, hops: number): string | null {
-  const entry = (forwardedFor ?? "").split(",").at(-Math.max(hops, 1))?.trim();
+  const entry = (forwardedFor ?? "").split(",").at(-hops)?.trim();
   return entry || null;
 }
 /** A project slug as ingest makes them (design.md, Phase 6). */

@@ -90,7 +90,7 @@ def test_empty_batch_is_accepted_and_not_queued():
 
 class FullRedis:
     async def xadd(self, *args, **kwargs):
-        raise redis.ResponseError("OOM command not allowed when used memory > 'maxmemory'.")
+        raise redis.OutOfMemoryError("command not allowed when used memory > 'maxmemory'.")
 
 
 def test_a_full_redis_is_503_not_500():

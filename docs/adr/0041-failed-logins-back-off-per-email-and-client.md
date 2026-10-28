@@ -13,7 +13,8 @@ The old limit counted failures per email only, and refused even the right passwo
 - A successful login clears that email's count and hold from that address only, so the owner signing in doesn't hand an attacker elsewhere fresh free tries. `agenttrace-admin reset-password` clears them from every address. Neither clears the per-client count, so an attacker can't reset it by signing in to an account of their own.
 - The web app sends the browser's address in `AgentTrace-Client-IP`, read from `X-Forwarded-For` at `AGENTTRACE_PROXY_HOPS` from the right (default 1). Next only sets that header when a request arrives without one, so the trustworthy entry is the one the nearest reverse proxy appended.
 - Ingest believes `AgentTrace-Client-IP` only from peers in `AGENTTRACE_TRUSTED_FORWARDERS` (default: loopback and private ranges, where the web app reaches it from). From anyone else, the peer's own address is the client.
-- The counts live in Redis: one hash per email holding each address's count and hold, so clearing an email is one delete, plus a counter per address. While Redis can't be reached, signing in answers 503, as before.
+- An attempt is admitted and counted as a failure in one atomic step before its password is checked, and the hold its count earns is set then; a sign-in gives that one count back. Checking first and counting after the hash would let a burst of concurrent guesses all pass while the first were still hashing.
+- The counts live in Redis, updated by one Lua script per attempt: one hash per email holding each address's count and hold, expiring per field (`HEXPIRE`, so Redis 7.4 or later), plus a counter per address. Clearing an email is one delete, and one address's failures don't keep another's from expiring. While Redis can't be reached, signing in answers 503, as before.
 
 ## Consequences
 

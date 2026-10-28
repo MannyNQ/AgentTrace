@@ -440,7 +440,7 @@ def test_the_wait_doubles_and_stops_growing_at_the_cap():
     for _ in range(FREE_LOGIN_FAILURES + 12):
         with pytest.raises(Unauthorized):
             a.login(OWNER[0], "not-the-password", "203.0.113.9")
-        until = api.limiter.held_until(OWNER[0], "203.0.113.9")
+        until = api.limiter.holds.get((OWNER[0], "203.0.113.9"), 0.0)
         waits.append(max(0.0, until - t[0]))
         t[0] = max(t[0], until)  # wait it out, then fail again
     assert waits[: FREE_LOGIN_FAILURES - 1] == [0.0] * (FREE_LOGIN_FAILURES - 1)
@@ -471,7 +471,7 @@ def test_a_successful_login_clears_that_client_s_count(api: Api):
     for _ in range(FREE_LOGIN_FAILURES - 1):
         api.login(OWNER[0], "not-the-password", status=401)
     api.login(OWNER[0], OWNER[1], status=200)
-    assert api.limiter.held_until(OWNER[0], "testclient") == 0
+    assert (OWNER[0], "testclient") not in api.limiter.holds
     for _ in range(FREE_LOGIN_FAILURES - 1):  # the count started over
         api.login(OWNER[0], "not-the-password", status=401)
 
@@ -740,13 +740,13 @@ class DownLimiter:
         self.calls += 1
         raise Unavailable("can't reach Redis, which counts failed sign-ins: refused")
 
-    held_until = client_failures = failed = hold = succeeded = clear = _down
+    admit = succeeded = clear = _down
 
 
 def test_signing_in_while_redis_is_down_is_503_not_500(api: Api):
     api.claim()
     down = DownLimiter()
-    for name in ("held_until", "client_failures", "failed", "hold", "succeeded", "clear"):
+    for name in ("admit", "succeeded", "clear"):
         setattr(api.limiter, name, down._down)
     r = api.login(*OWNER, status=503)
     assert "can't reach Redis" in api.error(r)
@@ -763,10 +763,7 @@ def test_an_admin_reset_while_redis_is_down_changes_nothing(api: Api):
 def test_the_redis_limiter_reports_an_unreachable_redis():
     limiter = RedisLimiter(Settings(redis_url="redis://127.0.0.1:1/0"))
     calls = [
-        lambda: limiter.held_until("ops@example.com", "203.0.113.9"),
-        lambda: limiter.client_failures("203.0.113.9"),
-        lambda: limiter.failed("ops@example.com", "203.0.113.9"),
-        lambda: limiter.hold("ops@example.com", "203.0.113.9", 1.0),
+        lambda: limiter.admit("ops@example.com", "203.0.113.9", 1.0),
         lambda: limiter.succeeded("ops@example.com", "203.0.113.9"),
         lambda: limiter.clear("ops@example.com"),
     ]
@@ -808,3 +805,42 @@ def test_the_owner_signing_in_doesn_t_reset_an_attacker_s_wait():
         api.login(OWNER[0], "not-the-password", status=401, client="203.0.113.9")
     api.login(*OWNER, status=200, client="198.51.100.4")
     api.login(*OWNER, status=429, client="203.0.113.9")
+
+
+def test_a_burst_of_concurrent_guesses_gets_only_the_free_tries(monkeypatch):
+    """Attempts are counted when admitted, not after the password check, so guesses sent all at
+    once can't all pass while the first ones are still being checked."""
+
+    def slow_verify(self, stored: str, password: str) -> bool:
+        time.sleep(0.05)
+        return False
+
+    monkeypatch.setattr(Auth, "_verify", slow_verify)
+    api = Api()
+    api.claim()
+    statuses: list[int] = []
+
+    async def main():
+        transport = httpx.ASGITransport(app=api.c.app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+
+            async def guess():
+                body = {"email": OWNER[0], "password": "not-the-password"}
+                statuses.append((await c.post("/v1/auth/login", json=body)).status_code)
+
+            async with anyio.create_task_group() as tg:
+                for _ in range(20):
+                    tg.start_soon(guess)
+
+    anyio.run(main)
+    assert statuses.count(401) == FREE_LOGIN_FAILURES
+    assert statuses.count(429) == 20 - FREE_LOGIN_FAILURES
+
+
+def test_an_ipv4_mapped_peer_is_trusted_like_its_ipv4_address():
+    api = Api(peer="::ffff:10.0.0.2")  # the web app, through a dual-stack socket
+    api.claim()
+    for _ in range(FREE_LOGIN_FAILURES):
+        api.login(OWNER[0], "not-the-password", status=401, client="203.0.113.9")
+    api.login(*OWNER, status=200, client="::ffff:198.51.100.4")
+    assert (OWNER[0], "198.51.100.4") not in api.limiter.counts  # named as its IPv4 address

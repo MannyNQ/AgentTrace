@@ -1,12 +1,15 @@
 """In-memory auth storage with the same contract as `auth_store.PostgresAuth`, including the
 atomic decisions it names. The rules under test are in `agenttrace_ingest.auth`."""
 
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from agenttrace_ingest.auth import (
     DEFAULT_ORG_ID,
+    MAX_CLIENT_LOGIN_FAILURES,
+    Admission,
     KeyInfo,
     KeyRow,
     Link,
@@ -16,6 +19,7 @@ from agenttrace_ingest.auth import (
     Scope,
     User,
     hash_token,
+    login_backoff_s,
 )
 from agenttrace_ingest.datasets import Conflict, NotFound
 
@@ -343,24 +347,26 @@ class FakeLimiter:
     counts: dict[tuple[str, str], int] = field(default_factory=dict)
     holds: dict[tuple[str, str], float] = field(default_factory=dict)
     clients: dict[str, int] = field(default_factory=dict)
+    lock: threading.Lock = field(default_factory=threading.Lock)  # Redis runs a script whole
 
-    def held_until(self, email: str, client: str) -> float:
-        return self.holds.get((email, client), 0.0)
-
-    def client_failures(self, client: str) -> int:
-        return self.clients.get(client, 0)
-
-    def failed(self, email: str, client: str) -> int:
-        self.clients[client] = self.clients.get(client, 0) + 1
-        self.counts[email, client] = self.counts.get((email, client), 0) + 1
-        return self.counts[email, client]
-
-    def hold(self, email: str, client: str, until: float) -> None:
-        self.holds[email, client] = until
+    def admit(self, email: str, client: str, now: float) -> Admission:
+        with self.lock:
+            if self.clients.get(client, 0) >= MAX_CLIENT_LOGIN_FAILURES:
+                return Admission(0.0, True)
+            wait = self.holds.get((email, client), 0.0) - now
+            if wait > 0:
+                return Admission(wait, False)
+            self.counts[email, client] = n = self.counts.get((email, client), 0) + 1
+            if backoff := login_backoff_s(n):
+                self.holds[email, client] = now + backoff
+            self.clients[client] = self.clients.get(client, 0) + 1
+            return Admission(0.0, False)
 
     def succeeded(self, email: str, client: str) -> None:
-        self.counts.pop((email, client), None)
-        self.holds.pop((email, client), None)
+        with self.lock:
+            self.counts.pop((email, client), None)
+            self.holds.pop((email, client), None)
+            self.clients[client] = max(0, self.clients.get(client, 0) - 1)
 
     def clear(self, email: str) -> None:
         for pairs in (self.counts, self.holds):
