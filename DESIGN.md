@@ -192,9 +192,9 @@ A drenched slate panel lit by four signal lamps, alternating with grey-green led
 - **Route Lamp** (`lamp`): warm white. A set route's lit track, berth describer text, the push-button cap, command text in wells, the timetable step numbers, trace bars in the time-distance graph. It is the "this is live" color.
 
 ### Secondary (state lamps)
-- **Danger Red** (`red`): danger aspects, failed checks (`steps FAIL`, `FAIL` in the train register), the "Line blocked" sector of a block instrument, the stop dot in the wordmark, the buffer-stop stripes.
+- **Danger Red** (`red`): danger aspects, failed checks (`steps FAIL`, `FAIL`, `regressed` and exit `3` in the train register), the "Line blocked" sector and verdict of a block instrument, the stop dot in the wordmark, the buffer-stop stripes.
 - **Clear Green** (`green`): clear aspects and passes (`pass`, "Line clear"), the "Exit 0" lamp, the copy button once it has copied.
-- **Caution Yellow** (`yellow`): caution and underpowered (the "Underpowered" dial sector and verdict, the `underpowered` register chip, the highlighted telegram row), the points diamond on the diagram, and the focus ring, text selection, berth hover stroke and skip link.
+- **Caution Yellow** (`yellow`): caution and underpowered (the "Underpowered" dial sector, the highlighted telegram row), the points diamond on the diagram, and the focus ring, text selection, berth hover stroke and skip link.
 
 ### Tertiary (lever colors)
 - **Lever Red** (`lever-red`): signal levers in the lever frame; trajectory scorers, which stop the train.
@@ -323,7 +323,7 @@ Corners are nearly square: 2px on wells, berths, chips and diagram plates, 3px o
 - **Telegram:** the real PR comment, a light paper card with a 6px Caution Yellow top border, laid on the panel.
 
 ### Train register and time-distance graph
-- **Register:** real CLI output in a Well, failures in bold Danger Red, `underpowered` on a Caution Yellow chip.
+- **Register:** real CLI output in a Well, failures, regressions and a non-zero exit in bold Danger Red; a passing replay's results and exit `0` in bold Clear Green.
 - **Graph:** a span table drawn against the clock: rows in mono, Route Lamp bars (Caution Yellow for tool spans), seam gridlines at 1 s.
 
 ### Motion

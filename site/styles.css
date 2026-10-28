@@ -252,6 +252,15 @@ code { font-family: var(--mono); font-size: 0.86em; }
 .aspects li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: baseline; }
 .aspects i { width: 12px; height: 12px; border-radius: 50%; transform: translateY(1px); }
 .lamp-g { background: var(--green); } .lamp-r { background: var(--red); }
+/* Lit means live: the exit-3 lamp stays dark because this replay passed. */
+.aspects li.unlit .lamp-r { background: #2a3236; box-shadow: inset 0 0 0 1px var(--panel-line); }
+.replay-out { background: #12171a; border: 1px solid var(--panel-line); padding: 14px 16px; overflow-x: auto; font-size: 0.78rem; line-height: 1.65; color: var(--panel-ink); }
+.replay-out code { font-size: inherit; white-space: pre-wrap; }
+.replay-out .ok { color: var(--green); font-weight: 700; }
+.replay-out .p { color: var(--panel-dim); }
+.replay-shot { grid-column: 1 / -1; margin: 12px 0 0; }
+.replay-shot figcaption { margin-top: 12px; font-size: 0.88rem; color: var(--panel-dim); }
+.frame.dark { transform: none; background: #f7f7f5; }
 .aspects b { font: 700 0.95rem var(--cond); letter-spacing: 0.08em; text-transform: uppercase; color: var(--panel-ink); margin-right: 4px; }
 
 /* Time-distance graph of a trace. */
@@ -295,7 +304,8 @@ code { font-family: var(--mono); font-size: 0.86em; }
 .block figcaption code { color: var(--panel-dim); font-size: 0.85rem; }
 .block figcaption b { font: 800 1.6rem/1.1 var(--cond); text-transform: uppercase; letter-spacing: 0.04em; }
 .block[data-pos="clear"] b { color: var(--green); }
-.block[data-pos="under"] b { color: var(--yellow); font-size: 2rem; }
+.block[data-pos="under"] b { color: var(--yellow); }
+.block[data-pos="block"] b { color: var(--red); font-size: 2rem; }
 .block figcaption span { font: 500 0.8rem var(--mono); color: var(--panel-ink); }
 .block-key { padding: 20px 22px; display: grid; gap: 10px; align-content: center; font-size: 0.9rem; color: var(--panel-dim); }
 .block-key b { font: 700 1rem/1 var(--cond); text-transform: uppercase; letter-spacing: 0.06em; margin-right: 6px; }

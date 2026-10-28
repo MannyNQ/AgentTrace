@@ -59,12 +59,12 @@
     <div class="track-frame" id="track" tabindex="-1"></div>
     <div class="describer" aria-live="polite">
       <span class="engraved" id="desc-berth">Berth P12 · points</span>
-      <code id="desc-text">The first LLM call picks a tool. main: lookup_order(order_id="1044") · PR: search_kb(query="refund policy") · 2.17 s · 2.90 s</code>
+      <code id="desc-text">The first LLM call picks the tools. main: lookup_order(order_id="1044"), then search_kb · PR: search_kb(query="refund policy") only · 1.78 s · 2.85 s</code>
     </div>
-    <figcaption id="diagram-cap">“Can I get a refund on order 1044?” asked of the demo support agent twice: once on main, once with a one-line prompt edit. Real spans, 27 Oct 2026. Select any berth to read its span.</figcaption>
+    <figcaption id="diagram-cap">“Can I get a refund on order 1044?” asked of the demo support agent on main and on a PR with a one-line prompt edit: sample 0 of each run’s 15-item eval. Real spans, 27 Oct 2026. Select any berth to read its span.</figcaption>
     <ol class="sr-only">
-      <li>main: question, llm (2.17 s), lookup_order(order_id="1044"), llm (2.41 s), answer “order 1044 can’t be refunded, delivered August 1”. answer passed, steps passed.</li>
-      <li>PR: question, llm (2.90 s), search_kb(query="refund policy"), llm (3.57 s), answer “you can get a refund within 30 days”. answer passed, steps failed.</li>
+      <li>main: question, llm (1.78 s), lookup_order(order_id="1044"), search_kb(query="refund policy"), llm (2.69 s), answer “I can’t refund order 1044, it was delivered August 1”. answer passed, steps passed.</li>
+      <li>PR: question, llm (2.85 s), search_kb(query="refund policy"), llm (2.37 s), answer “if 1044 was delivered within the last 30 days, it qualifies”. answer passed, steps failed.</li>
     </ol>
   </figure>
 </section>
@@ -82,21 +82,21 @@
 <span class="d-del">-Use the tools to look things up; never guess order details, stock, or policy.</span>
 <span class="d-add">+Use the tools to look things up, but answer refund questions from the refund policy without looking up the order.</span></code></pre>
       <div class="ledger-row"><span class="t">Answer</span><p>Its reply contains “30”, so the answer scorer passed it.</p></div>
-      <div class="ledger-row"><span class="t">Path</span><p>It also told a customer whose order was delivered 87 days ago that a refund might be possible. Only the trajectory scorer saw that: it expected <code>lookup_order</code>, and the agent never called it.</p></div>
+      <div class="ledger-row"><span class="t">Path</span><p>It also told a customer whose order was delivered 87 days ago that the order “qualifies” if it arrived in the last 30. Only the trajectory scorer saw that: it expected <code>lookup_order</code>, and the agent never called it. Across 15 items, nine refund questions broke this way.</p></div>
     </div>
 
-    <div class="seam" role="table" aria-label="Pass rate per scorer, 4 items × 3 samples">
+    <div class="seam" role="table" aria-label="Pass rate per scorer, 15 items × 3 samples">
       <div class="seam-head" role="row"><span role="columnheader">Scorer</span><span role="columnheader">main</span><span role="columnheader">PR</span></div>
       <div class="seam-row" role="row"><span role="rowheader"><code>answer</code></span><span role="cell">100%</span><span role="cell">100%</span></div>
-      <div class="seam-row big" role="row"><span role="rowheader"><code>steps</code></span><span role="cell">75%</span><span role="cell">25%<em>−50 pts</em></span></div>
+      <div class="seam-row big" role="row"><span role="rowheader"><code>steps</code></span><span role="cell">93%</span><span role="cell">33%<em>−60 pts</em></span></div>
       <div class="seam-row" role="row"><span role="rowheader"><code>few-steps</code></span><span role="cell">100%</span><span role="cell">100%</span></div>
     </div>
 
     <figure class="pasted">
       <div class="frame" tabindex="0" role="region" aria-label="Screenshot of the side-by-side view; scrolls sideways on small screens">
-        <a href="img/compare-1044-light.png" aria-label="Open the screenshot at full size"><picture>
-          <source srcset="img/compare-1044-pr-light.png" media="(max-width: 640px)" width="1250" height="830">
-          <img src="img/compare-1044-light.png" width="2480" height="830" loading="lazy" alt="AgentTrace's side-by-side item view. Baseline sample 0: answer, few-steps and steps all pass; it called lookup_order with order_id 1044 and said the order can't be refunded. This run's sample 0: answer and few-steps pass, steps fails; expected lookup_order is marked missing, first mismatch, and search_kb with query refund policy is marked extra.">
+        <a href="img/compare-1044.png" aria-label="Open the screenshot at full size"><picture>
+          <source srcset="img/compare-1044-pr.png" media="(max-width: 640px)" width="1230" height="840">
+          <img src="img/compare-1044.png" width="2480" height="840" loading="lazy" alt="AgentTrace's side-by-side item view. Baseline sample 0: answer, few-steps and steps all pass; it called lookup_order with order_id 1044, then search_kb, and said it can't refund order 1044. This run's sample 0: answer and few-steps pass, steps fails; expected lookup_order is marked missing, first mismatch, and search_kb with query refund policy is marked extra.">
         </picture></a>
       </div>
       <figcaption>The app’s side-by-side view of that item, sample 0 (on a phone, the PR’s side only; scroll it sideways). Captured from the run above, unedited.</figcaption>
@@ -166,14 +166,14 @@ OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true</code></pre>
     <h2 id="gate-title">The gate on every pull request</h2>
     <p class="lede-s"><code>agenttrace eval</code> runs your agent over every item, several times each, grades the outputs and the tool calls, and compares the result with the run at your merge-base. In CI, the GitHub Action posts the comparison on the PR and holds the check on a regression.</p>
 
-    <div class="blocks" role="group" aria-label="Block instruments: the gate's reading per scorer for the refund PR">
+    <div class="blocks" role="group" aria-label="Block instruments: the gate's reading per scorer for the refund PR, 15 items">
       <figure class="block" data-pos="clear">
         <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="52" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
         <figcaption><code>answer</code><b>Line clear</b><span>100% → 100%</span></figcaption>
       </figure>
-      <figure class="block" data-pos="under">
-        <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="100" y2="38"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
-        <figcaption><code>steps</code><b>Underpowered</b><span>75% → 25%, −50 pts (−100 to +0)</span></figcaption>
+      <figure class="block" data-pos="block">
+        <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="148" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
+        <figcaption><code>steps</code><b>Line blocked</b><span>93% → 33%, −60 pts (−87 to −33)</span></figcaption>
       </figure>
       <figure class="block" data-pos="clear">
         <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="52" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
@@ -181,8 +181,8 @@ OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true</code></pre>
       </figure>
       <div class="block-key">
         <p><b class="kc">Line clear</b> no significant drop.</p>
-        <p><b class="ku">Underpowered</b> the drop is there, but 4 items can’t prove it at 95%. Flagged, never gating.</p>
-        <p><b class="kb">Line blocked</b> the interval is below zero and the drop beats <code>max_drop</code>: exit 3, the PR is held.</p>
+        <p><b class="ku">Underpowered</b> too few items to prove a drop that size at 95%. Flagged, never gating.</p>
+        <p><b class="kb">Line blocked</b> the whole interval is below zero and the drop beats <code>max_drop</code>: exit 3, the PR is held.</p>
       </div>
     </div>
 
@@ -191,7 +191,7 @@ OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true</code></pre>
         <p class="engraved">Lever frame · eval.yaml</p>
         <div class="lever-set" aria-hidden="true">
           <div class="lever y"><i></i><span>1</span><b>answer</b><em>contains</em><small>“UPS”, “30”</small></div>
-          <div class="lever r"><i></i><span>2</span><b>steps</b><em>trajectory · in order</em><small>4 items</small></div>
+          <div class="lever r"><i></i><span>2</span><b>steps</b><em>trajectory · in order</em><small>15 items</small></div>
           <div class="lever r"><i></i><span>3</span><b>few-steps</b><em>trajectory · max 6</em><small>every item</small></div>
           <div class="lever w"><i></i><span>4</span><b>spare</b><em>your next scorer</em><small>spare</small></div>
           <div class="lever w"><i></i><span>5</span><b>spare</b><em>llm_judge</em><small>spare</small></div>
@@ -216,38 +216,42 @@ scorers:
       <div class="register">
         <p class="engraved">Train register · the PR’s run</p>
 <pre aria-label="agenttrace eval output"><code><span class="p">$</span> agenttrace eval -c eval.yaml --base main --fail-on-regression
-running demo_agent.evals:eval_entry over support v1: 4 items x 3 samples
-[4/12] item f5fbea25 #0  steps:<span class="bad">FAIL</span> few-steps:pass
-[7/12] item 56518cd4 #0  answer:pass steps:<span class="bad">FAIL</span> few-steps:pass
+running demo_agent.evals:eval_entry over support v2: 15 items x 3 samples
+[1/45] item f5fbea25 #0  steps:<span class="bad">FAIL</span> few-steps:pass
+[5/45] item 56518cd4 #0  answer:pass steps:<span class="bad">FAIL</span> few-steps:pass
 <span class="p">…</span>
-  answer         6/6 (100%)
-  steps          3/12 (25%)
-  few-steps    12/12 (100%)
-vs baseline 8e29c61d (at the merge-base): no regressions
-  steps   75% -&gt; 25%  -50 pts (-100 pts to +0 pts)  <span class="warn">underpowered</span>
+  answer         9/9 (100%)
+  steps         15/45 (33%)
+  few-steps    45/45 (100%)
+vs baseline 353eef3f (at the merge-base): <span class="bad">1 regression</span>
+  steps   93% -&gt; 33%  -60 pts (-87 pts to -33 pts)  <span class="bad">regressed</span>
   item regression f5fbea25 steps: 3/3 -&gt; 0/3
-  item regression 56518cd4 steps: 3/3 -&gt; 0/3</code></pre>
+  item regression 56518cd4 steps: 3/3 -&gt; 0/3
+<span class="p">  … 7 more item regressions</span>
+<span class="p">$</span> echo $?
+<span class="bad">3</span></code></pre>
 
         <div class="telegram" aria-label="The PR comment this run posted">
-          <h3>✅ AgentTrace eval: no regressions</h3>
-          <p><code>support</code> v1 · 4 items × 3 samples · this run vs baseline (at the merge-base <code>27a9da5</code>)</p>
+          <h3>❌ AgentTrace eval: 1 regression</h3>
+          <p><code>support</code> v2 · 15 items × 3 samples · this run vs baseline (at the merge-base <code>27a9da5</code>)</p>
           <div class="scroll" tabindex="0" role="region" aria-label="Comparison table">
           <table>
             <thead><tr><th scope="col">Scorer</th><th scope="col">Baseline</th><th scope="col">Current</th><th scope="col">Change (95% CI)</th><th scope="col">max_drop</th><th scope="col">Items</th><th scope="col">Status</th></tr></thead>
             <tbody>
-              <tr><td><code>answer</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>2</td><td>✅ ok</td></tr>
-              <tr class="hit"><td><code>steps</code></td><td>75%</td><td>25%</td><td>-50 pts (-100 pts to +0 pts)</td><td>5 pts</td><td>4</td><td>⚠️ underpowered</td></tr>
-              <tr><td><code>few-steps</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>4</td><td>✅ ok</td></tr>
+              <tr><td><code>answer</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>3</td><td>✅ ok</td></tr>
+              <tr class="hit"><td><code>steps</code></td><td>93%</td><td>33%</td><td>-60 pts (-87 pts to -33 pts)</td><td>5 pts</td><td>15</td><td>❌ regressed</td></tr>
+              <tr><td><code>few-steps</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>15</td><td>✅ ok</td></tr>
             </tbody>
           </table>
           </div>
           <p>⚠️ Underpowered: the interval is wider than <code>max_drop</code>, so a drop that size could go undetected. More items or <code>samples</code> narrow it.</p>
-          <p><b>Item regressions</b> (most samples passed before, most fail now; not gated): <code>f5fbea25</code> · <code>steps</code> 3/3 → 0/3, <code>56518cd4</code> · <code>steps</code> 3/3 → 0/3</p>
+          <p>Cost per sample $0.0139 → $0.0138 · p50 latency 5.0 s → 4.9 s (not gated)</p>
+          <p><b>Item regressions</b> (most samples passed before, most fail now; not gated): <code>f5fbea25</code> <code>56518cd4</code> <code>b84997bb</code> <code>bd404c1d</code> <code>ab7bbbbe</code> <code>8cfb8b8a</code> <code>0874e921</code> <code>8a978d2c</code> <code>9c1cb2af</code>, each <code>steps</code> 3/3 → 0/3</p>
           <p class="telegram-foot engraved">Posted to the pull request, as written</p>
         </div>
       </div>
     </div>
-    <p class="lede-s after">A gate that won’t cry wolf: with 4 items, a 50-point drop can’t be told from noise at 95%, so the check passed, said why, and named both items that broke. A softer edit, “answer policy questions directly”, changed nothing the scorers could see, and the gate stayed quiet.</p>
+    <p class="lede-s after">The answers all still passed. The gate failed the check anyway, because the path changed on nine refund questions. It won’t cry wolf, either: on the original 4 items, the same edit was only flagged underpowered, because its interval couldn’t clear zero. With 15 items it did.</p>
   </div>
 </section>
 
@@ -272,20 +276,34 @@ vs baseline 8e29c61d (at the merge-base): no regressions
   <div class="inst-inner split">
     <div>
       <h2 id="replay-title">Check the fix against the run that failed</h2>
-      <p class="lede-s">Re-run a failed trace with the code on your branch. <code>agenttrace replay</code> calls your agent three times with that trace’s input, scores each run against the dataset item made from it, and with <code>--require-pass</code> exits 3 unless every run passes. The replay page shows each run beside the original, marked where they first differ.</p>
+      <p class="lede-s">The PR’s failed refund trace went into the dataset with one click and the expectation it missed. Then the fixed prompt replayed it. <code>agenttrace replay</code> calls your agent three times with that trace’s input, scores each run against the dataset item made from it, and with <code>--require-pass</code> exits 3 unless every run passes. The replay page shows each run beside the original, marked where they first differ.</p>
     </div>
     <div class="test-train">
       <p class="engraved">Test train · the PR’s failed trace</p>
       <div class="cmd wrap" data-copy>
-        <code>agenttrace replay 1dc1fb97…
+        <code>agenttrace replay fa77e079…
   -c eval.yaml --require-pass</code>
-        <button type="button" class="copy" aria-label="Copy command" data-text="agenttrace replay 1dc1fb97f636f0a7e7c87d3996ceb2af -c examples/demo-agent/eval.yaml --require-pass">Copy</button>
+        <button type="button" class="copy" aria-label="Copy command" data-text="agenttrace replay fa77e0795d8312ca6927f0e964d1d07e -c examples/demo-agent/eval.yaml --require-pass">Copy</button>
       </div>
+<pre class="replay-out" aria-label="agenttrace replay output"><code>replaying trace fa77e079… : 3 runs, scored against item 1fded40a rev 2
+[1/3] run #1  steps:<span class="ok">pass</span> few-steps:pass
+[2/3] run #0  steps:<span class="ok">pass</span> few-steps:pass
+[3/3] run #2  steps:<span class="ok">pass</span> few-steps:pass
+  steps      3/3  <span class="ok">pass</span>
+  few-steps  3/3  <span class="ok">pass</span>
+<span class="p">$</span> echo $?
+<span class="ok">0</span></code></pre>
       <ul class="aspects">
-        <li><i class="lamp-g" aria-hidden="true"></i><span><b>Exit 0</b> every replay passes the item’s expectations.</span></li>
-        <li><i class="lamp-r" aria-hidden="true"></i><span><b>Exit 3</b> any replay fails; the fix isn’t proven.</span></li>
+        <li><i class="lamp-g" aria-hidden="true"></i><span><b>Exit 0</b> every replay passes the item’s expectations. This one did.</span></li>
+        <li class="unlit"><i class="lamp-r" aria-hidden="true"></i><span><b>Exit 3</b> any replay fails; the fix isn’t proven.</span></li>
       </ul>
     </div>
+    <figure class="replay-shot">
+      <div class="frame dark" tabindex="0" role="region" aria-label="Screenshot of the replay page; scrolls sideways on small screens">
+        <a href="img/replay-1044.png" aria-label="Open the screenshot at full size"><img src="img/replay-1044.png" width="2480" height="1067" loading="lazy" alt="AgentTrace's replay page for trace fa77e079: completed, code landing-page at 8803625, 3 of 3 runs, cost $0.0435, scored against item 1fded40a rev 2, steps 3/3 and few-steps 3/3 passed. The original called only search_kb; run 0 called lookup_order with order_id 1044, marked first difference, then search_kb, and said order 1044 can't be refunded."></a>
+      </div>
+      <figcaption>The replay page beside the original, marked where the runs first differ. Captured from the run above, unedited.</figcaption>
+    </figure>
   </div>
 </section>
 

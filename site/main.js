@@ -1,30 +1,32 @@
-// Draws the interlocking diagram from two real traces of the demo agent (site/proof/trace-57d309f7….jsonl
-// for main, trace-1dc1fb97….jsonl for the PR), sets routes from the NX buttons, reads any berth into
+// Draws the interlocking diagram from two real traces of the demo agent (site/proof/trace-6a1896b9….jsonl
+// for main, trace-fa77e079….jsonl for the PR), sets routes from the NX buttons, reads any berth into
 // the describer, and makes the copy buttons work. Without this file the page still reads: the
 // describer shows the points and a text list carries both runs.
 
 // What each berth (one span) shows and reads out. Positions live in the layouts below.
 const BERTHS = [
   { id: "Q", text: "“1044?”", routes: ["main", "pr"], head: "Berth Q · the question",
-    read: "support_agent, both runs · input “Can I get a refund on order 1044?” · main 4.59 s, $0.0126 · PR 6.47 s, $0.0134" },
-  { id: "P12", text: "llm 2.17|2.90", routes: ["main", "pr"], head: "Berth P12 · points",
-    read: 'The first LLM call picks a tool. main: lookup_order(order_id="1044") · PR: search_kb(query="refund policy") · 2.17 s · 2.90 s' },
+    read: "support_agent, both runs · input “Can I get a refund on order 1044?” · main 4.47 s, $0.0148 · PR 5.22 s, $0.0132" },
+  { id: "P12", text: "llm 1.78|2.85", routes: ["main", "pr"], head: "Berth P12 · points",
+    read: 'The first LLM call picks the tools. main: lookup_order(order_id="1044"), then search_kb · PR: search_kb(query="refund policy") only · 1.78 s · 2.85 s' },
   { id: "M1", text: "lookup_order", routes: ["main"], head: "Berth M1 · main · tool span",
     read: 'lookup_order(order_id="1044") · ok · status "delivered", delivered_on "2026-08-01". The step the PR skipped.' },
-  { id: "M2", text: "llm 2.41 s", routes: ["main"], head: "Berth M2 · main · llm span",
-    read: "anthropic.messages.create · claude-opus-5-5 · 2.41 s · 1,118 → 158 tokens · $0.0076" },
+  { id: "M4", text: "search_kb", routes: ["main"], head: "Berth M4 · main · tool span",
+    read: 'search_kb(query="refund policy") · ok. main reads the policy too, but only after it has checked the order.' },
+  { id: "M2", text: "llm 2.69 s", routes: ["main"], head: "Berth M2 · main · llm span",
+    read: "anthropic.messages.create · claude-opus-5-5 · 2.69 s · 1,309 → 184 tokens · $0.0089" },
   { id: "M3", text: "can’t refund", routes: ["main"], head: "Berth M3 · main · answer",
-    read: "“Order 1044 can’t be refunded. It was delivered on August 1, 2026, about 87 days ago.” · answer pass · steps pass" },
+    read: "“I’m sorry, but I can’t refund order 1044. It was delivered on August 1, 2026, which is about 87 days ago…” · answer pass · steps pass" },
   { id: "R1", text: "search_kb", routes: ["pr"], head: "Berth R1 · PR · tool span",
     read: 'search_kb(query="refund policy") · ok · [{"id": "refund-policy", …}]. A real tool, the wrong step: the policy can’t say when 1044 was delivered.' },
-  { id: "R2", text: "llm 3.57 s", routes: ["pr"], head: "Berth R2 · PR · llm span",
-    read: "anthropic.messages.create · claude-opus-5-5 · 3.57 s · 1,162 → 158 tokens · $0.0078" },
-  { id: "R3", text: "“within 30d”", routes: ["pr"], head: "Berth R3 · PR · answer",
-    read: "“I haven’t looked up order 1044. Under our refund policy, you can get a refund … within 30 days.” · answer pass · steps FAIL" },
+  { id: "R2", text: "llm 2.37 s", routes: ["pr"], head: "Berth R2 · PR · llm span",
+    read: "anthropic.messages.create · claude-opus-5-5 · 2.37 s · 1,160 → 149 tokens · $0.0076" },
+  { id: "R3", text: "“it qualifies”", routes: ["pr"], head: "Berth R3 · PR · answer",
+    read: "“I can’t say for sure without checking order 1044. … If 1044 was delivered within the last 30 days, it qualifies.” · answer pass · steps FAIL" },
 ];
 
 // Track circuits light for the routes listed; the 6px breaks between them are the insulated joints.
-const ROUTES = { T101: "main pr", T102: "main pr", T103: "pr", T104: "main", T105: "main", T106: "main", T107: "pr", T108: "pr", T109: "pr" };
+const ROUTES = { T101: "main pr", T102: "main pr", T103: "pr", T104: "main", T110: "main", T105: "main", T106: "main", T107: "pr", T108: "pr", T109: "pr" };
 
 // The same interlocking drawn two ways: along the screen when it's wide, down it when it's narrow.
 const WIDE = (() => {
@@ -33,20 +35,20 @@ const WIDE = (() => {
     w: 1440, h: 360, bw: 148, bh: 34, font: 13,
     track: {
       T101: `M40 ${M} H300`, T102: `M306 ${M} H560`, T103: `M566 ${M} L706 ${L}`,
-      T104: `M566 ${M} H860`, T105: `M866 ${M} H1080`, T106: `M1086 ${M} H1240`,
+      T104: `M566 ${M} H760`, T110: `M766 ${M} H920`, T105: `M926 ${M} H1080`, T106: `M1086 ${M} H1240`,
       T107: `M712 ${L} H930`, T108: `M936 ${L} H1090`, T109: `M1096 ${L} H1240`,
     },
     onward: [`M1246 ${M} H1440`, `M1246 ${L} H1440`],
     points: [560, M],
     // [centre x, top y, tick from, tick to]: the tick joins the berth to its track.
     berths: {
-      Q: [170, M - 70], P12: [433, M - 70], M1: [713, M - 70], M2: [960, M - 70], M3: [1160, M - 70],
+      Q: [170, M - 70], P12: [433, M - 70], M1: [670, M - 70], M4: [843, M - 70], M2: [1003, M - 70], M3: [1160, M - 70],
       R1: [820, L + 40], R2: [1010, L + 40], R3: [1170, L + 40],
     },
     tick: (b, [x, y]) => (y < M ? [x, y + 34, x, M - 8] : [x, L + 8, x, y]),
     signals: [{ x: 1252, y: M, up: true, ok: true, label: "S1" }, { x: 1252, y: L, up: false, ok: false, label: "S2" }],
-    plates: [[40, M + 26, "Up main · main @ 27a9da5", 196], [304, M + 26, "P12 points · reversed by the PR", 232], [712, L + 84, "PR loop · one prompt line changed", 250]],
-    labels: [[40, L + 36, "Support_agent Jn. · Diagram 1044"], [40, L + 56, "Track circuits T101–T109"]],
+    plates: [[40, M + 26, "Up main · main @ 27a9da5", 196], [304, M + 26, "P12 points · reversed by the PR", 232], [712, L + 84, "PR loop · landing-page @ 8803625", 236]],
+    labels: [[40, L + 36, "Support_agent Jn. · Diagram 1044"], [40, L + 56, "Track circuits T101–T110"]],
   };
 })();
 
@@ -56,13 +58,13 @@ const NARROW = (() => {
     w: 390, h: 760, bw: 128, bh: 30, font: 12,
     track: {
       T101: `M${M} 20 V70`, T102: `M${M} 76 V180`, T103: `M${M} 186 L${L} 346`,
-      T104: `M${M} 186 V360`, T105: `M${M} 366 V510`, T106: `M${M} 516 V630`,
+      T104: `M${M} 186 V300`, T110: `M${M} 306 V410`, T105: `M${M} 416 V520`, T106: `M${M} 526 V630`,
       T107: `M${L} 352 V450`, T108: `M${L} 456 V550`, T109: `M${L} 556 V630`,
     },
     onward: [`M${M} 636 V760`, `M${L} 636 V760`],
     points: [M, 180],
     berths: {
-      Q: [70, 30], P12: [70, 118], M1: [70, 258], M2: [70, 423], M3: [70, 558],
+      Q: [70, 30], P12: [70, 118], M1: [70, 228], M4: [70, 330], M2: [70, 448], M3: [70, 568],
       R1: [230, 386], R2: [230, 488], R3: [230, 578],
     },
     tick: (b, [x, y]) => (b.id.startsWith("R") ? [x + 64, y + 15, L - 8, y + 15] : [x + 64, y + 15, M - 8, y + 15]),

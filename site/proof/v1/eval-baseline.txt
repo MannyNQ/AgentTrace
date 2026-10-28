@@ -1,0 +1,21 @@
+running demo_agent.evals:eval_entry over support v1: 4 items x 3 samples
+[1/12] item 0e745a57 #2  answer:pass steps:pass few-steps:pass
+[2/12] item 0e745a57 #1  answer:pass steps:pass few-steps:pass
+[3/12] item 0e745a57 #0  answer:pass steps:pass few-steps:pass
+[4/12] item f5fbea25 #0  steps:pass few-steps:pass
+[5/12] item 56518cd4 #0  answer:pass steps:pass few-steps:pass
+[6/12] item 56518cd4 #1  answer:pass steps:pass few-steps:pass
+[7/12] item f5fbea25 #2  steps:pass few-steps:pass
+[8/12] item f5fbea25 #1  steps:pass few-steps:pass
+[9/12] item 56518cd4 #2  answer:pass steps:pass few-steps:pass
+[10/12] item d0ffe63f #2  steps:FAIL few-steps:pass
+[11/12] item d0ffe63f #0  steps:FAIL few-steps:pass
+[12/12] item d0ffe63f #1  error (AgentError: hit max_tokens before finishing)
+experiment a3ffaf49-e90b-4470-89e8-fafca26eb6b3  completed  12 samples over 4 items  cost $0.4907
+  answer         6/6 (100%)  100% 100% 100%
+  steps          9/12 (75%)  75% 75% 75%
+  few-steps     11/12 (92%)  100% 75% 100%
+items failing most samples:
+  d0ffe63f  steps 0/3
+1 samples errored (the agent raised or timed out)
+baseline: none yet (no completed run with this eval.yaml at the merge-base or on the base branch)
