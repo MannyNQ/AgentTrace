@@ -68,14 +68,14 @@ export const changePassword = (current: string, next: string) =>
 
 export const listMembers = async () => (await members.read<{ members: User[] }>(""))?.members ?? [];
 export const updateMember = (id: string, patch: { role?: Role; deactivated?: boolean }) =>
-  members.call<User>("PATCH", `/${id}`, patch);
+  members.call<User>("PATCH", `/${encodeURIComponent(id)}`, patch);
 export const invite = (role: Role) => members.call<NewLink>("POST", "/invites", { role });
-export const resetLink = (id: string) => members.call<NewLink>("POST", `/${id}/reset`);
+export const resetLink = (id: string) => members.call<NewLink>("POST", `/${encodeURIComponent(id)}/reset`);
 
 export const listKeys = async () => (await keys.read<{ keys: KeyInfo[] }>(""))?.keys ?? [];
 export const createKey = (name: string, scope: Scope) =>
   keys.call<{ key: string; info: KeyInfo }>("POST", "", { name, scope });
-export const revokeKey = (id: string) => keys.call<KeyInfo>("POST", `/${id}/revoke`);
+export const revokeKey = (id: string) => keys.call<KeyInfo>("POST", `/${encodeURIComponent(id)}/revoke`);
 
 export const listProjects = async () => (await projects.read<{ projects: Project[] }>(""))?.projects ?? [];
 export const createProject = (name: string) => projects.call<Project>("POST", "", { name });

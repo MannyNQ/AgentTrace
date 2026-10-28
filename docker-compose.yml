@@ -1,7 +1,8 @@
 name: agenttrace
 # Host ports are overridable (AGENTTRACE_*_PORT) so a second project (-p) can run beside this one.
-# The stores listen on 127.0.0.1 only: ingest and the worker reach them on the compose network,
-# and only ingest is published to other machines, for agents that send spans.
+# Everything listens on 127.0.0.1 by default: ingest and the worker reach the stores on the compose
+# network. Set AGENTTRACE_INGEST_BIND=0.0.0.0 to publish ingest to agents on other machines, once
+# AGENTTRACE_API_KEY is a key of your own.
 
 x-service-env: &service-env
   POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -62,7 +63,9 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    # Capped, and refusing writes rather than evicting at the cap: evicting would drop queued span
+    # batches or login-failure counts. A full queue answers span ingest with 503 (ADR-0015).
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${AGENTTRACE_REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
     ports: ["127.0.0.1:${AGENTTRACE_REDIS_PORT:-6379}:6379"]
     volumes: [redis-data:/data]
     healthcheck:
@@ -93,7 +96,7 @@ services:
     command: ["uvicorn", "agenttrace_ingest.app:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     environment: *service-env
-    ports: ["${AGENTTRACE_INGEST_PORT:-8000}:8000"]
+    ports: ["${AGENTTRACE_INGEST_BIND:-127.0.0.1}:${AGENTTRACE_INGEST_PORT:-8000}:8000"]
     depends_on:
       postgres: { condition: service_healthy }
       clickhouse: { condition: service_healthy }

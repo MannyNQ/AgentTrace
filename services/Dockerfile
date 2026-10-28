@@ -11,3 +11,6 @@ COPY examples/demo-agent/pyproject.toml examples/demo-agent/pyproject.toml
 RUN mkdir -p examples/demo-agent/src/demo_agent && touch examples/demo-agent/src/demo_agent/__init__.py \
     && uv sync --frozen --no-dev --package ${PACKAGE}
 ENV PATH="/app/.venv/bin:$PATH"
+# Nothing at runtime writes under /app, so the services run without root.
+RUN useradd --system --uid 10001 agenttrace
+USER agenttrace

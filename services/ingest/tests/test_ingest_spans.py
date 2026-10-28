@@ -1,12 +1,14 @@
 import json
 from uuid import UUID
 
+import redis
 from fake_auth import FakeAuth
 from fastapi.testclient import TestClient
 
 from agenttrace import new_span_id, new_trace_id
 from agenttrace_ingest.app import create_app
 from agenttrace_ingest.settings import Settings
+from agenttrace_ingest.spans import RedisQueue
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 
@@ -84,3 +86,17 @@ def test_empty_batch_is_accepted_and_not_queued():
     c, q = setup()
     assert post(c, {"spans": []}).json() == {"accepted": 0}
     assert q.pushed == []
+
+
+class FullRedis:
+    async def xadd(self, *args, **kwargs):
+        raise redis.ResponseError("OOM command not allowed when used memory > 'maxmemory'.")
+
+
+def test_a_full_redis_is_503_not_500():
+    q = RedisQueue(Settings())
+    q.r = FullRedis()  # type: ignore[assignment]
+    app = create_app(Settings(), checks={}, auth_store=FakeAuth.with_keys(KEYS), queue=q)
+    r = post(TestClient(app), {"spans": [span()]})
+    assert r.status_code == 503
+    assert "full" in r.json()["detail"]

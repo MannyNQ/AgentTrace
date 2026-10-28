@@ -49,6 +49,9 @@ DEV_KEY = "at-local-dev-key"
 # wait for one as coroutines, not threads, so a login flood can't exhaust memory or the threadpool
 # that span ingest and the other routes share.
 HASHING_THREADS = 4
+# Past this many waiting, a request that hashes is refused at once, so a flood of logins for
+# random emails can't queue every real sign-in behind it until the web app's fetch times out.
+MAX_HASHING_WAITERS = 32
 
 # Routes anyone may call: they're how a caller gets a session in the first place.
 PUBLIC_ROUTES = {
@@ -366,12 +369,22 @@ class Auth:
         self._dummy_hash = self.passwords.hash(secrets.token_urlsafe(16))
         self._keys: dict[str, _Cached] = {}
         self._hashing: anyio.CapacityLimiter | None = None  # made in the event loop, on first use
+        self._hashing_queued = 0  # hashing or waiting to
 
     async def hashing(self, fn: Callable[..., T], *args) -> T:
-        """Runs a rule that hashes a password on at most HASHING_THREADS threads."""
+        """Runs a rule that hashes a password on at most HASHING_THREADS threads, with at most
+        MAX_HASHING_WAITERS waiting for one."""
         if self._hashing is None:
             self._hashing = anyio.CapacityLimiter(HASHING_THREADS)
-        return await anyio.to_thread.run_sync(partial(fn, *args), limiter=self._hashing)
+        # Counted here, not from the limiter's statistics: a task only shows there as waiting
+        # once it reaches a checkpoint, so a burst arriving together would all see none.
+        if self._hashing_queued >= HASHING_THREADS + MAX_HASHING_WAITERS:
+            raise TooManyAttempts("too many sign-ins at once; try again in a moment")
+        self._hashing_queued += 1
+        try:
+            return await anyio.to_thread.run_sync(partial(fn, *args), limiter=self._hashing)
+        finally:
+            self._hashing_queued -= 1
 
     # --- Resolving a request ---
 
@@ -620,13 +633,20 @@ class Auth:
         self, key: str, public_url: str, project_id: UUID = DEFAULT_PROJECT_ID
     ) -> bool:
         """Registers the `.env` key, unless it's the published DEV_KEY on an install that isn't
-        local: then it's revoked, in case an earlier start registered it, and this returns
-        False for the caller to log."""
-        if key == DEV_KEY and not is_local(public_url):
-            self.store.revoke_key_hash(hash_token(key))
-            self._keys.pop(hash_token(key), None)
+        local: then this returns False for the caller to log."""
+        if self.refuse_dev_key(public_url) and key == DEV_KEY:
             return False
         self.store.register_env_key(hash_token(key), key[-4:], project_id)
+        return True
+
+    def refuse_dev_key(self, public_url: str) -> bool:
+        """On an install that isn't local, revokes DEV_KEY whichever key `.env` names now: an
+        earlier, local start may have registered it, and a rotated `.env` key is otherwise left
+        working (ADR-0033). Returns whether the install refuses it."""
+        if is_local(public_url):
+            return False
+        self.store.revoke_key_hash(hash_token(DEV_KEY))
+        self._keys.pop(hash_token(DEV_KEY), None)
         return True
 
     def keys(self, project_id: UUID) -> list[KeyInfo]:

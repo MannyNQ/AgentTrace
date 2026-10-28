@@ -5,6 +5,7 @@ import json
 from typing import Annotated, Protocol
 from uuid import UUID
 
+import redis
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ValidationError
@@ -31,12 +32,19 @@ class RedisQueue:
 
     async def push(self, project_id: UUID, spans_json: str) -> None:
         # One entry per batch (ADR-0015); the oldest entries go first if the cap is reached.
-        await self.r.xadd(
-            STREAM,
-            {"project_id": str(project_id), "spans": spans_json},
-            maxlen=self.maxlen,
-            approximate=True,
-        )
+        try:
+            await self.r.xadd(
+                STREAM,
+                {"project_id": str(project_id), "spans": spans_json},
+                maxlen=self.maxlen,
+                approximate=True,
+            )
+        except redis.ResponseError as e:
+            # Redis runs with maxmemory and noeviction (docker-compose.yml), so a backlog the
+            # workers can't drain refuses new batches instead of taking the host's memory.
+            if str(e).startswith("OOM"):
+                raise HTTPException(503, "the span queue is full; retry later") from e
+            raise
 
 
 def router(s: Settings, a: Auth, queue: SpanQueue) -> APIRouter:

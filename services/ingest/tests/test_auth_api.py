@@ -20,6 +20,7 @@ from agenttrace_ingest.auth import (
     DEV_KEY,
     HASHING_THREADS,
     KEY_CACHE_S,
+    MAX_HASHING_WAITERS,
     MAX_LOGIN_FAILURES,
     SESSION_EXTEND_EVERY,
     SESSION_LIFETIME,
@@ -235,6 +236,31 @@ def test_the_dev_key_is_refused_and_revoked_once_the_install_isn_t_local():
     info = api.store.api_keys[hash_token(DEV_KEY)]
     assert info.revoked_at is not None and not info.from_env
     api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
+
+
+def test_going_public_with_a_key_of_your_own_revokes_the_dev_key():
+    api = Api()
+    a = Auth(api.store, api.limiter)
+    a.register_env_key(DEV_KEY, LOCAL, PROJECT)  # the quickstart
+    assert a.register_env_key("at_my-own-secret", "https://agenttrace.example.com", PROJECT)
+    assert api.store.api_keys[hash_token(DEV_KEY)].revoked_at is not None
+    api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
+
+
+def test_a_public_install_with_no_env_key_revokes_the_dev_key():
+    api = Api()
+    a = Auth(api.store, api.limiter)
+    a.register_env_key(DEV_KEY, LOCAL, PROJECT)
+    assert a.refuse_dev_key("https://agenttrace.example.com")
+    api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
+
+
+def test_a_local_install_keeps_the_dev_key():
+    api = Api()
+    a = Auth(api.store, api.limiter)
+    a.register_env_key(DEV_KEY, LOCAL, PROJECT)
+    assert not a.refuse_dev_key(LOCAL)
+    api.call("GET", "/v1/datasets", key=DEV_KEY, status=200)
 
 
 def test_a_key_of_your_own_works_on_a_public_install(api: Api):
@@ -591,6 +617,36 @@ def test_logins_hash_a_few_at_a_time_while_spans_keep_flowing(monkeypatch):
     anyio.run(main)
     assert peak[0] == HASHING_THREADS
     assert span_ms[0] < 100  # not stuck behind 16 x 50 ms of hashing
+
+
+def test_a_login_flood_beyond_the_queue_is_turned_away(monkeypatch):
+    """Past MAX_HASHING_WAITERS queued hashes, a login gets 429 at once instead of waiting
+    behind the flood, so the queue (and every sign-in's wait) stays bounded."""
+
+    def slow_verify(self, stored: str, password: str) -> bool:
+        time.sleep(0.05)
+        return False
+
+    monkeypatch.setattr(Auth, "_verify", slow_verify)
+    app = Api().c.app
+    statuses: list[int] = []
+    extra = 8
+
+    async def main():
+        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+
+            async def login(i: int):
+                body = {"email": f"u{i}@example.com", "password": "not-the-password"}
+                statuses.append((await c.post("/v1/auth/login", json=body)).status_code)
+
+            async with anyio.create_task_group() as tg:
+                for i in range(HASHING_THREADS + MAX_HASHING_WAITERS + extra):
+                    tg.start_soon(login, i)
+
+    anyio.run(main)
+    assert statuses.count(429) == extra
+    assert statuses.count(401) == HASHING_THREADS + MAX_HASHING_WAITERS
 
 
 # --- Housekeeping and outages ---------------------------------------------------------------

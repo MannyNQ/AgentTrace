@@ -6,7 +6,7 @@ from uuid import UUID
 import pytest
 import redis
 
-from agenttrace import new_span_id, new_trace_id
+from agenttrace import Span, new_span_id, new_trace_id
 from agenttrace_worker.main import (
     DEAD_STREAM,
     GROUP,
@@ -17,6 +17,7 @@ from agenttrace_worker.main import (
     run_forever,
 )
 from agenttrace_worker.settings import Settings
+from agenttrace_worker.stores import Dedup
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
 PROJECT = "00000000-0000-0000-0000-000000000001"
@@ -77,6 +78,7 @@ def test_stores_and_acks_entries(r):
     assert Worker(r, settings(), store).run_once() == 2
     assert store.stored == ["a", "b", "c"]
     assert r.xpending(STREAM, GROUP)["pending"] == 0
+    assert r.xlen(STREAM) == 0  # deleted once stored, so Redis holds only unstored batches
 
 
 @pytest.mark.integration
@@ -104,6 +106,7 @@ def test_unparseable_entry_is_dead_lettered_at_once(r):
     r.xadd(STREAM, {"project_id": PROJECT, "spans": "not json"})
     Worker(r, settings(), RecordingStore()).run_once()
     assert r.xpending(STREAM, GROUP)["pending"] == 0
+    assert r.xlen(STREAM) == 0
     assert r.xrange(DEAD_STREAM)[0][1]["reason"].startswith("unparseable")
 
 
@@ -171,3 +174,18 @@ def test_batch_parse_keeps_project():
 
     b = parse(("1-0", entry_fields("x")))
     assert b.project_id == UUID(PROJECT) and b.spans[0].name == "x"
+
+
+@pytest.mark.integration
+def test_a_span_stored_in_one_project_doesn_t_shadow_the_same_ids_in_another(r):
+    """Dedup marks are per project: a key for project A that learns B's trace and span ids
+    can't get B's span dropped by sending it first."""
+    a, b = UUID(PROJECT), UUID("00000000-0000-0000-0000-000000000002")
+    sp = Span.model_validate(span_json())
+    dedup = Dedup(r, 60)
+    try:
+        dedup.mark([(a, sp)])
+        assert dedup.unseen([(b, sp)]) == {Dedup.key(b, sp)}
+        assert dedup.unseen([(a, sp)]) == set()
+    finally:
+        r.delete(Dedup.key(a, sp), Dedup.key(b, sp))

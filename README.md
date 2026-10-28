@@ -80,7 +80,7 @@ AGENTTRACE_API_KEY=at-local-dev-key uv run agenttrace eval -c examples/demo-agen
 
 Each API key belongs to one project and has a scope. An `ingest` key only sends spans: give it to agents in production. A `full` key can use the whole project API: `agenttrace eval`, `agenttrace replay`, and the GitHub Action need one. Owners create keys on a project's Settings page, and each key is shown once.
 
-`.env`'s `AGENTTRACE_API_KEY` is a `full` key for the default project, registered by ingest on startup. Its example value, `at-local-dev-key`, is public, so ingest accepts it only while `AGENTTRACE_PUBLIC_URL` is a localhost address.
+`.env`'s `AGENTTRACE_API_KEY` is a `full` key for the default project, registered by ingest on startup. Its example value, `at-local-dev-key`, is public, so ingest accepts it only while `AGENTTRACE_PUBLIC_URL` is a localhost address, and warns on every start that it's live. Once the URL isn't local, ingest revokes it on startup, whatever key `.env` names.
 
 ## Running it for a team
 
@@ -89,7 +89,7 @@ Before you serve it beyond your machine:
 - Serve the web app over https, behind a reverse proxy that terminates TLS, and set `AGENTTRACE_PUBLIC_URL` to that address. Session cookies are then marked `Secure`, and ingest stops accepting `at-local-dev-key`.
 - Set `AGENTTRACE_API_KEY` in `.env` to a long random key of your own, for example from `openssl rand -base64 32`. Left empty, compose falls back to `at-local-dev-key`, which ingest then refuses, logging an error on every start. Keys made in the web app work alongside it.
 - Claim the install right away, ideally with an `AGENTTRACE_SETUP_TOKEN` you chose: until it's claimed, anyone holding the token can.
-- Expose only the web app, and ingest's port if agents outside the host send spans. `docker-compose.yml` publishes Postgres, ClickHouse, Redis, and S3 on `127.0.0.1` only, for local tools; still change their passwords from the ones in `.env.example`.
+- Expose only the web app, and ingest's port if agents outside the host send spans. `docker-compose.yml` publishes every port on `127.0.0.1` only; set `AGENTTRACE_INGEST_BIND=0.0.0.0` to publish ingest's. Still change the stores' passwords from the ones in `.env.example`.
 
 ## Development
 
