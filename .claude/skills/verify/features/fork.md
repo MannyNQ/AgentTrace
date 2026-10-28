@@ -29,7 +29,7 @@ AGENTTRACE_API_KEY=$KEY AGENTTRACE_ENDPOINT=http://127.0.0.1:18000 \
   uv run python .claude/skills/verify/bin/fork_demo.py verify-artifacts/<run-id> | tee verify-artifacts/<run-id>/fork-demo.out
 ```
 
-`fork_demo.py` drives the real CLI. It records the original with `bin/fork_entry.py` (the demo agent with `FORK_PROMPT=broken`), finds the LLM step that asked for `issue_refund`, runs `agenttrace replay <trace> --entry fork_entry:entry --from <that span> --samples 2` with `FORK_PROMPT=fixed` and `FORK_TOOL_LOG`, then runs a whole replay as the control. It prints one `ok`/`FAIL` line per check and ends with `FORK OK` or `FORK FAIL` (exit 1). Artifacts in the run dir: `fork-original-<n>.json` (the original's steps), `fork-replay.out` (the CLI's command, exit code and output), `fork-replay.json` (the replay as ingest stores it), and the two tool logs.
+`fork_demo.py` drives the real CLI. It records the original with `bin/fork_entry.py` (the demo agent with `FORK_PROMPT=broken`), finds the LLM step that asked for `issue_refund`, runs `agenttrace replay <trace> --entry fork_entry:entry --from <that span> --samples 2` with `FORK_PROMPT=fixed` and `FORK_TOOL_LOG`, then runs a whole replay as the control. It prints one `ok`/`FAIL` line per check and ends with `FORK OK` or `FORK FAIL` (exit 1). Artifacts in the run dir: `fork-original-<n>.json` (the original's steps), `fork-replay.out` (the CLI's command, exit code and output), `fork-replay.json` (the replay as ingest stores it), the two tool logs, and `fork-control.out` (the control replay's output).
 
 For the UI, sign in and open the original's trace page and the fork's replay page (the replay ID is in `fork-replay.out`): the claims are under `rp-ui-fork` in [replay.md](./replay.md).
 

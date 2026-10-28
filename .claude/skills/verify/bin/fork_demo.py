@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -91,8 +92,11 @@ def main() -> int:
     )
     print(done.stderr + done.stdout)
     replay_id = next(
-        line.split()[1] for line in done.stdout.splitlines() if line.startswith("replay ")
+        (line.split()[1] for line in done.stdout.splitlines() if line.startswith("replay ")), None
     )
+    if replay_id is None:  # it stopped before creating the replay; its output says why
+        print("FAIL the CLI recorded no replay\nFORK FAIL")
+        return 1
     detail = api(f"/v1/replays/{replay_id}")
     (out / "fork-replay.json").write_text(json.dumps(detail, indent=1))
 
@@ -106,9 +110,8 @@ def main() -> int:
     control = out / "fork-control-tool-log.txt"
     control.unlink(missing_ok=True)
     whole = ["agenttrace", "replay", trace, "--entry", "fork_entry:entry", "--samples", "1"]
-    subprocess.run(
-        whole, env={**env, "FORK_TOOL_LOG": str(control)}, capture_output=True, check=True
-    )
+    ctl = subprocess.run(whole, env={**env, "FORK_TOOL_LOG": str(control)}, capture_output=True)
+    (out / "fork-control.out").write_bytes(ctl.stderr + ctl.stdout)
     logged = control.read_text().split() if control.exists() else []
     checks = [
         ("the CLI exited 0", done.returncode == 0),
@@ -146,6 +149,7 @@ def main() -> int:
         for c in [x["tool"] for x in r["trajectory"]][len(prefix_tools) :]
     ]
     checks += [
+        ("the control replay exited 0", ctl.returncode == 0),
         (f"a whole replay logs its real tool calls (log: {logged})", "lookup_order" in logged),
         (f"no played-back tool really ran (log: {ran})", sorted(ran) == sorted(live_calls)),
     ]
