@@ -1,0 +1,15 @@
+[
+  {"step": {"kind": "llm", "status": "ok", "interceptor": "anthropic", "truncated": [], "output_recorded": null, "output": {"id": "msg_1"}}, "reason": null},
+  {"step": {"kind": "llm", "status": "ok", "interceptor": null, "truncated": [], "output_recorded": null, "output": {"id": "msg_1"}}, "reason": "it wasn't recorded by instrument_anthropic(), so nothing can answer it"},
+  {"step": {"kind": "llm", "status": "ok", "interceptor": "anthropic", "truncated": ["input"], "output_recorded": null, "output": {"id": "msg_1"}}, "reason": "the SDK cut its input to fit a request"},
+  {"step": {"kind": "llm", "status": "ok", "interceptor": "anthropic", "truncated": ["input", "output"], "output_recorded": null, "output": "{\"id"}, "reason": "the SDK cut its input and output to fit a request"},
+  {"step": {"kind": "llm", "status": "error", "interceptor": "anthropic", "truncated": [], "output_recorded": null, "output": null}, "reason": "the call failed, and a failed LLM call isn't recorded in full"},
+  {"step": {"kind": "llm", "status": "ok", "interceptor": "anthropic", "truncated": [], "output_recorded": null, "output": [{"type": "text", "text": "hi"}]}, "reason": "it has no recorded response; it may predate Phase 9's SDK"},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": "call_tool", "truncated": [], "output_recorded": "json", "output": {"a": 1}}, "reason": null},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": "trace", "truncated": [], "output_recorded": "text", "output": "123"}, "reason": null},
+  {"step": {"kind": "tool", "status": "error", "interceptor": "call_tool", "truncated": [], "output_recorded": null, "output": null}, "reason": null},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": null, "truncated": [], "output_recorded": "json", "output": {}}, "reason": "it wasn't recorded by call_tool() or @trace(kind='tool'), so nothing can answer it"},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": "call_tool", "truncated": ["output"], "output_recorded": "json", "output": "{\"a"}, "reason": "the SDK cut its output to fit a request"},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": "call_tool", "truncated": [], "output_recorded": null, "output": {}}, "reason": "it doesn't say how its output was recorded; it may predate Phase 9's SDK"},
+  {"step": {"kind": "tool", "status": "ok", "interceptor": "call_tool", "truncated": [], "output_recorded": "lossy", "output": [1, 2]}, "reason": "its output didn't survive recording (a tuple, an object, or another non-JSON type)"}
+]

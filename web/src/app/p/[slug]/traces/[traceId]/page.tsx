@@ -7,7 +7,8 @@ import { formatCost, formatDuration, formatTime, prettyPayload } from "@/lib/for
 import { listDatasets } from "@/lib/datasets";
 import { AddToDatasetForm } from "@/app/p/[slug]/datasets/forms";
 import { listReplays } from "@/lib/replays";
-import { ReplayCommand, ReplayList } from "@/app/p/[slug]/replays/ui";
+import { ForkCommand, ReplayCommand, ReplayList } from "@/app/p/[slug]/replays/ui";
+import { forkCheck } from "@/lib/forks";
 import { KindBadge, StatusBadge } from "../ui";
 import { Crumbs } from "../../datasets/ui";
 import { projectLinks } from "@/lib/links";
@@ -49,6 +50,8 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
   const { summary, spans } = trace;
   const nodes = flattenTree(spans);
   const selected = spans.find((s) => s.spanId === selectedId) ?? nodes[0]?.span;
+  const root = spans.find((s) => s.parentSpanId === "");
+  const fork = selected && (selected.kind === "llm" || selected.kind === "tool") ? forkCheck(spans, selected.spanId) : null;
 
   return (
     <>
@@ -57,7 +60,7 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
         <DatasetLinks traceId={traceId} />
       </Suspense>
       <Suspense>
-        <Replays traceId={traceId} replayOf={summary.replayOf} />
+        <Replays traceId={traceId} replayOf={summary.replayOf} rootAttributes={root?.attributes ?? {}} />
       </Suspense>
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <ol className="divide-y divide-line rounded-md border border-line" aria-label="Span tree">
@@ -86,7 +89,11 @@ async function TraceView({ params, searchParams }: Pick<Props, "params" | "searc
             </li>
           ))}
         </ol>
-        {selected && <SpanDetail span={selected} payloadHref={(which) => at(`/api/traces/${traceId}/spans/${selected.spanId}/${which}`)} />}
+        {selected && (
+          <SpanDetail span={selected} payloadHref={(which) => at(`/api/traces/${traceId}/spans/${selected.spanId}/${which}`)}>
+            {fork && <ForkCommand traceId={traceId} spanId={selected.spanId} refused={fork.ok ? null : fork.reason} />}
+          </SpanDetail>
+        )}
       </div>
     </>
   );
@@ -147,27 +154,77 @@ async function DatasetLinks({ traceId }: { traceId: string }) {
   );
 }
 
-/** A replay run links to its original; any other trace lists its replays (ADR-0029). */
-async function Replays({ traceId, replayOf }: { traceId: string; replayOf: string }) {
+/** `<trace_id>:<span_id>` as a replay run's root span carries it, or null. */
+function parseRef(value: string | undefined): { traceId: string; spanId: string } | null {
+  const [traceId, spanId] = (value ?? "").split(":");
+  return traceId && spanId ? { traceId, spanId } : null;
+}
+
+/**
+ * A replay run links to what it re-ran: its original, or for a fork (ADR-0040) the step it forked
+ * and the original at the start of the chain. Any trace lists its replays and the forks of it; a
+ * replay run's replays are forks of it, since replaying one whole replays its original.
+ */
+async function Replays({
+  traceId,
+  replayOf,
+  rootAttributes,
+}: {
+  traceId: string;
+  replayOf: string;
+  rootAttributes: Record<string, string>;
+}) {
   const at = await projectLinks();
-  if (replayOf) {
-    return (
-      <p className="mt-4 text-sm" data-replay-of={replayOf}>
-        A replay run of{" "}
-        <Link href={at(`/traces/${replayOf}`)} className="font-mono underline">
-          trace {replayOf.slice(0, 8)}…
-        </Link>
-        . Replaying it replays that trace.
-      </p>
-    );
-  }
+  const forkedAt = parseRef(rootAttributes["agenttrace.replay_of"]);
+  const origin = parseRef(rootAttributes["agenttrace.replay_origin"]);
+  const lineage = !replayOf ? null : origin && forkedAt ? (
+    <p className="mt-4 text-sm" data-fork-of={`${forkedAt.traceId}:${forkedAt.spanId}`}>
+      A fork of{" "}
+      <Link href={at(`/traces/${forkedAt.traceId}?span=${forkedAt.spanId}`)} className="font-mono underline">
+        trace {forkedAt.traceId.slice(0, 8)}… at span {forkedAt.spanId.slice(0, 8)}
+      </Link>
+      {origin.traceId !== forkedAt.traceId && (
+        <>
+          , which re-ran{" "}
+          <Link href={at(`/traces/${origin.traceId}`)} className="font-mono underline">
+            trace {origin.traceId.slice(0, 8)}…
+          </Link>
+        </>
+      )}
+      . Replaying it whole replays the original; forking it plays this run back.
+    </p>
+  ) : (
+    <p className="mt-4 text-sm" data-replay-of={replayOf}>
+      A replay run of{" "}
+      <Link href={at(`/traces/${replayOf}`)} className="font-mono underline">
+        trace {replayOf.slice(0, 8)}…
+      </Link>
+      . Replaying it replays that trace.
+    </p>
+  );
   let replays;
   try {
     replays = await listReplays(traceId);
   } catch (e) {
     unstable_rethrow(e); // an expired session redirects to /login
     return (
-      <p className="mt-4 text-sm text-muted">Replays unavailable: {e instanceof Error ? e.message : String(e)}</p>
+      <>
+        {lineage}
+        <p className="mt-4 text-sm text-muted">Replays unavailable: {e instanceof Error ? e.message : String(e)}</p>
+      </>
+    );
+  }
+  if (replayOf) {
+    return (
+      <>
+        {lineage}
+        {replays.length > 0 && (
+          <section className="mt-4" aria-label="Forks of this run">
+            <h2 className="text-sm font-medium">Forks of this run</h2>
+            <ReplayList replays={replays} />
+          </section>
+        )}
+      </>
     );
   }
   return (
@@ -177,7 +234,7 @@ async function Replays({ traceId, replayOf }: { traceId: string; replayOf: strin
         <ReplayCommand traceId={traceId} />
       </div>
       {replays.length === 0 ? (
-        <p className="mt-2 text-xs text-muted">Not replayed yet.</p>
+        <p className="mt-2 text-xs text-muted">Not replayed yet. Select an LLM or tool span to fork from it.</p>
       ) : (
         <ReplayList replays={replays} />
       )}
@@ -201,7 +258,15 @@ function Timeline({ span, summary, depth }: { span: SpanRow; summary: TraceSumma
   );
 }
 
-function SpanDetail({ span, payloadHref }: { span: SpanRow; payloadHref: (which: "input" | "output") => string }) {
+function SpanDetail({
+  span,
+  payloadHref,
+  children,
+}: {
+  span: SpanRow;
+  payloadHref: (which: "input" | "output") => string;
+  children?: React.ReactNode;
+}) {
   const facts: [string, string][] = [
     ["Kind", span.kind],
     ["Status", span.status + (span.errorType ? ` (${span.errorType})` : "")],
@@ -221,6 +286,12 @@ function SpanDetail({ span, payloadHref }: { span: SpanRow; payloadHref: (which:
     <section className="min-w-0 rounded-md border border-line p-4" aria-label="Span detail">
       <h2 className="font-medium">{span.name}</h2>
       <p className="font-mono text-xs text-muted">{span.spanId}</p>
+      {span.attributes["agenttrace.stubbed"] === "true" && (
+        <p className="mt-1 text-xs text-muted" data-stubbed>
+          Answered from the recording, not run.
+        </p>
+      )}
+      {children}
       <dl className="mt-3 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
         {facts.map(([k, v]) => (
           <div key={k} className="contents">

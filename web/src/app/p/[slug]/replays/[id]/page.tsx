@@ -4,13 +4,14 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import type { ToolCall } from "@/lib/datasets";
 import { getReplay, type ReplayRun } from "@/lib/replays";
-import { clickHouseError, liveTraces, traceOutcome } from "@/lib/traces";
+import { clickHouseError, getTrace, liveTraces, traceOutcome } from "@/lib/traces";
+import { prefixToolCalls, steps } from "@/lib/forks";
 import { firstDifference } from "@/lib/trajectory";
 import { formatCost, formatDuration, formatTime } from "@/lib/format";
 import { Crumbs } from "../../datasets/ui";
 import { Call, Json } from "../../experiments/samples";
 import { SampleTrace, StatusBadge } from "../../experiments/ui";
-import { PassCounts, ReplayCode } from "../ui";
+import { PassCounts, ReplayCode, ReplayKind } from "../ui";
 import { projectLinks } from "@/lib/links";
 
 type Props = PageProps<"/p/[slug]/replays/[id]">;
@@ -28,19 +29,38 @@ export default function ReplayPage(props: Props) {
 /** The original as read from ClickHouse: null once it has expired, or why it couldn't be read. */
 type Original = Awaited<ReturnType<typeof traceOutcome>> | { error: string };
 
-/** The original trace and every replay run side by side, each run's first difference marked. */
+/** Where a fork went live in the trace it forked, read from that trace's spans (ADR-0040). */
+type ForkPoint = { step: number; kind: string; name: string; prefixTools: number } | null;
+
+async function forkPoint(traceId: string, spanId: string): Promise<ForkPoint> {
+  const trace = await getTrace(traceId).catch((e) => {
+    unstable_rethrow(e);
+    return null;
+  });
+  const fork = trace && steps(trace.spans).find((s) => s.spanId === spanId);
+  const prefixTools = trace && prefixToolCalls(trace.spans, spanId);
+  return fork && prefixTools !== null ? { step: fork.index, kind: fork.kind, name: fork.name, prefixTools } : null;
+}
+
+/**
+ * The trace the runs re-ran and every replay run side by side, each run's first difference
+ * marked. A fork's runs are compared with the trace it forked, whose steps they played back; the
+ * played-back prefix is folded away and the fork point marked (ADR-0040).
+ */
 async function ReplayView({ params }: Pick<Props, "params">) {
   await connection();
   const { id } = await params;
   const r = await getReplay(id);
   if (!r) notFound();
   const originalId = r.replay_of.trace_id;
-  const [original, live] = await Promise.all([
-    traceOutcome(originalId).catch((e): Original => {
+  const comparedId = r.fork_of?.trace_id ?? originalId;
+  const [original, live, fork] = await Promise.all([
+    traceOutcome(comparedId).catch((e): Original => {
       unstable_rethrow(e); // an expired session redirects to /login
       return { error: clickHouseError(e) };
     }),
     liveTraces(r.replay_runs.flatMap((run) => (run.trace_id ? [run.trace_id] : []))),
+    r.fork_of ? forkPoint(r.fork_of.trace_id, r.fork_of.span_id) : null,
   ]);
   const thresholds = new Map(r.scorers.map((s) => [s.name, s.threshold]));
   const expected = r.item?.contents.expected_trajectory ?? null;
@@ -54,13 +74,30 @@ async function ReplayView({ params }: Pick<Props, "params">) {
         ]}
       />
       <div className="mt-2 flex flex-wrap items-baseline gap-3">
-        <h1 className="text-xl font-semibold tracking-tight">Replay</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{r.fork_of ? "Fork" : "Replay"}</h1>
         <StatusBadge status={r.status} />
+        <ReplayKind r={r} />
         <span className="font-mono text-xs text-muted">{formatTime(new Date(r.started_at))}</span>
       </div>
       <p className="mt-1 font-mono text-xs text-muted">{r.id}</p>
       {r.error && <p className="mt-2 font-mono text-xs text-bad">{r.error}</p>}
       <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+        {r.fork_of && (
+          <div data-fork-point={r.fork_of.span_id}>
+            <dt className="text-xs text-muted">Forked at</dt>
+            <dd className="font-mono text-xs">
+              {fork ? `step ${fork.step} (${fork.kind} ${fork.name})` : `span ${r.fork_of.span_id.slice(0, 8)}`}
+              <span className="text-muted"> of trace {r.fork_of.trace_id.slice(0, 8)}…</span>
+              {fork && <span className="block text-muted">{fork.step} steps played back, live from there</span>}
+            </dd>
+          </div>
+        )}
+        {r.tool_mode === "recorded" && (
+          <div>
+            <dt className="text-xs text-muted">Tools</dt>
+            <dd className="text-xs">answered from the recording; none ran</dd>
+          </div>
+        )}
         <div>
           <dt className="text-xs text-muted">Code</dt>
           <dd>
@@ -100,7 +137,7 @@ async function ReplayView({ params }: Pick<Props, "params">) {
       )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-        <OriginalSide traceId={originalId} original={original} />
+        <OriginalSide traceId={comparedId} original={original} forked={r.fork_of !== null} />
         <section aria-label="Replay runs" data-side="runs">
           <h2 className="font-medium">Replay runs</h2>
           {r.replay_runs.length === 0 ? (
@@ -111,6 +148,7 @@ async function ReplayView({ params }: Pick<Props, "params">) {
                 <RunCard
                   key={run.run_index}
                   run={run}
+                  prefix={fork?.prefixTools ?? null}
                   original={original && !("error" in original) ? original.trajectory : null}
                   thresholds={thresholds}
                   live={live}
@@ -124,12 +162,12 @@ async function ReplayView({ params }: Pick<Props, "params">) {
   );
 }
 
-async function OriginalSide({ traceId, original }: { traceId: string; original: Original }) {
+async function OriginalSide({ traceId, original, forked }: { traceId: string; original: Original; forked: boolean }) {
   const at = await projectLinks();
   return (
     <section aria-label="Original" data-side="original">
       <h2 className="font-medium">
-        Original{" "}
+        {forked ? "Forked trace" : "Original"}{" "}
         <Link href={at(`/traces/${traceId}`)} className="font-mono text-xs underline">
           trace {traceId.slice(0, 8)}…
         </Link>
@@ -163,22 +201,51 @@ async function OriginalSide({ traceId, original }: { traceId: string; original: 
   );
 }
 
-function CallList({ calls, first }: { calls: ToolCall[]; first?: number | null }) {
-  if (calls.length === 0) return <p className="mt-1 text-xs text-muted">no tool calls</p>;
+function CallItem({ call, i, first }: { call: ToolCall; i: number; first?: number | null }) {
   return (
-    <ol className="mt-1 space-y-1 font-mono text-xs">
-      {calls.map((t, i) => (
-        <li
-          key={i}
-          className={`break-words rounded px-1 ${first === i ? "bg-bad/10 ring-1 ring-bad" : ""}`}
-          data-call={i}
-          data-first-difference={first === i || undefined}
-        >
-          {i + 1}. <Call call={t} />
-          {first === i && <span className="block text-[11px] font-medium text-bad">first difference</span>}
-        </li>
-      ))}
-    </ol>
+    <li
+      className={`break-words rounded px-1 ${first === i ? "bg-bad/10 ring-1 ring-bad" : ""}`}
+      data-call={i}
+      data-first-difference={first === i || undefined}
+    >
+      {i + 1}. <Call call={call} />
+      {first === i && <span className="block text-[11px] font-medium text-bad">first difference</span>}
+    </li>
+  );
+}
+
+/**
+ * A trajectory, its first difference marked. A fork run's first `prefix` calls were played back
+ * from the recording, so they're folded under one line, opened when the difference is among them.
+ */
+function CallList({ calls, first, prefix }: { calls: ToolCall[]; first?: number | null; prefix?: number | null }) {
+  if (calls.length === 0) return <p className="mt-1 text-xs text-muted">no tool calls</p>;
+  const played = Math.min(prefix ?? 0, calls.length);
+  return (
+    <>
+      {played > 0 && (
+        <details className="mt-1 text-xs" open={first != null && first < played} data-played-back={played}>
+          <summary className="cursor-pointer select-none text-muted">
+            {played} tool {played === 1 ? "call" : "calls"} played back from the recording
+          </summary>
+          <ol className="mt-1 space-y-1 font-mono text-xs opacity-70">
+            {calls.slice(0, played).map((c, i) => (
+              <CallItem key={i} call={c} i={i} first={first} />
+            ))}
+          </ol>
+        </details>
+      )}
+      {prefix != null && (
+        <p className="mt-1 border-t border-dashed border-line pt-1 text-[11px] font-medium text-muted" data-fork-marker>
+          fork point · live from here
+        </p>
+      )}
+      <ol className="mt-1 space-y-1 font-mono text-xs">
+        {calls.slice(played).map((c, j) => (
+          <CallItem key={played + j} call={c} i={played + j} first={first} />
+        ))}
+      </ol>
+    </>
   );
 }
 
@@ -187,11 +254,13 @@ function RunCard({
   original,
   thresholds,
   live,
+  prefix,
 }: {
   run: ReplayRun;
   original: ToolCall[] | null;
   thresholds: Map<string, number>;
   live: Set<string> | null;
+  prefix: number | null;
 }) {
   const failed = run.error !== null || run.scores.some((x) => !x.passed);
   const first = original ? firstDifference(original, run.trajectory) : null;
@@ -211,6 +280,22 @@ function RunCard({
         </span>
       </div>
       {run.error && <p className="mt-2 font-mono text-xs text-bad">{run.error}</p>}
+      {run.diverged_at !== null && (
+        <p className="mt-2 text-xs text-bad" data-diverged-at={run.diverged_at}>
+          Left the recording at step {run.diverged_at}: it made a tool call the recording never made, so it ran live
+          from there.
+        </p>
+      )}
+      {run.warnings.length > 0 && (
+        <ul className="mt-2 space-y-0.5 text-xs text-muted" aria-label={`Request warnings for run ${run.run_index}`}>
+          {run.warnings.map((w) => (
+            <li key={w.step} data-warning-step={w.step}>
+              Step {w.step}: the request&apos;s <span className="font-mono">{w.fields.join(", ")}</span> differed from
+              the recording; the recorded reply was still used.
+            </li>
+          ))}
+        </ul>
+      )}
       {run.scores.length > 0 && (
         <ul className="mt-2 space-y-1 text-xs" aria-label={`Scores for run ${run.run_index}`}>
           {run.scores.map((x) => (
@@ -248,7 +333,7 @@ function RunCard({
                 <span className="font-normal text-bad"> · differ from the original at step {first + 1}</span>
               ))}
           </h4>
-          <CallList calls={run.trajectory} first={first} />
+          <CallList calls={run.trajectory} first={first} prefix={prefix} />
         </div>
       </div>
     </li>

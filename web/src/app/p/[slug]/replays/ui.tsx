@@ -44,6 +44,7 @@ export async function ReplayList({ replays }: { replays: ReplayInfo[] }) {
           </Link>
           <StatusBadge status={r.status} />
           <ReplayCode r={r} />
+          <ReplayKind r={r} />
           <span className="font-mono text-xs text-muted">
             {r.runs_uploaded}/{r.runs} runs
           </span>
@@ -53,6 +54,49 @@ export async function ReplayList({ replays }: { replays: ReplayInfo[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** "fork at span ab12cd34" and "tools stubbed" for a replay that isn't a plain whole re-run. */
+export function ReplayKind({ r }: { r: Pick<ReplayInfo, "fork_of" | "tool_mode"> }) {
+  if (!r.fork_of && r.tool_mode === "live") return null;
+  return (
+    <span className="flex gap-2 font-mono text-xs text-muted">
+      {r.fork_of && (
+        <span data-fork-of={r.fork_of.span_id}>
+          fork at span {r.fork_of.span_id.slice(0, 8)}
+        </span>
+      )}
+      {r.tool_mode === "recorded" && <span data-tools-stubbed>tools stubbed</span>}
+    </span>
+  );
+}
+
+/**
+ * "Fork from here" on an LLM or tool span (ADR-0040): the command, since the server can't run
+ * user code (ADR-0006), or why this span can't be a fork point.
+ */
+export function ForkCommand({ traceId, spanId, refused }: { traceId: string; spanId: string; refused: string | null }) {
+  return (
+    <details className="mt-4 text-sm" data-fork-command data-fork-refused={refused ? true : undefined}>
+      <summary className="cursor-pointer select-none font-medium">Fork from here</summary>
+      {refused ? (
+        <p className="mt-2 text-xs">
+          <span className="text-bad">This span can&apos;t be a fork point:</span> <span className="text-muted">{refused}</span>
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 text-xs text-muted">
+            Plays the trace back up to this step, answering each earlier LLM and tool call from the recording, then
+            runs your current code live from here. Add <span className="font-mono">--stub-tools</span> to answer
+            later tool calls from the recording too.
+          </p>
+          <pre className="mt-2 select-all overflow-x-auto rounded bg-line/40 p-2 font-mono text-xs">
+            agenttrace replay {traceId} --from {spanId}
+          </pre>
+        </>
+      )}
+    </details>
   );
 }
 
