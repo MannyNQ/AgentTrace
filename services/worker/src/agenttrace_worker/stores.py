@@ -31,7 +31,7 @@ TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
     TimeoutError,
 )
 
-DEDUP_KEY = "seen:{trace_id}:{span_id}"
+DEDUP_KEY = "seen:{project_id}:{trace_id}:{span_id}"
 
 
 class Cached[T]:
@@ -110,12 +110,14 @@ class Dedup:
     def __init__(self, r: redis.Redis, ttl_s: int):
         self.r, self.ttl_s = r, ttl_s
 
+    # Per project, like the spans table's key: span ids are client-generated (ADR-0003), so
+    # another project's key could otherwise get a span dropped by sending its ids first.
     @staticmethod
-    def key(span: Span) -> str:
-        return DEDUP_KEY.format(trace_id=span.trace_id, span_id=span.span_id)
+    def key(project_id: UUID, span: Span) -> str:
+        return DEDUP_KEY.format(project_id=project_id, trace_id=span.trace_id, span_id=span.span_id)
 
-    def unseen(self, spans: Iterable[Span]) -> set[str]:
-        keys = list({self.key(s) for s in spans})
+    def unseen(self, spans: Iterable[tuple[UUID, Span]]) -> set[str]:
+        keys = list({self.key(p, s) for p, s in spans})
         if not keys:
             return set()
         pipe = self.r.pipeline(transaction=False)
@@ -123,8 +125,8 @@ class Dedup:
             pipe.exists(k)
         return {k for k, seen in zip(keys, pipe.execute(), strict=True) if not seen}
 
-    def mark(self, spans: Iterable[Span]) -> None:
+    def mark(self, spans: Iterable[tuple[UUID, Span]]) -> None:
         pipe = self.r.pipeline(transaction=False)
-        for s in spans:
-            pipe.set(self.key(s), "1", ex=self.ttl_s)
+        for p, s in spans:
+            pipe.set(self.key(p, s), "1", ex=self.ttl_s)
         pipe.execute()

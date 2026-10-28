@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -40,6 +41,19 @@ from agenttrace_ingest.trace_store import ClickHouseTraces
 from agenttrace_ingest.traces import Traces
 
 log = logging.getLogger(__name__)
+LINK_TOKEN = re.compile(r"(/v1/auth/links/)[^/?\s]+")
+
+
+class RedactLinkTokens(logging.Filter):
+    """Invite and reset tokens travel in their URL paths, so uvicorn's access log would keep a
+    usable copy for whoever can read the logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                LINK_TOKEN.sub(r"\1…", a) if isinstance(a, str) else a for a in record.args
+            )
+        return True
 
 
 async def run_check(check: Callable[[Settings], None], s: Settings) -> str:
@@ -47,7 +61,10 @@ async def run_check(check: Callable[[Settings], None], s: Settings) -> str:
         await asyncio.wait_for(asyncio.to_thread(check, s), timeout=s.health_timeout_s)
         return "ok"
     except Exception as e:  # health reports every failure as data, never raises
-        return f"error: {type(e).__name__}: {e}"
+        # /health and the web app's /status page are public: the message, which can name hosts
+        # and database users, goes to the log, and only the exception's type is served.
+        log.warning("health check %s failed: %s: %s", check.__name__, type(e).__name__, e)
+        return f"error: {type(e).__name__}"
 
 
 def _pin_pending(datasets: Store, pins: Pins) -> None:
@@ -123,6 +140,9 @@ def create_app(
     locations: locate.Store | None = None,
 ) -> FastAPI:
     s = settings or Settings()
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, RedactLinkTokens) for f in access.filters):
+        access.addFilter(RedactLinkTokens())
     a = auth.Auth(
         auth_store or PostgresAuth(s), limiter or RedisLimiter(s), s.agenttrace_setup_token
     )
@@ -150,6 +170,12 @@ def create_app(
             except Exception:
                 log.exception("could not register AGENTTRACE_API_KEY; ingest will answer 401")
             else:
+                if registered and s.agenttrace_api_key == auth.DEV_KEY:
+                    log.warning(
+                        "AGENTTRACE_API_KEY is the published dev key, so anyone who can reach "
+                        "ingest can read and write the default project. Fine on your machine; "
+                        "set a key of your own before serving it elsewhere."
+                    )
                 if not registered:
                     log.error(
                         "AGENTTRACE_API_KEY is the published dev key and AGENTTRACE_PUBLIC_URL "
@@ -157,6 +183,11 @@ def create_app(
                         "of your own.",
                         s.public_url,
                     )
+        else:
+            try:
+                await asyncio.to_thread(a.refuse_dev_key, s.public_url)
+            except Exception:
+                log.exception("could not revoke the published dev key")
         setup_token = await asyncio.to_thread(a.prepare_setup)
         if setup_token:
             # ADR-0034: whoever can read these logs can claim the install.

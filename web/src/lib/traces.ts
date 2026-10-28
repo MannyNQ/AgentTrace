@@ -171,7 +171,7 @@ export async function listTraces(
 
 export async function getTrace(traceId: string): Promise<{ summary: TraceSummary; spans: SpanRow[] } | null> {
   if (!/^[0-9a-f]{32}$/.test(traceId)) return null;
-  const trace = await api.read<{ summary: ApiSummary; spans: ApiSpan[] }>(`/${traceId}`);
+  const trace = await api.read<{ summary: ApiSummary; spans: ApiSpan[] }>(`/${encodeURIComponent(traceId)}`);
   return trace && { summary: toSummary(trace.summary), spans: trace.spans.map(toSpan) };
 }
 
@@ -209,7 +209,8 @@ export async function liveTraces(traceIds: string[]): Promise<Set<string> | null
 /** A span's full input or output: the preview when it's stored whole, else ingest fetches the
  * object storage copy (ADR-0009). Null when the trace or span is gone. */
 export async function readPayload(traceId: string, spanId: string, which: "input" | "output"): Promise<string | null> {
-  return (await api.read<{ text: string }>(`/${traceId}/spans/${spanId}/${which}`))?.text ?? null;
+  const path = `/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}/${which}`;
+  return (await api.read<{ text: string }>(path))?.text ?? null;
 }
 
 /** What a trace did, in the shape a replay run records (sdk `agenttrace.eval.runner`): its tool
@@ -218,7 +219,7 @@ export async function traceOutcome(
   traceId: string,
 ): Promise<{ trajectory: ToolCall[]; output: unknown; rootError: string | null } | null> {
   const outcome = await api.read<{ trajectory: ToolCall[]; output: unknown; root_error: string | null }>(
-    `/${traceId}/outcome`,
+    `/${encodeURIComponent(traceId)}/outcome`,
   );
   return outcome && { trajectory: outcome.trajectory, output: outcome.output, rootError: outcome.root_error };
 }

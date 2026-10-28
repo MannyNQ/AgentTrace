@@ -68,18 +68,18 @@ class SpanStore:
         self.limits = PayloadLimits(s.payload_offload_bytes, s.payload_preview_bytes)
 
     def __call__(self, batches: list[Batch]) -> None:
-        unseen = self.dedup.unseen(sp for b in batches for sp in b.spans)
+        unseen = self.dedup.unseen((b.project_id, sp) for b in batches for sp in b.spans)
         prices = self.postgres.prices.get()
         rows, stored = [], []
         for b in batches:
             days = self.postgres.retention_days(b.project_id)
             for sp in b.spans:
-                key = Dedup.key(sp)
+                key = Dedup.key(b.project_id, sp)
                 if key not in unseen:
                     continue
                 unseen.discard(key)  # also drops a repeat within this read
                 rows.append(to_row(sp, b.project_id, days, prices, self.payloads.put, self.limits))
-                stored.append(sp)
+                stored.append((b.project_id, sp))
         if rows:
             self.clickhouse.insert_spans(rows)
             self.dedup.mark(stored)  # only after the insert succeeded (ADR-0014)
@@ -118,8 +118,16 @@ class Worker:
             raise
         self.held = []
         if done:
-            self.r.xack(STREAM, GROUP, *done)
+            self.finish(*done)
         return len(batches)
+
+    def finish(self, *entry_ids: str) -> None:
+        """Acknowledges entries and deletes them: an acknowledged entry is never read again, and
+        left in place it would hold its batch in Redis's memory until MAXLEN trims it."""
+        with self.r.pipeline() as p:
+            p.xack(STREAM, GROUP, *entry_ids)
+            p.xdel(STREAM, *entry_ids)
+            p.execute()
 
     def read(self) -> list[Entry]:
         raw = self.r.xreadgroup(
@@ -172,7 +180,7 @@ class Worker:
             maxlen=DEAD_MAXLEN,
             approximate=True,
         )
-        self.r.xack(STREAM, GROUP, entry_id)
+        self.finish(entry_id)
 
     def parse_all(self, entries: list[Entry]) -> list[Batch]:
         batches = []

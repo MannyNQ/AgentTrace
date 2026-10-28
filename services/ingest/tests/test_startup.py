@@ -1,6 +1,7 @@
 """Ingest's startup: ClickHouse migrations retry beside the app, so ingest serves while ClickHouse
 is down (ADR-0015)."""
 
+import logging
 import threading
 import time
 
@@ -88,10 +89,11 @@ def _start(monkeypatch, **settings) -> TestClient:
     return TestClient(app)
 
 
-def test_the_dev_key_works_while_the_public_url_is_local(monkeypatch):
+def test_the_dev_key_works_while_the_public_url_is_local(monkeypatch, caplog):
     with _start(monkeypatch) as c:  # AGENTTRACE_PUBLIC_URL unset: localhost
         r = c.get("/v1/datasets", headers={"Authorization": f"Bearer {DEV_KEY}"})
         assert r.status_code == 200
+    assert "anyone who can reach ingest" in caplog.text  # it says the key is live
 
 
 def test_the_dev_key_is_refused_on_a_public_install(monkeypatch, caplog):
@@ -99,3 +101,19 @@ def test_the_dev_key_is_refused_on_a_public_install(monkeypatch, caplog):
         r = c.get("/v1/datasets", headers={"Authorization": f"Bearer {DEV_KEY}"})
         assert r.status_code == 401
     assert "published dev key" in caplog.text
+
+
+def test_link_tokens_stay_out_of_the_access_log(caplog):
+    app_module.create_app(Settings(agenttrace_api_key=None), checks={}, auth_store=FakeAuth())
+    access = logging.getLogger("uvicorn.access")
+    with caplog.at_level(logging.INFO, logger="uvicorn.access"):
+        access.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "10.0.0.1:5000",
+            "POST",
+            "/v1/auth/links/s3cr3t-token/reset",
+            "1.1",
+            204,
+        )
+    assert "s3cr3t-token" not in caplog.text
+    assert "/v1/auth/links/" in caplog.text

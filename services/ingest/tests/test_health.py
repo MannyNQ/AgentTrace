@@ -30,7 +30,7 @@ def test_one_store_down_is_503_and_named():
     body = r.json()
     assert body["status"] == "degraded"
     assert body["stores"]["a"] == "ok"
-    assert body["stores"]["b"].startswith("error: ConnectionError")
+    assert body["stores"]["b"] == "error: ConnectionError"  # the message is logged, not served
 
 
 @pytest.mark.integration
