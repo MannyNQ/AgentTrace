@@ -148,7 +148,8 @@ async function ReplayView({ params }: Pick<Props, "params">) {
                 <RunCard
                   key={run.run_index}
                   run={run}
-                  prefix={fork?.prefixTools ?? null}
+                  // A run that left the recording ran live from there, so its prefix isn't all played back.
+                  prefix={run.diverged_at === null ? (fork?.prefixTools ?? null) : null}
                   original={original && !("error" in original) ? original.trajectory : null}
                   thresholds={thresholds}
                   live={live}
@@ -174,7 +175,7 @@ async function OriginalSide({ traceId, original, forked }: { traceId: string; or
       </h2>
       {!original ? (
         <p className="mt-2 text-sm text-muted" data-original-expired>
-          The original trace has expired, so there&apos;s nothing to compare the runs with.
+          The {forked ? "forked" : "original"} trace has expired, so there&apos;s nothing to compare the runs with.
         </p>
       ) : "error" in original ? (
         <p className="mt-2 text-sm" data-original-error>

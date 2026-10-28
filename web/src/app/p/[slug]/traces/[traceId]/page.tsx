@@ -154,10 +154,11 @@ async function DatasetLinks({ traceId }: { traceId: string }) {
   );
 }
 
-/** `<trace_id>:<span_id>` as a replay run's root span carries it, or null. */
+/** `<trace_id>:<span_id>` as a replay run's root span carries it, or null. Any SDK client can
+ * set the attribute, so only well-formed IDs become links. */
 function parseRef(value: string | undefined): { traceId: string; spanId: string } | null {
-  const [traceId, spanId] = (value ?? "").split(":");
-  return traceId && spanId ? { traceId, spanId } : null;
+  const m = /^([0-9a-f]{32}):([0-9a-f]{16})$/.exec(value ?? "");
+  return m ? { traceId: m[1], spanId: m[2] } : null;
 }
 
 /**
