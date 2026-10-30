@@ -1,5 +1,10 @@
 """Clients for the four backing stores, and one readiness check per store."""
 
+from collections.abc import Sequence
+from functools import cached_property
+from typing import Any
+from uuid import UUID
+
 import boto3
 import clickhouse_connect
 import psycopg
@@ -19,12 +24,43 @@ def s3_client(s: Settings):
     )
 
 
-def read_payload(s: Settings, client, uri: str) -> str:
-    """An offloaded payload (ADR-0009). `uri` comes from a span row, never from a request."""
-    prefix = f"s3://{s.s3_bucket}/"
+def read_payload(s: Settings, client, project: UUID, uri: str) -> str:
+    """An offloaded payload (ADR-0009). `uri` comes from a span row, never from a request, and
+    the worker keys each payload under its project, so one outside `project` is refused (#32)."""
+    prefix = f"s3://{s.s3_bucket}/{project}/"
     if not uri.startswith(prefix):
-        raise RuntimeError(f"unexpected payload uri: {uri}")
-    return client.get_object(Bucket=s.s3_bucket, Key=uri[len(prefix) :])["Body"].read().decode()
+        raise RuntimeError(f"payload uri outside project {project}: {uri}")
+    key = uri[len(f"s3://{s.s3_bucket}/") :]
+    return client.get_object(Bucket=s.s3_bucket, Key=key)["Body"].read().decode()
+
+
+PROJECT_FILTER = "project_id = {project:UUID}"
+
+
+class ProjectReads:
+    """ClickHouse reads and mutations for one project at a time (#32). Each binds `project`
+    itself, and SQL that doesn't filter on `PROJECT_FILTER` is refused: left out, a query would
+    read every project's rows. Built lazily, since the client connects when built and the app
+    builds its stores at import."""
+
+    def __init__(self, s: Settings):
+        self.s = s
+
+    @cached_property
+    def client(self):
+        return clickhouse_client(self.s)
+
+    def query(self, project: UUID, sql: str, parameters: dict | None = None) -> Sequence[Any]:
+        return self.client.query(sql, parameters=self._bind(project, sql, parameters)).result_rows
+
+    def command(self, project: UUID, sql: str, parameters: dict | None = None) -> None:
+        self.client.command(sql, parameters=self._bind(project, sql, parameters))
+
+    @staticmethod
+    def _bind(project: UUID, sql: str, parameters: dict | None) -> dict:
+        if PROJECT_FILTER not in sql:
+            raise ValueError(f"a project read must filter on {PROJECT_FILTER}: {sql[:80]}")
+        return {**(parameters or {}), "project": str(project)}
 
 
 def ensure_bucket(s: Settings) -> None:

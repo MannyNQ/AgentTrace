@@ -222,7 +222,7 @@ def compare(
     else:
         found = find_baseline(store, project, e)
 
-    samples = store.sample_rows(e.id)
+    samples = store.sample_rows(project, e.id)
     if found is None:
         return Comparison(
             experiment=e, baseline=None, baseline_reason=None, scorers=[], regressions=0,
@@ -233,7 +233,8 @@ def compare(
     cached = _cache.get((e.id, b.id))
     if cached is not None:
         return cached.model_copy(update={"baseline_reason": reason})
-    base_scores, cur_scores = _by_item(store.score_rows(b.id)), _by_item(store.score_rows(e.id))
+    base_scores = _by_item(store.score_rows(project, b.id))
+    cur_scores = _by_item(store.score_rows(project, e.id))
     cur_items = store.version_items(project, e.dataset_id, e.dataset_version) or {}
     base_items = store.version_items(project, b.dataset_id, b.dataset_version) or {}
     scorers, item_regressions = [], []
@@ -255,7 +256,7 @@ def compare(
         added_items=[i for i in cur_items if i not in base_items],
         removed_items=[i for i in base_items if i not in cur_items],
         current_stats=run_stats(samples),
-        baseline_stats=run_stats(store.sample_rows(b.id)),
+        baseline_stats=run_stats(store.sample_rows(project, b.id)),
     )
     _cache.put((e.id, b.id), c)
     return c

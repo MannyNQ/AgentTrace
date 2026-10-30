@@ -207,7 +207,7 @@ class Store(Protocol):
 
     def live(self, project: UUID, trace_ids: list[str]) -> set[str]: ...
 
-    def payload(self, uri: str) -> str: ...
+    def payload(self, project: UUID, uri: str) -> str: ...
 
 
 def summarize(r: SummaryRow, now: datetime, quiet_period: timedelta) -> TraceSummary:
@@ -286,14 +286,14 @@ class Traces:
         span = next((s for s in spans if s.span_id == span_id), None)
         if span is None:
             raise NotFound("span not found")
-        return Payload(text=self._text(span, which))
+        return Payload(text=self._text(project, span, which))
 
     def outcome(self, project: UUID, trace_id: str) -> Outcome:
         _, spans = self._read(project, trace_id)
         trajectory = []
         for s in spans:
             if s.kind == "tool":
-                args = decode_payload(self._text(s, "input"))
+                args = decode_payload(self._text(project, s, "input"))
                 trajectory.append(
                     ToolCall(
                         tool=s.name or "(unnamed)", args=args if isinstance(args, dict) else None
@@ -302,7 +302,7 @@ class Traces:
         root = next((s for s in spans if s.parent_span_id == ""), None)
         return Outcome(
             trajectory=trajectory,
-            output=decode_payload(self._text(root, "output")) if root else None,
+            output=decode_payload(self._text(project, root, "output")) if root else None,
             root_error=(root.error_type or "error") if root and root.status == "error" else None,
         )
 
@@ -315,7 +315,7 @@ class Traces:
             raise Refused(f"the trace has {len(rows)} steps; a fork plays back at most {MAX_STEPS}")
         steps, total = [], 0
         for i, s in enumerate(rows):
-            texts = self._text(s, "input"), self._text(s, "output")
+            texts = self._text(project, s, "input"), self._text(project, s, "output")
             total += sum(len(t) for t in texts)
             if total > MAX_STEP_BYTES:
                 raise Refused(
@@ -362,8 +362,8 @@ class Traces:
             project, trace_id, summary.start_time, summary.last_end_time
         )
 
-    def _text(self, span: SpanRow, which: Which) -> str:
+    def _text(self, project: UUID, span: SpanRow, which: Which) -> str:
         uri = span.input_uri if which == "input" else span.output_uri
         if not uri:
             return span.input_preview if which == "input" else span.output_preview
-        return self.store.payload(uri)
+        return self.store.payload(project, uri)

@@ -57,6 +57,8 @@ class StoredLocations:
     def __init__(self, s: Settings):
         self.s = s
 
+    # Not ProjectReads: this searches every project the caller's org holds at once, and
+    # `find` is only ever given that org's projects (`locate` filters by org first).
     @cached_property
     def _clickhouse(self):
         return clickhouse_client(self.s)

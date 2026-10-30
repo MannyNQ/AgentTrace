@@ -4,7 +4,6 @@ buckets, and responses are decided in `analytics`."""
 
 from collections.abc import Sequence
 from datetime import datetime
-from functools import cached_property
 from typing import Any, Literal
 from uuid import UUID
 
@@ -21,7 +20,7 @@ from trayce_ingest.analytics import (
 )
 from trayce_ingest.errors import Refused
 from trayce_ingest.settings import Settings
-from trayce_ingest.stores import clickhouse_client
+from trayce_ingest.stores import ProjectReads
 from trayce_ingest.trace_filter import TraceFilter
 from trayce_ingest.trace_store import COMPLETE, clickhouse_reads, filtered_traces_sql
 
@@ -70,16 +69,12 @@ def _trace_row(row: Sequence[Any], bucket: int = 0) -> TraceRow:
 
 class ClickHouseAnalytics:
     def __init__(self, s: Settings):
-        self.s = s
+        self._reads = ProjectReads(s)
 
-    @cached_property
-    def _clickhouse(self):
-        return clickhouse_client(self.s)
-
-    def _query(self, sql: str, parameters: dict) -> Sequence[Sequence[Any]]:
+    def _query(self, project: UUID, sql: str, parameters: dict) -> Sequence[Sequence[Any]]:
         with clickhouse_reads():
             try:
-                return self._clickhouse.query(sql, parameters=parameters).result_rows
+                return self._reads.query(project, sql, parameters)
             except ClickHouseError as e:
                 # Python's zone database and ClickHouse's can differ; the caller's zone is at
                 # fault, not the store.
@@ -91,7 +86,7 @@ class ClickHouseAnalytics:
 
     def _traces(self, project: UUID, f: TraceFilter, complete_before: datetime):
         sql, params = filtered_traces_sql(f, complete_before)
-        return sql, {**params, "project": str(project)}
+        return sql, params
 
     def _spans(
         self, project: UUID, f: TraceFilter, complete_before: datetime, where: str
@@ -108,7 +103,7 @@ class ClickHouseAnalytics:
 
     def trace_totals(self, project: UUID, f: TraceFilter, complete_before: datetime) -> TraceRow:
         traces, params = self._traces(project, f, complete_before)
-        (row,) = self._query(f"SELECT {TRACE_AGGREGATES} FROM ({traces})", params)
+        (row,) = self._query(project, f"SELECT {TRACE_AGGREGATES} FROM ({traces})", params)
         return _trace_row(row)
 
     def trace_series(
@@ -118,6 +113,7 @@ class ClickHouseAnalytics:
         # totals' row is the one with no bucket (0; no bucket starts at the epoch).
         traces, params = self._traces(project, f, complete_before)
         rows = self._query(
+            project,
             f"""SELECT {_bucket(bucket, "t_start")} AS b, {TRACE_AGGREGATES}
                 FROM ({traces}) GROUP BY GROUPING SETS ((b), ()) ORDER BY b""",
             {**params, "tz": tz},
@@ -130,6 +126,7 @@ class ClickHouseAnalytics:
     def span_kinds(self, project: UUID, f: TraceFilter, complete_before: datetime) -> list[KindRow]:
         spans, params = self._spans(project, f, complete_before, "")
         rows = self._query(
+            project,
             f"""SELECT toString(kind) AS k, count(), countIf(status = 'error')
                 {spans} GROUP BY k ORDER BY k""",
             params,
@@ -142,6 +139,7 @@ class ClickHouseAnalytics:
         key = {"tool": "name", "llm": "model"}[kind]
         spans, params = self._spans(project, f, complete_before, "AND kind = {a_kind:String}")
         rows = self._query(
+            project,
             f"""SELECT {key} AS g, count() AS calls, countIf(status = 'error'),
                        quantilesTDigestIf(0.5, 0.95)({SPAN_MS}, end_time IS NOT NULL)
                 {spans} GROUP BY g ORDER BY calls DESC, g LIMIT {MAX_GROUPS}""",
@@ -158,6 +156,7 @@ class ClickHouseAnalytics:
         # One pass for the per-model table (no bucket: 0) and each model's spend per bucket.
         spans, params = self._spans(project, f, complete_before, "AND kind = 'llm'")
         rows = self._query(
+            project,
             f"""SELECT {_bucket(bucket, "start_time")} AS b, model AS m, count(),
                        countIf(cost_usd IS NULL), sum(ifNull(cost_usd, 0)),
                        sum(ifNull(input_tokens, 0)), sum(ifNull(output_tokens, 0)),

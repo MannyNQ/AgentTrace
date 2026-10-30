@@ -234,7 +234,7 @@ class PostgresReplays:
                 raise NotFound("no such replay")
             yield PostgresTx(conn, Replay(**_fields(row)))
 
-    def runs(self, replay_id: UUID) -> list[StoredReplayRun]:
+    def runs(self, project: UUID, replay_id: UUID) -> list[StoredReplayRun]:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT u.run_index, u.trace_id, u.started_at, u.latency_ms, u.output,
@@ -245,11 +245,12 @@ class PostgresReplays:
                               'reason', c.reason) ORDER BY c.scorer)
                             FILTER (WHERE c.scorer IS NOT NULL), '[]')
                    FROM replay_runs u
+                   JOIN replays p ON p.id = u.replay_id AND p.project_id = %s
                    LEFT JOIN replay_scores c USING (replay_id, run_index)
                    WHERE u.replay_id = %s
                    GROUP BY u.replay_id, u.run_index
                    ORDER BY u.run_index""",
-                (replay_id,),
+                (project, replay_id),
             ).fetchall()
         return [
             StoredReplayRun(

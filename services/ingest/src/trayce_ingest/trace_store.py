@@ -13,7 +13,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError
 
 from trayce.eval.results import EVAL_TAG
 from trayce_ingest.settings import Settings
-from trayce_ingest.stores import clickhouse_client, read_payload, s3_client
+from trayce_ingest.stores import ProjectReads, read_payload, s3_client
 from trayce_ingest.trace_filter import TraceFilter
 from trayce_ingest.traces import Cursor, SpanRow, SummaryRow, Unavailable
 
@@ -220,18 +220,16 @@ class ClickHouseTraces:
     def __init__(self, s: Settings):
         self.s = s
 
-    # Lazy: both clients connect when built, and the app builds this object at import time.
-    @cached_property
-    def _clickhouse(self):
-        return clickhouse_client(self.s)
+        self._reads = ProjectReads(s)
 
+    # Lazy: the client connects when built, and the app builds this object at import time.
     @cached_property
     def _s3(self):
         return s3_client(self.s)
 
-    def _query(self, sql: str, parameters: dict) -> Sequence[Sequence[Any]]:
+    def _query(self, project: UUID, sql: str, parameters: dict) -> Sequence[Sequence[Any]]:
         with clickhouse_reads():  # building the client connects, so it's inside too
-            return self._clickhouse.query(sql, parameters=parameters).result_rows
+            return self._reads.query(project, sql, parameters)
 
     def summaries(
         self,
@@ -244,6 +242,7 @@ class ClickHouseTraces:
         before = before or AFTER_EVERYTHING
         where, having, params = filter_sql(f, complete_before)
         rows = self._query(
+            project,
             f"""{SUMMARY_SELECT}{where}
                 GROUP BY trace_id
                 HAVING (t_start, t_trace_id)
@@ -252,7 +251,6 @@ class ClickHouseTraces:
                 LIMIT {{limit:UInt32}}""",
             {
                 **params,
-                "project": str(project),
                 "before_start": before.start_time,
                 "before_trace": before.trace_id,
                 "limit": limit,
@@ -263,27 +261,26 @@ class ClickHouseTraces:
 
     def summary(self, project: UUID, trace_id: str) -> SummaryRow | None:
         rows = self._query(
+            project,
             f"{SUMMARY_SELECT} AND trace_id = {{trace:FixedString(32)}} GROUP BY trace_id",
-            {"project": str(project), "trace": trace_id, "eval_tag": EVAL_TAG},
+            {"trace": trace_id, "eval_tag": EVAL_TAG},
         )
         return _summary(rows[0]) if rows else None
 
     def spans(self, project: UUID, trace_id: str, start: datetime, end: datetime) -> list[SpanRow]:
         # FINAL hides duplicates that ReplacingMergeTree hasn't merged yet (ADR-0014).
-        rows = self._query(
-            SPAN_SELECT,
-            {"project": str(project), "trace": trace_id, "start": start, "end": end},
-        )
+        rows = self._query(project, SPAN_SELECT, {"trace": trace_id, "start": start, "end": end})
         return [_span(r) for r in rows]
 
     def live(self, project: UUID, trace_ids: list[str]) -> set[str]:
         rows = self._query(
+            project,
             """SELECT DISTINCT toString(trace_id) FROM traces
                WHERE project_id = {project:UUID} AND trace_id IN {ids:Array(FixedString(32))}""",
-            {"project": str(project), "ids": trace_ids},
+            {"ids": trace_ids},
         )
         return {r[0] for r in rows}
 
-    def payload(self, uri: str) -> str:
+    def payload(self, project: UUID, uri: str) -> str:
         with object_storage_reads():
-            return read_payload(self.s, self._s3, uri)
+            return read_payload(self.s, self._s3, project, uri)

@@ -125,7 +125,11 @@ class FakeExperiments:
             raise NotFound("no such experiment")
         yield FakeTx(self, e)
 
-    def sample_rows(self, experiment_id: UUID) -> list[SampleRow]:
+    def _scoped(self, project: UUID, experiment_id: UUID):
+        e = self.experiments.get(experiment_id)
+        return e.samples.values() if e is not None and e.project == project else []
+
+    def sample_rows(self, project: UUID, experiment_id: UUID) -> list[SampleRow]:
         return [
             SampleRow(
                 item_id=s.item_id,
@@ -134,10 +138,10 @@ class FakeExperiments:
                 latency_ms=s.latency_ms,
                 cost_usd=s.cost_usd,
             )
-            for s in self.experiments[experiment_id].samples.values()
+            for s in self._scoped(project, experiment_id)
         ]
 
-    def score_rows(self, experiment_id: UUID) -> list[ScoreRow]:
+    def score_rows(self, project: UUID, experiment_id: UUID) -> list[ScoreRow]:
         return [
             ScoreRow(
                 item_id=s.item_id,
@@ -146,19 +150,19 @@ class FakeExperiments:
                 score=sc.score,
                 passed=sc.passed,
             )
-            for s in self.experiments[experiment_id].samples.values()
+            for s in self._scoped(project, experiment_id)
             for sc in s.scores
         ]
 
-    def samples(self, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
-        found = self.experiments[experiment_id].samples.values()
+    def samples(self, project: UUID, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
+        found = self._scoped(project, experiment_id)
         return sorted((s for s in found if s.item_id == item_id), key=lambda s: s.sample_index)
 
-    def item(self, item_id: UUID, rev: int) -> Item:
+    def item(self, project: UUID, item_id: UUID, rev: int) -> Item | None:
         for d in self.datasets.datasets.values():
-            if item_id in d.items:
+            if d.project == project and item_id in d.items:
                 return d.item(item_id, rev)
-        raise AssertionError("a version's revision is never deleted")
+        return None
 
 
 class FakePrices:
