@@ -1,6 +1,6 @@
-### ❌ AgentTrace eval: 1 regression
+### ❌ Trayce eval: 1 regression
 
-`support` v2 · 15 items × 3 samples · [this run](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe) vs [baseline](http://127.0.0.1:13000/p/default/experiments/353eef3f-22b2-4c3a-a74d-38d3b3225e1c) (at the merge-base `27a9da5`)
+`support` v1 · 15 items × 3 samples · [this run](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96) vs [baseline](http://127.0.0.1:13000/p/default/experiments/862c4fd1-6701-4b5d-9ad0-c4f25459ead4) (at the merge-base `bd0e24a`)
 
 | Scorer | Baseline | Current | Change (95% CI) | max_drop | Items | Status |
 |---|---|---|---|---|---|---|
@@ -10,16 +10,16 @@
 
 ⚠️ Underpowered: the interval is wider than `max_drop`, so a drop that size could go undetected. More items or `samples` narrow it.
 
-Cost per sample $0.0139 → $0.0138 · p50 latency 5.0 s → 4.9 s (not gated)
+Cost per sample $0.0156 → $0.0142 · p50 latency 4.9 s → 4.7 s (not gated)
 
 **Item regressions** (most samples passed before, most fail now; not gated)
 
-- [item `f5fbea25`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/f5fbea25-0c80-4ca9-a843-efbfd8e05f06) · `steps` 3/3 → 0/3
-- [item `56518cd4`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/56518cd4-cb33-4c81-95ad-6239f6b00730) · `steps` 3/3 → 0/3
-- [item `b84997bb`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/b84997bb-9683-412b-8eaf-43c206837498) · `steps` 3/3 → 0/3
-- [item `bd404c1d`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/bd404c1d-513a-4b5e-b8aa-570e159173f6) · `steps` 3/3 → 0/3
-- [item `ab7bbbbe`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/ab7bbbbe-22d2-4294-aac4-de77081a3ef9) · `steps` 3/3 → 0/3
-- [item `8cfb8b8a`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/8cfb8b8a-e621-4b49-b2c4-77e6179b1bcb) · `steps` 3/3 → 0/3
-- [item `0874e921`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/0874e921-7595-4b5a-a5c9-e4856f2a9bd8) · `steps` 3/3 → 0/3
-- [item `8a978d2c`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/8a978d2c-1d4b-4c2c-8c73-ec424588868c) · `steps` 3/3 → 0/3
-- [item `9c1cb2af`](http://127.0.0.1:13000/p/default/experiments/440068ae-291a-4331-aaab-8c338504cbbe/compare/353eef3f-22b2-4c3a-a74d-38d3b3225e1c/items/9c1cb2af-d47b-426a-8edb-6f1ea63169a9) · `steps` 3/3 → 0/3
+- [item `996c1db3`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/996c1db3-3b88-4cdd-ac1d-ccf4597bdc6b) · `steps` 3/3 → 0/3
+- [item `a3bce05f`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/a3bce05f-d683-4485-849d-bdd17c10b100) · `steps` 3/3 → 0/3
+- [item `32674ccf`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/32674ccf-f8ba-4509-9e7d-227aee3ade77) · `steps` 3/3 → 0/3
+- [item `9d6a9909`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/9d6a9909-a196-42cb-9b04-3313f656864f) · `steps` 3/3 → 0/3
+- [item `91320bdb`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/91320bdb-01e5-41a3-a570-805bc9d02e74) · `steps` 3/3 → 0/3
+- [item `701bdede`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/701bdede-3166-4a03-b7b2-1c2b4761be90) · `steps` 3/3 → 0/3
+- [item `807ca8da`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/807ca8da-f40b-427e-af12-6dd7bb75cb5c) · `steps` 3/3 → 0/3
+- [item `3b8057f0`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/3b8057f0-656e-41d1-a0ca-f0b1f4486860) · `steps` 3/3 → 0/3
+- [item `c7b0e632`](http://127.0.0.1:13000/p/default/experiments/89e8f2b8-a540-4093-a758-f9f15e932f96/compare/862c4fd1-6701-4b5d-9ad0-c4f25459ead4/items/c7b0e632-56cc-412a-9208-62b5864608c0) · `steps` 3/3 → 0/3

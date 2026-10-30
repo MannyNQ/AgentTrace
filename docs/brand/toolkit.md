@@ -270,7 +270,7 @@ Two nearby names to stay distinct from:
 - **Trayce API client** at trayce.dev, an HTTP and network traffic tool for Docker. Different product, same spelling. Don't link to trayce.dev or imply any connection.
 - **Traycer**, an AI coding tool. Never add the trailing "r", and don't borrow its look.
 
-Old captures in `site/proof/` predate the rename and still say AgentTrace; that's expected.
+Old captures in `site/proof/v1/` predate the rename and still say AgentTrace; that's expected.
 
 ---
 

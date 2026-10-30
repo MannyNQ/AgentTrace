@@ -1,6 +1,6 @@
 # 42. The product is named Trayce
 
-Status: accepted. Replaces the name AgentTrace everywhere except verbatim captures in `site/proof/`.
+Status: accepted. Replaces the name AgentTrace everywhere except verbatim captures in `site/proof/v1/`.
 
 ## Context
 
@@ -19,7 +19,7 @@ We couldn't take the PyPI name, and a search for the product would land on any o
 - The PyPI distribution, the Python import, and the CLI are all `trayce`. The distribution isn't published yet.
 - Environment variables use the `TRAYCE_` prefix, HTTP headers the `Trayce-` prefix, and the Compose project is `trayce` (`trayce-verify` for the verify harness). API keys are minted with a `tr_` prefix, and the published dev key is `tr-local-dev-key`.
 - The GitHub repository becomes MannyNQ/Trayce.
-- The rename is mechanical and total, with one exception: the captures in `site/proof/` are kept as recorded and still say AgentTrace. The landing page shows them with only the name changed, and `site/proof/README.md` says so.
+- The rename is mechanical and total, with one exception: the captures in `site/proof/` are kept as recorded and still say AgentTrace. The landing page shows them with only the name changed, and `site/proof/README.md` says so. On 2026-10-30 the page's captures were re-recorded on Trayce 0.1.1, so only the first proof in `site/proof/v1/` still says AgentTrace.
 
 ## Consequences
 
