@@ -1,5 +1,5 @@
 """The overview's numbers: volume, errors, latency, cost, tools, and models over 24h, 7d, or 30d
-of a project's traces (design.md, Phase 8). The window and its buckets, the previous period,
+of a project's traces (architecture.md, Phase 8). The window and its buckets, the previous period,
 running traces, and folding small models into "other" are decided here; `analytics_store` has
 the ClickHouse queries. Every number is approximate (ADR-0037), and every query takes the trace
 filter, so a chart agrees with the trace list it links to (ADR-0038)."""

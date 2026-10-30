@@ -1,4 +1,4 @@
-"""Ordered schema migrations, applied on startup (design.md, Phases 2 and 5).
+"""Ordered schema migrations, applied on startup (architecture.md, Phases 2 and 5).
 
 Each `migrations/NNNN_name.sql` runs once, in its own transaction, and is recorded in
 `schema_migrations`. An advisory lock keeps two ingest processes from applying the same file.

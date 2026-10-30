@@ -1,4 +1,4 @@
-"""The overview's load budget (design.md, Phase 8): 30 days of 1M traces and 20M spans in one
+"""The overview's load budget (architecture.md, Phase 8): 30 days of 1M traces and 20M spans in one
 project, and how long the 30d overview takes to read. Fills a project of its own, `bench`, straight
 into ClickHouse's `spans` (the materialized view fills `traces` as usual), then times every
 `/v1/analytics` part over HTTP with that project's key, and the whole page as the signed-in owner.

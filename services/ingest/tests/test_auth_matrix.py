@@ -1,5 +1,5 @@
 """The resolver's whole matrix in one table: each kind of credential against each kind of route
-(design.md, Phase 6 plan step 5). The other auth tests explain the cases one at a time; this
+(architecture.md, Phase 6 plan step 5). The other auth tests explain the cases one at a time; this
 one keeps every combination pinned, so a change to one guard can't quietly open another."""
 
 from datetime import UTC, datetime, timedelta

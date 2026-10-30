@@ -1,6 +1,6 @@
 """Which project a trace, dataset, experiment, or replay belongs to, among the projects of the
 caller's org. The web app uses it to send a link from before projects were in URLs
-(`/replays/<id>`) to `/p/<slug>/replays/<id>` (design.md, Phase 6)."""
+(`/replays/<id>`) to `/p/<slug>/replays/<id>` (architecture.md, Phase 6)."""
 
 import re
 from functools import cached_property

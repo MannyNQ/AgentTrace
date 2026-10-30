@@ -1,0 +1,714 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-28T05:52:34+00:00",
+  "title": "Design System: AgentTrace",
+  "scope": "The public landing page in site/. The self-hosted product UI in web/ is a separate surface not covered here.",
+  "extensions": {
+    "colorMeta": {
+      "panel": {
+        "role": "neutral",
+        "displayName": "Slate Enamel",
+        "canonical": "#20272b",
+        "oklch": "oklch(26.8% 0.012 233.0)",
+        "tonalRamp": [
+          "#090c0d",
+          "#212527",
+          "#3b4144",
+          "#585f63",
+          "#777f83",
+          "#99a0a4",
+          "#bfc5c8",
+          "#ebeff1"
+        ],
+        "source": "--panel on :root in site/styles.css"
+      },
+      "panel-2": {
+        "role": "neutral",
+        "displayName": "Raised Enamel",
+        "canonical": "#283035",
+        "oklch": "oklch(30.4% 0.014 235.4)",
+        "tonalRamp": [
+          "#090c0d",
+          "#202527",
+          "#3b4145",
+          "#575f64",
+          "#767f84",
+          "#98a0a4",
+          "#bfc5c9",
+          "#ebeff2"
+        ],
+        "source": "--panel-2 on :root in site/styles.css"
+      },
+      "panel-3": {
+        "role": "neutral",
+        "displayName": "Worn Enamel",
+        "canonical": "#313a40",
+        "oklch": "oklch(34.3% 0.016 237.2)",
+        "tonalRamp": [
+          "#090c0e",
+          "#202528",
+          "#3a4145",
+          "#565f65",
+          "#757f85",
+          "#97a0a5",
+          "#bec5ca",
+          "#eaeff2"
+        ],
+        "source": "--panel-3 on :root in site/styles.css"
+      },
+      "panel-line": {
+        "role": "neutral",
+        "displayName": "Panel Seam",
+        "canonical": "#414b52",
+        "oklch": "oklch(40.7% 0.017 238.4)",
+        "tonalRamp": [
+          "#080c0e",
+          "#202528",
+          "#3a4146",
+          "#565f66",
+          "#757f86",
+          "#97a0a6",
+          "#bec5ca",
+          "#eaeff3"
+        ],
+        "source": "--panel-line on :root in site/styles.css"
+      },
+      "panel-ink": {
+        "role": "neutral",
+        "displayName": "Enamel Ink",
+        "canonical": "#ece8dc",
+        "oklch": "oklch(93.1% 0.017 91.6)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#26241f",
+          "#424039",
+          "#615d54",
+          "#807d73",
+          "#a19e96",
+          "#c6c4bd",
+          "#f0eee9"
+        ],
+        "source": "--panel-ink on :root in site/styles.css"
+      },
+      "panel-dim": {
+        "role": "neutral",
+        "displayName": "Engraving Grey",
+        "canonical": "#a8b1b5",
+        "oklch": "oklch(75.4% 0.012 226.0)",
+        "tonalRamp": [
+          "#090c0d",
+          "#212527",
+          "#3b4143",
+          "#585f62",
+          "#777f82",
+          "#99a0a3",
+          "#c0c5c8",
+          "#ebeff1"
+        ],
+        "source": "--panel-dim on :root in site/styles.css"
+      },
+      "track": {
+        "role": "neutral",
+        "displayName": "Unlit Track",
+        "canonical": "#6f7a80",
+        "oklch": "oklch(57.2% 0.016 231.4)",
+        "tonalRamp": [
+          "#080c0d",
+          "#202528",
+          "#3a4145",
+          "#565f64",
+          "#757f85",
+          "#97a0a5",
+          "#bec5c9",
+          "#eaeff2"
+        ],
+        "source": "--track on :root in site/styles.css"
+      },
+      "well": {
+        "role": "neutral",
+        "displayName": "Well",
+        "canonical": "#12171a",
+        "oklch": "oklch(20.1% 0.010 234.3)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#212426",
+          "#3c4043",
+          "#595e62",
+          "#787e82",
+          "#9a9fa2",
+          "#c1c5c7",
+          "#eceff1"
+        ],
+        "source": "literal in site/styles.css"
+      },
+      "berth-black": {
+        "role": "neutral",
+        "displayName": "Berth Black",
+        "canonical": "#0f1417",
+        "oklch": "oklch(18.7% 0.010 234.4)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#212426",
+          "#3c4043",
+          "#595f62",
+          "#787e82",
+          "#9a9fa2",
+          "#c0c5c7",
+          "#eceff1"
+        ],
+        "source": "literal in site/styles.css"
+      },
+      "shelf": {
+        "role": "neutral",
+        "displayName": "Instrument Shelf",
+        "canonical": "#181e21",
+        "oklch": "oklch(23.0% 0.011 229.4)",
+        "tonalRamp": [
+          "#090c0d",
+          "#212526",
+          "#3c4143",
+          "#585f62",
+          "#777e82",
+          "#999fa3",
+          "#c0c5c7",
+          "#eceff1"
+        ],
+        "source": "literal in site/styles.css"
+      },
+      "enamel-plate": {
+        "role": "neutral",
+        "displayName": "Enamel Plate",
+        "canonical": "#e9e5d8",
+        "oklch": "oklch(92.1% 0.018 92.7)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#26241e",
+          "#424038",
+          "#615e54",
+          "#817d72",
+          "#a19e95",
+          "#c6c4bc",
+          "#f0eee9"
+        ],
+        "source": "literal in site/styles.css"
+      },
+      "lamp": {
+        "role": "primary",
+        "displayName": "Route Lamp",
+        "canonical": "#fff3d2",
+        "oklch": "oklch(96.5% 0.045 90.4)",
+        "tonalRamp": [
+          "#0e0b04",
+          "#292415",
+          "#463f2b",
+          "#665d43",
+          "#877d61",
+          "#a79e86",
+          "#cbc4b1",
+          "#f3eee1"
+        ],
+        "source": "--lamp on :root in site/styles.css"
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Danger Red",
+        "canonical": "#ff5a4b",
+        "oklch": "oklch(68.6% 0.203 28.7)",
+        "tonalRamp": [
+          "#250000",
+          "#4f0000",
+          "#7c0203",
+          "#ad1814",
+          "#d73f33",
+          "#f17263",
+          "#ffa596",
+          "#ffdace"
+        ],
+        "source": "--red on :root in site/styles.css"
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "Clear Green",
+        "canonical": "#4fe08c",
+        "oklch": "oklch(80.9% 0.172 154.1)",
+        "tonalRamp": [
+          "#001300",
+          "#003009",
+          "#00511c",
+          "#007531",
+          "#00984e",
+          "#4fb677",
+          "#8dd8a5",
+          "#cafdd9"
+        ],
+        "source": "--green on :root in site/styles.css"
+      },
+      "yellow": {
+        "role": "secondary",
+        "displayName": "Caution Yellow",
+        "canonical": "#ffc83a",
+        "oklch": "oklch(85.9% 0.160 86.1)",
+        "tonalRamp": [
+          "#170700",
+          "#371e00",
+          "#5b3800",
+          "#815400",
+          "#a47400",
+          "#c19832",
+          "#e0c079",
+          "#ffecbc"
+        ],
+        "source": "--yellow on :root in site/styles.css"
+      },
+      "lever-red": {
+        "role": "tertiary",
+        "displayName": "Lever Red",
+        "canonical": "#c8261c",
+        "oklch": "oklch(54.0% 0.198 29.2)",
+        "tonalRamp": [
+          "#240000",
+          "#4e0000",
+          "#7b0704",
+          "#ab1d15",
+          "#d54234",
+          "#ef7464",
+          "#ffa697",
+          "#ffdacf"
+        ],
+        "source": "--lever-red on :root in site/styles.css"
+      },
+      "lever-yellow": {
+        "role": "tertiary",
+        "displayName": "Lever Yellow",
+        "canonical": "#e9b10a",
+        "oklch": "oklch(79.0% 0.160 85.3)",
+        "tonalRamp": [
+          "#170700",
+          "#381e00",
+          "#5b3800",
+          "#825400",
+          "#a57300",
+          "#c29832",
+          "#e1c079",
+          "#ffecbc"
+        ],
+        "source": "--lever-yellow on :root in site/styles.css"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Ledger Paper",
+        "canonical": "#e3e8e1",
+        "oklch": "oklch(92.5% 0.011 136.6)",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#232522",
+          "#3e413d",
+          "#5b5f5a",
+          "#7a7f79",
+          "#9ca09b",
+          "#c2c5c1",
+          "#edefec"
+        ],
+        "source": "--paper on :root in site/styles.css"
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Ledger Shade",
+        "canonical": "#d7ddd5",
+        "oklch": "oklch(89.1% 0.013 137.8)",
+        "tonalRamp": [
+          "#0a0c0a",
+          "#222521",
+          "#3d413c",
+          "#5b5f59",
+          "#7a7f78",
+          "#9ba09a",
+          "#c2c5c0",
+          "#edefec"
+        ],
+        "source": "--paper-2 on :root in site/styles.css"
+      },
+      "slip-paper": {
+        "role": "neutral",
+        "displayName": "Slip Paper",
+        "canonical": "#f4f6f2",
+        "oklch": "oklch(97.1% 0.006 128.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#232423",
+          "#3f403e",
+          "#5d5e5b",
+          "#7c7e7a",
+          "#9d9f9c",
+          "#c3c4c2",
+          "#eeefed"
+        ],
+        "source": "literal in site/styles.css"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Book Ink",
+        "canonical": "#1b2124",
+        "oklch": "oklch(24.3% 0.010 229.4)",
+        "tonalRamp": [
+          "#090c0d",
+          "#212526",
+          "#3c4143",
+          "#585f62",
+          "#787e82",
+          "#999fa2",
+          "#c0c5c7",
+          "#eceff1"
+        ],
+        "source": "--ink on :root in site/styles.css"
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Pencil",
+        "canonical": "#3a4448",
+        "oklch": "oklch(37.9% 0.015 223.9)",
+        "tonalRamp": [
+          "#080c0d",
+          "#202527",
+          "#3a4144",
+          "#565f63",
+          "#757f83",
+          "#97a0a4",
+          "#bec5c8",
+          "#eaeff1"
+        ],
+        "source": "--ink-2 on :root in site/styles.css"
+      },
+      "rule-blue": {
+        "role": "neutral",
+        "displayName": "Rule Blue",
+        "canonical": "#b6c6d7",
+        "oklch": "oklch(82.0% 0.030 249.8)",
+        "tonalRamp": [
+          "#070c10",
+          "#1e252c",
+          "#37414b",
+          "#525f6c",
+          "#717f8e",
+          "#94a0ad",
+          "#bcc5d0",
+          "#e8eff7"
+        ],
+        "source": "--rule-blue on :root in site/styles.css"
+      },
+      "rule-red": {
+        "role": "neutral",
+        "displayName": "Margin Red",
+        "canonical": "#c75b52",
+        "oklch": "oklch(60.3% 0.140 26.9)",
+        "tonalRamp": [
+          "#1e0101",
+          "#430f0d",
+          "#6c2420",
+          "#983b35",
+          "#bf5a51",
+          "#da8379",
+          "#f6afa7",
+          "#ffe0da"
+        ],
+        "source": "--rule-red on :root in site/styles.css"
+      },
+      "ink-red": {
+        "role": "neutral",
+        "displayName": "Red Ink",
+        "canonical": "#8c1c14",
+        "oklch": "oklch(41.9% 0.149 29.2)",
+        "tonalRamp": [
+          "#1f0000",
+          "#450d08",
+          "#6e221a",
+          "#9b392e",
+          "#c2584a",
+          "#dd8174",
+          "#f9aea2",
+          "#ffe0d7"
+        ],
+        "source": "--ink-red on :root in site/styles.css"
+      },
+      "mark": {
+        "role": "neutral",
+        "displayName": "Highlighter",
+        "canonical": "#ffd84d",
+        "oklch": "oklch(89.2% 0.157 93.0)",
+        "tonalRamp": [
+          "#150900",
+          "#332100",
+          "#553c00",
+          "#795900",
+          "#9c7900",
+          "#b99c36",
+          "#d9c37b",
+          "#fdeebd"
+        ],
+        "source": "--mark on :root in site/styles.css"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The hero headline only, cut into its plate."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings on the panel."
+      },
+      "headline-ledger": {
+        "displayName": "Headline, ledger",
+        "purpose": "Section headings in the book, two 32px rules tall."
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "The one big row in the baseline-vs-PR seam."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Timetable steps."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Prose on the panel."
+      },
+      "body-ledger": {
+        "displayName": "Body, ledger",
+        "purpose": "Every line of text in the book, one per 32px rule."
+      },
+      "label-engraved": {
+        "displayName": "Engraved label",
+        "purpose": "Plate labels, the Route legend, the describer head."
+      },
+      "label-control": {
+        "displayName": "Control label",
+        "purpose": "Nav links, NX buttons, copy buttons, ledger row tags."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code, berths, spans, the train register."
+      }
+    },
+    "shadows": [
+      {
+        "name": "plate",
+        "value": "inset 0 1px 0 rgb(255 255 255 / 0.04), 0 10px 24px -18px rgb(0 0 0 / 0.8)",
+        "purpose": "Any plate screwed to the panel."
+      },
+      {
+        "name": "engraving",
+        "value": "text-shadow: 0 -1px 0 rgb(0 0 0 / 0.7), 0 1px 0 rgb(255 255 255 / 0.06)",
+        "purpose": "Cut-in lettering on engraved labels."
+      },
+      {
+        "name": "engraving-display",
+        "value": "text-shadow: 0 -2px 0 rgb(0 0 0 / 0.55), 0 1px 0 rgb(255 255 255 / 0.07)",
+        "purpose": "The hero headline cut into its plate."
+      },
+      {
+        "name": "push-cap",
+        "value": "0 0 0 5px #11161a, 0 0 0 7px var(--panel-line), 0 6px 14px -6px rgb(0 0 0 / 0.7)",
+        "purpose": "Bezel and cast shadow of the NX push button."
+      },
+      {
+        "name": "pasted-print",
+        "value": "0 2px 0 var(--paper-2), 0 20px 30px -24px rgb(0 0 0 / 0.5)",
+        "purpose": "A screenshot taped into the ledger (with rotate(-0.4deg))."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "--ease; lit track fade and push-cap press."
+      },
+      {
+        "name": "route-step",
+        "value": "110ms",
+        "purpose": "The one clock: delay between successive track circuits lighting (n x 110ms), on arrival and on route setting."
+      },
+      {
+        "name": "route-light",
+        "value": "1ms linear",
+        "purpose": "Each circuit switches on as a step, not a fade, while a route is being set."
+      },
+      {
+        "name": "track-fade",
+        "value": "260ms",
+        "purpose": "Opacity transition on lit track outside a route-setting sequence."
+      },
+      {
+        "name": "push-press",
+        "value": "160ms, scale(0.94)",
+        "purpose": "Push-button cap pressing in on hover."
+      },
+      {
+        "name": "copy-hold",
+        "value": "1600ms",
+        "purpose": "How long a copy button shows Copied before resetting."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "prefers-reduced-motion: reduce",
+        "purpose": "Route lights at once; smooth scroll off."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "640px",
+        "purpose": "Phone layout; the diagram switches to its narrow layout when its own width is below 640px."
+      },
+      {
+        "name": "stack",
+        "value": "960px",
+        "purpose": "Single-column hero and splits; margin rule and entry dates hidden."
+      },
+      {
+        "name": "max",
+        "value": "1320px",
+        "purpose": "Content column."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Plate with engraved label",
+      "kind": "card",
+      "refersTo": "plate",
+      "description": "A raised enamel plate screwed to the panel, its label cut in.",
+      "html": "<div class=\"ds-plate\"><p class=\"ds-engraved\">Set the route</p><p class=\"ds-note\">MIT-licensed. Your traces never leave your machines.</p></div>",
+      "css": ".ds-plate{position:relative;background:var(--panel-2,#283035);border:1px solid var(--panel-line,#414b52);border-radius:3px;box-shadow:inset 0 1px 0 rgb(255 255 255 / 0.04),0 10px 24px -18px rgb(0 0 0 / 0.8);padding:26px 22px 20px;display:grid;gap:14px;color:var(--panel-ink,#ece8dc);font-family:Barlow,\"Helvetica Neue\",Arial,sans-serif}.ds-plate::before{position:absolute;top:9px;width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5c676e,#2b3236);box-shadow:inset 0 0 0 1px rgb(0 0 0 / 0.4);content:\"\";left:9px}.ds-plate::after{position:absolute;top:9px;width:7px;height:7px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#5c676e,#2b3236);box-shadow:inset 0 0 0 1px rgb(0 0 0 / 0.4);content:\"\";right:9px}.ds-engraved{margin:0;font:600 0.78rem/1.2 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.12em;text-transform:uppercase;color:var(--panel-dim,#a8b1b5);text-shadow:0 -1px 0 rgb(0 0 0 / 0.7),0 1px 0 rgb(255 255 255 / 0.06)}.ds-note{margin:0;font-size:0.86rem;line-height:1.5;color:var(--panel-dim,#a8b1b5)}"
+    },
+    {
+      "name": "Command with copy button",
+      "kind": "input",
+      "refersTo": "command",
+      "description": "A recessed well holding a real, copyable command; the copy button turns green once copied.",
+      "html": "<div class=\"ds-cmd\"><code>docker compose up -d --wait</code><button type=\"button\" class=\"ds-copy\">Copy</button></div>",
+      "css": ".ds-cmd{display:flex;align-items:stretch;background:#12171a;border:1px solid var(--panel-line,#414b52);border-radius:2px;overflow:hidden}.ds-cmd code{flex:1;padding:13px 14px;font:400 0.9rem/1.7 \"JetBrains Mono\",ui-monospace,Menlo,monospace;color:var(--lamp,#fff3d2);white-space:pre;overflow-x:auto}.ds-copy{font:600 0.82rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.12em;text-transform:uppercase;color:var(--panel-ink,#ece8dc);background:var(--panel-3,#313a40);border:0;border-left:1px solid var(--panel-line,#414b52);min-width:78px;padding:0 14px;cursor:pointer}.ds-copy:hover{background:var(--panel-line,#414b52)}.ds-copy:focus-visible{outline:3px solid var(--yellow,#ffc83a);outline-offset:3px}.ds-copy:active{background:var(--green,#4fe08c);color:var(--ink,#1b2124)}"
+    },
+    {
+      "name": "Push button",
+      "kind": "button",
+      "refersTo": "push-button-cap",
+      "description": "The primary action: a domed route-lamp cap with an engraved legend.",
+      "html": "<a class=\"ds-push\" href=\"#start\"><span class=\"ds-push-cap\" aria-hidden=\"true\"></span><span>Run it locally</span></a>",
+      "css": ".ds-push{display:inline-flex;align-items:center;gap:14px;text-decoration:none;font:700 1.25rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.04em;text-transform:uppercase;color:var(--panel-ink,#ece8dc);text-underline-offset:0.2em;text-decoration-thickness:1.5px}.ds-push-cap{width:46px;height:46px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 30%,#fff9e6,var(--lamp,#fff3d2) 45%,#d9c79a);box-shadow:0 0 0 5px #11161a,0 0 0 7px var(--panel-line,#414b52),0 6px 14px -6px rgb(0 0 0 / 0.7);transition:transform 160ms cubic-bezier(0.16,1,0.3,1)}.ds-push:hover .ds-push-cap{transform:scale(0.94)}.ds-push:hover span:last-child{text-decoration:underline;text-decoration-color:var(--yellow,#ffc83a)}.ds-push:focus-visible{outline:3px solid var(--yellow,#ffc83a);outline-offset:3px}"
+    },
+    {
+      "name": "Top rail navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Slate rail with the wordmark and condensed uppercase links.",
+      "html": "<header class=\"ds-rail\"><a class=\"ds-wordmark\" href=\"#\"><svg viewBox=\"0 0 32 32\" width=\"30\" height=\"30\" aria-hidden=\"true\"><path d=\"M3 11h26\" stroke=\"#fff3d2\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M3 11h9l8 10h9\" stroke=\"#6f7a80\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"27\" cy=\"11\" r=\"3.4\" fill=\"#4fe08c\"/><circle cx=\"27\" cy=\"21\" r=\"3.4\" fill=\"#ff5a4b\"/></svg><span>AgentTrace</span></a><nav><a href=\"#path\">The failure</a><a href=\"#gate\">The gate</a><a href=\"#start\">Quickstart</a></nav></header>",
+      "css": ".ds-rail{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--panel-line,#414b52);background:var(--panel,#20272b)}.ds-wordmark{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font:700 1.45rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;color:var(--panel-ink,#ece8dc)}.ds-rail nav{display:flex;gap:24px}.ds-rail nav a{font:600 0.95rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;color:var(--panel-dim,#a8b1b5);padding:8px 0}.ds-rail nav a:hover{color:var(--panel-ink,#ece8dc)}.ds-rail a:focus-visible{outline:3px solid var(--yellow,#ffc83a);outline-offset:3px}"
+    },
+    {
+      "name": "NX route buttons",
+      "kind": "chip",
+      "refersTo": "nx-button",
+      "description": "Entrance/exit buttons: the pressed one shows a lit lamp and sets its route.",
+      "html": "<div class=\"ds-nx\"><button type=\"button\" class=\"ds-nx-btn\" aria-pressed=\"true\"><i></i>Both runs</button><button type=\"button\" class=\"ds-nx-btn\" aria-pressed=\"false\"><i></i>main</button><button type=\"button\" class=\"ds-nx-btn\" aria-pressed=\"false\"><i></i>PR · one prompt line</button></div>",
+      "css": ".ds-nx{display:flex;flex-wrap:wrap;gap:10px 14px}.ds-nx-btn{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font:600 0.92rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.06em;text-transform:uppercase;color:var(--panel-dim,#a8b1b5);background:var(--panel-2,#283035);border:1px solid var(--panel-line,#414b52);border-radius:999px;padding:7px 14px 7px 8px}.ds-nx-btn i{width:16px;height:16px;border-radius:50%;background:#11161a;box-shadow:inset 0 0 0 2px var(--panel-line,#414b52)}.ds-nx-btn[aria-pressed=\"true\"]{color:var(--panel-ink,#ece8dc);border-color:var(--track,#6f7a80)}.ds-nx-btn[aria-pressed=\"true\"] i{background:var(--lamp,#fff3d2);box-shadow:none}.ds-nx-btn:hover{color:var(--panel-ink,#ece8dc)}.ds-nx-btn:focus-visible{outline:3px solid var(--yellow,#ffc83a);outline-offset:3px}"
+    },
+    {
+      "name": "Track, berths and exit signal",
+      "kind": "custom",
+      "refersTo": "berth",
+      "description": "A slice of the interlocking diagram: lit route track, a live berth, a dark berth off the route, a red-aspect exit signal.",
+      "html": "<svg class=\"ds-track\" viewBox=\"0 0 520 150\" role=\"img\" aria-label=\"Diagram slice\"><path class=\"ds-t-base\" d=\"M20 60 H200\"/><path class=\"ds-t-base\" d=\"M206 60 H400\"/><path class=\"ds-t-lit\" d=\"M20 60 H200\"/><path class=\"ds-t-lit\" d=\"M206 60 H400\"/><g class=\"ds-berth\" tabindex=\"0\"><text class=\"ds-b-id\" x=\"40\" y=\"12\">P12</text><rect x=\"40\" y=\"18\" width=\"148\" height=\"34\" rx=\"2\"/><text x=\"114\" y=\"40\" text-anchor=\"middle\">llm 2.17|2.90</text></g><g class=\"ds-berth ds-dark\"><text class=\"ds-b-id\" x=\"230\" y=\"92\">R1</text><rect x=\"230\" y=\"98\" width=\"148\" height=\"34\" rx=\"2\"/><text x=\"304\" y=\"120\" text-anchor=\"middle\">search_kb</text></g><path d=\"M200 49 L211 60 L200 71 L189 60 Z\" class=\"ds-points\"/><rect class=\"ds-sig\" x=\"430\" y=\"33\" width=\"26\" height=\"54\" rx=\"13\"/><circle cx=\"443\" cy=\"47\" r=\"8\" fill=\"#ff5a4b\"/><circle cx=\"443\" cy=\"73\" r=\"8\" fill=\"#2a3236\"/></svg>",
+      "css": ".ds-track{display:block;width:100%;max-width:520px;background:var(--panel,#20272b)}.ds-t-base{fill:none;stroke:var(--track,#6f7a80);stroke-width:7}.ds-t-lit{fill:none;stroke:var(--lamp,#fff3d2);stroke-width:7}.ds-points{fill:var(--yellow,#ffc83a);stroke:#0b0f11;stroke-width:2}.ds-sig{fill:#0b0f11;stroke:var(--panel-line,#414b52);stroke-width:2}.ds-berth{cursor:pointer;outline:none}.ds-berth rect{fill:#0f1417;stroke:var(--panel-line,#414b52);stroke-width:1.5}.ds-berth text{font:500 13px \"JetBrains Mono\",ui-monospace,monospace;fill:var(--lamp,#fff3d2)}.ds-berth .ds-b-id{font:600 11px \"Barlow Condensed\",sans-serif;letter-spacing:0.12em;fill:var(--panel-dim,#a8b1b5)}.ds-berth:hover rect,.ds-berth:focus-visible rect{stroke:var(--yellow,#ffc83a);stroke-width:2.5}.ds-berth.ds-dark text{fill:var(--track,#6f7a80)}"
+    },
+    {
+      "name": "Block instrument",
+      "kind": "custom",
+      "description": "One scorer's gate verdict: a three-sector dial with the matching sector lit.",
+      "html": "<figure class=\"ds-block\" data-pos=\"under\"><svg viewBox=\"0 0 200 120\" aria-hidden=\"true\"><path class=\"ds-arc\" d=\"M30 100 A70 70 0 0 1 170 100\"/><path class=\"ds-sec ds-clear\" d=\"M30 100 A70 70 0 0 1 76 34\"/><path class=\"ds-sec ds-under\" d=\"M76 34 A70 70 0 0 1 124 34\"/><path class=\"ds-sec ds-blk\" d=\"M124 34 A70 70 0 0 1 170 100\"/><line class=\"ds-needle\" x1=\"100\" y1=\"100\" x2=\"100\" y2=\"40\"/><circle cx=\"100\" cy=\"100\" r=\"7\" fill=\"#ece8dc\"/></svg><figcaption><code>steps</code><b>Underpowered</b><span>75% → 25%, −50 pts</span></figcaption></figure>",
+      "css": ".ds-block{margin:0;padding:22px 18px 18px;display:grid;justify-items:center;gap:10px;background:#181e21;border:1px solid var(--panel-line,#414b52);max-width:260px}.ds-block svg{width:min(100%,220px);height:auto}.ds-arc{fill:none;stroke:var(--panel-line,#414b52);stroke-width:18}.ds-sec{fill:none;stroke-width:18;opacity:0.28}.ds-clear{stroke:var(--green,#4fe08c)}.ds-under{stroke:var(--yellow,#ffc83a)}.ds-blk{stroke:var(--red,#ff5a4b)}.ds-block[data-pos=\"under\"] .ds-under{opacity:1}.ds-needle{stroke:var(--panel-ink,#ece8dc);stroke-width:4;stroke-linecap:round}.ds-block figcaption{display:grid;justify-items:center;gap:2px;text-align:center}.ds-block code{font:0.85rem \"JetBrains Mono\",monospace;color:var(--panel-dim,#a8b1b5)}.ds-block b{font:800 2rem/1.1 \"Barlow Condensed\",sans-serif;text-transform:uppercase;letter-spacing:0.04em;color:var(--yellow,#ffc83a)}.ds-block span{font:500 0.8rem \"JetBrains Mono\",monospace;color:var(--panel-ink,#ece8dc)}"
+    },
+    {
+      "name": "Lever frame",
+      "kind": "custom",
+      "description": "Scorer config as levers in lever colors: yellow for contains, red for trajectory, white for spare.",
+      "html": "<div class=\"ds-levers\"><div class=\"ds-lever ds-y\"><i></i><span>1</span><b>answer</b><small>contains</small></div><div class=\"ds-lever\"><i></i><span>2</span><b>steps</b><small>trajectory</small></div><div class=\"ds-lever ds-w\"><i></i><span>4</span><b>spare</b><small>spare</small></div></div>",
+      "css": ".ds-levers{display:grid;grid-template-columns:repeat(3,90px);gap:6px;padding:14px 10px 12px;background:#181e21;border:1px solid var(--panel-line,#414b52)}.ds-lever{display:grid;justify-items:center;gap:6px;text-align:center}.ds-lever i{width:14px;height:92px;border-radius:7px 7px 2px 2px;background:var(--lever-red,#c8261c);box-shadow:inset -3px 0 0 rgb(0 0 0 / 0.25)}.ds-lever.ds-y i{background:var(--lever-yellow,#e9b10a)}.ds-lever.ds-w i{background:#e9e5d8}.ds-lever span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#e9e5d8;color:var(--ink,#1b2124);font:700 0.95rem/1 \"Barlow Condensed\",sans-serif}.ds-lever b{font:500 0.78rem \"JetBrains Mono\",monospace;color:var(--panel-ink,#ece8dc)}.ds-lever.ds-w b{color:var(--panel-dim,#a8b1b5)}.ds-lever small{font:500 0.66rem \"JetBrains Mono\",monospace;color:var(--lamp,#fff3d2);background:#0f1417;padding:2px 5px;border-radius:2px}"
+    },
+    {
+      "name": "Ledger entry",
+      "kind": "card",
+      "refersTo": "slip",
+      "description": "Occurrence-book page: 32px blue rules, a red margin rule, a red-ink date, ledger rows and a diff slip, all on the pitch.",
+      "html": "<div class=\"ds-book\"><div class=\"ds-entry\"><span class=\"ds-date\">27 Oct</span><h2>The answer passed. The path didn’t.</h2></div><div class=\"ds-row\"><span class=\"ds-t\">Points</span><p>One line of the system prompt changed.</p></div><pre class=\"ds-diff\"><code><span class=\"ds-del\">-never guess order details.</span><span class=\"ds-add\">+answer refund questions from the policy.</span></code></pre><div class=\"ds-row\"><span class=\"ds-t\">Answer</span><p>Its reply contains <code>30</code>, so the answer scorer passed it.</p></div></div>",
+      "css": ".ds-book{position:relative;padding:32px 24px;background:var(--paper,#e3e8e1) repeating-linear-gradient(180deg,transparent 0 31px,var(--rule-blue,#b6c6d7) 31px 32px);color:var(--ink,#1b2124);font:400 1.125rem/32px Barlow,\"Helvetica Neue\",Arial,sans-serif}.ds-book::before{content:\"\";position:absolute;top:0;bottom:0;left:128px;width:1px;background:var(--rule-red,#c75b52)}.ds-entry{display:grid;grid-template-columns:92px 1fr;gap:0 28px;align-items:baseline;margin-bottom:32px}.ds-entry h2{margin:0;font:800 2.2rem/64px \"Barlow Condensed\",\"Arial Narrow\",sans-serif}.ds-date{font:700 1rem/1 \"Barlow Condensed\",sans-serif;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-red,#8c1c14);text-align:right}.ds-row{display:grid;grid-template-columns:110px 1fr;gap:20px;margin-left:120px}.ds-row p{margin:0;line-height:32px}.ds-t{font:700 0.95rem/32px \"Barlow Condensed\",sans-serif;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-2,#3a4448)}.ds-row code{font:0.86em \"JetBrains Mono\",monospace;background:var(--paper-2,#d7ddd5);padding:0 0.3em;line-height:1;border-radius:2px}.ds-diff{margin:32px 0 32px 120px;padding:0 16px;background:#f4f6f2;outline:1px solid var(--rule-blue,#b6c6d7);font:0.84rem/32px \"JetBrains Mono\",monospace;overflow-x:auto}.ds-diff code{display:block;white-space:pre-wrap}.ds-del{display:block;color:var(--ink-red,#8c1c14);text-decoration:line-through}.ds-add{display:block;background:var(--mark,#ffd84d);margin:0 -16px;padding:0 16px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Signal Box",
+    "overview": "**Creative North Star: \"The Signal Box\"**\n\nThe page is a railway signal box. Its two materials alternate down the page and never mix: the **panel**, an NX interlocking panel in slate enamel where every run is a route lit across a track diagram, and the **occurrence book**, a ruled grey-green ledger where the box writes down what happened. Panel sections (the hero, \"What your agent actually did\", the gate, replay, the quickstart) hold instruments: plates, push buttons, lamps, block instruments, a lever frame, a working timetable. Book sections (the failure, datasets, the rulebook, self-hosting) hold entries: dated headings, ledger rows, diffs, tickets, a pasted screenshot.\n\nColor is a signalling code, not decoration. A lamp's color says a state, and an unlit element says the route isn't set. Scale does the emphasis: a 25% in condensed 800 weight, the ink-red \"−50 pts\" under it. The world is one fixed scheme with no dark-mode variant by design; the panel is already dark and the book already light, and the page relies on that alternation.\n\nMotion is a single clock. Route lamps light one track circuit after another on arrival and whenever a route is set, then hold. Nothing else moves except a pressed push-button cap.",
+    "keyCharacteristics": [
+      "Two materials, strictly alternating: slate-enamel panel and ruled ledger paper.",
+      "Lamps carry state: white route, red danger or fail, green clear or pass, yellow caution or underpowered.",
+      "Lit means live: unlit track and dark berths for routes not set.",
+      "Book text registered to a 32px rule pitch with a red margin rule in the content column.",
+      "Plates screwed to the panel, lettering cut into them.",
+      "One clock drives all motion: route lamps lighting in sequence.",
+      "Real data everywhere: every berth, dial, lever, and register line carries a real span, score, or command."
+    ],
+    "rules": [
+      {
+        "name": "The Lamps Carry State Rule",
+        "body": "Red, green, and yellow on the panel each mean one thing: danger or fail, clear or pass, caution or underpowered. White means a set route. A lamp color never decorates.",
+        "section": "colors"
+      },
+      {
+        "name": "The Lit Means Live Rule",
+        "body": "Track lights only for the route that is set; berths off that route go dark (Unlit Track text on Berth Black). An unset NX button shows an unlit lamp well, a pressed one a lit Route Lamp.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Materials Rule",
+        "body": "A section is either panel or book, and they alternate. Panel colors don't appear on paper and paper colors don't appear on the panel, with two exceptions: the telegram, a paper card laid on the panel, and Book Ink as the text color on a lit lamp fill.",
+        "section": "colors"
+      },
+      {
+        "name": "The Cut-In Rule",
+        "body": "Lettering on the panel reads as engraved into the enamel: a dark shadow above, a faint light one below (`0 -1px 0` dark, `0 1px 0` light). The hero headline carries the same cut at 2px.",
+        "section": "typography"
+      },
+      {
+        "name": "The Writing On The Lines Rule",
+        "body": "In the book, every line of text is 32px tall and sits on its own rule. Inline code chips drop to line-height 1 and vertical padding 0 so they never push a line off the pitch.",
+        "section": "typography"
+      },
+      {
+        "name": "The Registered Ledger Rule",
+        "body": "Anything placed in the book lands on the 32px pitch. A new element in a book section measures its height and margins in 32px steps or it breaks the page.",
+        "section": "layout"
+      },
+      {
+        "name": "The Screwed Plate Rule",
+        "body": "A plate has two screw heads in its top corners (7px radial-gradient dots, 9px in). A panel surface without screws isn't a plate.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do give every red, green, and yellow on the panel a state: danger or fail, clear or pass, caution or underpowered.",
+      "Do keep unset routes unlit: base track in Unlit Track, off-route berths dark.",
+      "Do alternate panel and book sections, and register every line and gap in the book to the 32px rule pitch.",
+      "Do keep book content right of the margin rule (120px indent) on wide screens.",
+      "Do letter the panel in condensed uppercase with the cut-in shadow, and screw plates down with two screw heads.",
+      "Do drive motion from the one clock: route lamps lighting in sequence on arrival and on route setting.",
+      "Do draw scorer verdicts as block instruments and scorer config as levers in lever colors.",
+      "Do put real values in every berth, dial, lever, and register line."
+    ],
+    "donts": [
+      "Don't use a lamp color as decoration.",
+      "Don't light track or berths for a route that isn't set.",
+      "Don't add a second animation, or animate anything besides route lamps and the push-button press.",
+      "Don't add a dark-mode or light-mode variant; the world is one fixed scheme.",
+      "Don't emphasize with a new color where scale will do."
+    ]
+  }
+}

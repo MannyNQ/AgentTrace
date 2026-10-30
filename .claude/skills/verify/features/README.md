@@ -9,7 +9,7 @@ This directory is the maintained source for verifying AgentTrace's user-facing b
 - The instance is the `agenttrace-verify` compose project on the verify ports: ingest :18000, web :13000. Never drive the dev stack on :8000/:3000.
 - Every run writes to `verify-artifacts/<run-id>/`, the directory `up` printed.
 - `up` claims the install as `verify-owner@example.com` / `verify-owner-password` (ADR-0034). Every web page but `/status` and the sign-in pages needs a session: in the browser pane, sign in at `http://127.0.0.1:13000/login` with those credentials first. `H traces` uses the same owner's session.
-- Web paths in these recipes are inside the default project: `/traces` means `http://127.0.0.1:13000/p/default/traces`. The old paths still work after sign-in, by redirecting into the entity's project (design.md, Phase 6).
+- Web paths in these recipes are inside the default project: `/traces` means `http://127.0.0.1:13000/p/default/traces`. The old paths still work after sign-in, by redirecting into the entity's project (architecture.md, Phase 6).
 - The web app reads and writes only through ingest with the signed-in user's session (ADR-0031, ADR-0032). The `curl` recipes below use the `.env` key, which is a `full` key for the default project while the public URL is local (ADR-0033).
 
 ## Driving conventions

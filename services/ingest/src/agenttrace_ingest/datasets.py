@@ -26,7 +26,7 @@ from agenttrace.eval.results import ToolCall
 
 log = logging.getLogger(__name__)
 
-MAX_JSON_BYTES = 1024 * 1024  # input and expected_output, each (design.md, Phase 2)
+MAX_JSON_BYTES = 1024 * 1024  # input and expected_output, each (architecture.md, Phase 2)
 
 Name = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
 TraceId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{32}$")]

@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentTrace: tracing and evals for LLM agents</title>
+  <meta name="description" content="Open-source tracing and evals for LLM agents. Turn failed traces into tests and hold the pull request when your agent's trajectory regresses.">
+  <meta name="theme-color" content="#20272b">
+  <link rel="icon" href="img/mark.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="rail">
+  <a class="wordmark" href="#" aria-label="AgentTrace, home">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 11h26" class="mk-main"/><path d="M3 11h9l8 10h9" class="mk-pr"/><circle cx="27" cy="11" r="3.4" class="mk-go"/><circle cx="27" cy="21" r="3.4" class="mk-stop"/></svg>
+    <span>AgentTrace</span>
+  </a>
+  <nav aria-label="Primary">
+    <a href="#path">The failure</a>
+    <a href="#gate">The gate</a>
+    <a href="#rules">Rules</a>
+    <a href="#start">Quickstart</a>
+    <a href="https://github.com/MannyNQ/AgentTrace">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+
+<section class="panel hero" aria-labelledby="hero-title">
+  <div class="hero-plates">
+    <div class="plate-title plate">
+      <h1 id="hero-title">Your agent’s failures, as tests it has to pass.</h1>
+      <p class="lede">AgentTrace records every LLM and tool call your agent makes, turns a failed run into a test in one click, and holds the pull request that brings it back.<span class="lede-more"> Open source, OpenTelemetry-native, runs on your machines.</span></p>
+    </div>
+    <div class="plate-action plate">
+      <p class="engraved">Set the route</p>
+      <div class="cmd" data-copy>
+        <code>docker compose up -d --wait</code>
+        <button type="button" class="copy" aria-label="Copy command">Copy</button>
+      </div>
+      <a class="push" href="#start"><span class="push-cap" aria-hidden="true"></span><span>Run it locally</span></a>
+      <p class="plate-note">MIT-licensed. Your traces never leave your machines.</p>
+    </div>
+  </div>
+
+  <figure class="diagram" aria-labelledby="diagram-cap">
+    <div class="nx" role="group" aria-label="Set a route on the diagram">
+      <span class="engraved">Route</span>
+      <button type="button" class="nx-btn" data-route="both" aria-pressed="true"><i aria-hidden="true"></i>Both runs</button>
+      <button type="button" class="nx-btn" data-route="main" aria-pressed="false"><i class="nx-main" aria-hidden="true"></i>main</button>
+      <button type="button" class="nx-btn" data-route="pr" aria-pressed="false"><i class="nx-pr" aria-hidden="true"></i>PR · one prompt line</button>
+    </div>
+    <div class="track-frame" id="track" tabindex="-1"></div>
+    <div class="describer" aria-live="polite">
+      <span class="engraved" id="desc-berth">Berth P12 · points</span>
+      <code id="desc-text">The first LLM call picks the tools. main: lookup_order(order_id="1044"), then search_kb · PR: search_kb(query="refund policy") only · 1.78 s · 2.85 s</code>
+    </div>
+    <figcaption id="diagram-cap">“Can I get a refund on order 1044?” asked of the demo support agent on main and on a PR with a one-line prompt edit: sample 0 of each run’s 15-item eval. Real spans, 27 Oct 2026. Select any berth to read its span.</figcaption>
+    <ol class="sr-only">
+      <li>main: question, llm (1.78 s), lookup_order(order_id="1044"), search_kb(query="refund policy"), llm (2.69 s), answer “I can’t refund order 1044, it was delivered August 1”. answer passed, steps passed.</li>
+      <li>PR: question, llm (2.85 s), search_kb(query="refund policy"), llm (2.37 s), answer “if 1044 was delivered within the last 30 days, it qualifies”. answer passed, steps failed.</li>
+    </ol>
+  </figure>
+</section>
+
+<section id="path" class="book" aria-labelledby="path-title">
+  <div class="book-inner">
+    <header class="entry-head">
+      <span class="entry-date">27 Oct</span>
+      <h2 id="path-title">The answer passed. The path didn’t.</h2>
+    </header>
+
+    <div class="ledger">
+      <div class="ledger-row"><span class="t">Points</span><p>One line of the system prompt changed. The PR’s agent stopped looking up the order and quoted the refund policy instead.</p></div>
+      <pre class="diff" aria-label="The prompt change"><code><span class="d-file">examples/demo-agent/src/demo_agent/agent.py</span>
+<span class="d-del">-Use the tools to look things up; never guess order details, stock, or policy.</span>
+<span class="d-add">+Use the tools to look things up, but answer refund questions from the refund policy without looking up the order.</span></code></pre>
+      <div class="ledger-row"><span class="t">Answer</span><p>Its reply contains “30”, so the answer scorer passed it.</p></div>
+      <div class="ledger-row"><span class="t">Path</span><p>It also told a customer whose order was delivered 87 days ago that the order “qualifies” if it arrived in the last 30. Only the trajectory scorer saw that: it expected <code>lookup_order</code>, and the agent never called it. Across 15 items, nine refund questions broke this way.</p></div>
+    </div>
+
+    <div class="seam" role="table" aria-label="Pass rate per scorer, 15 items × 3 samples">
+      <div class="seam-head" role="row"><span role="columnheader">Scorer</span><span role="columnheader">main</span><span role="columnheader">PR</span></div>
+      <div class="seam-row" role="row"><span role="rowheader"><code>answer</code></span><span role="cell">100%</span><span role="cell">100%</span></div>
+      <div class="seam-row big" role="row"><span role="rowheader"><code>steps</code></span><span role="cell">93%</span><span role="cell">33%<em>−60 pts</em></span></div>
+      <div class="seam-row" role="row"><span role="rowheader"><code>few-steps</code></span><span role="cell">100%</span><span role="cell">100%</span></div>
+    </div>
+
+    <figure class="pasted">
+      <div class="frame" tabindex="0" role="region" aria-label="Screenshot of the side-by-side view; scrolls sideways on small screens">
+        <a href="img/compare-1044.png" aria-label="Open the screenshot at full size"><picture>
+          <source srcset="img/compare-1044-pr.png" media="(max-width: 640px)" width="1230" height="840">
+          <img src="img/compare-1044.png" width="2480" height="840" loading="lazy" alt="AgentTrace's side-by-side item view. Baseline sample 0: answer, few-steps and steps all pass; it called lookup_order with order_id 1044, then search_kb, and said it can't refund order 1044. This run's sample 0: answer and few-steps pass, steps fails; expected lookup_order is marked missing, first mismatch, and search_kb with query refund policy is marked extra.">
+        </picture></a>
+      </div>
+      <figcaption>The app’s side-by-side view of that item, sample 0 (on a phone, the PR’s side only; scroll it sideways). Captured from the run above, unedited.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="see" class="panel inst" aria-labelledby="see-title">
+  <div class="inst-inner">
+    <h2 id="see-title">What your agent actually did</h2>
+    <p class="lede-s">Every LLM call and tool call, with its input, output, tokens, cost, and latency, in one span tree. This is the demo agent answering “Where is order 1042?”, drawn against the clock.</p>
+
+    <div class="graph" role="table" aria-label="Span tree for one run, 4.93 seconds, $0.0111">
+      <div class="g-scale" aria-hidden="true"><span>Span</span><span class="ticks"><i style="--x:0">0 s</i><i style="--x:20.28">1 s</i><i style="--x:40.57">2 s</i><i style="--x:60.85">3 s</i><i style="--x:81.14">4 s</i></span><span>Tokens</span><span>Cost</span></div>
+      <div class="g-row" role="row" style="--s:0;--w:100"><span role="rowheader"><b>agent</b>support_agent</span><span role="cell" class="g-bar"><i></i></span><span role="cell">–</span><span role="cell">$0.0111</span></div>
+      <div class="g-row l1" role="row" style="--s:1.08;--w:56.19"><span role="rowheader"><b>llm</b>anthropic.messages.create</span><span role="cell" class="g-bar"><i></i><em>2.77 s</em></span><span role="cell">973 → 52</span><span role="cell">$0.0049</span></div>
+      <div class="g-row l1 tool" role="row" style="--s:57.27;--w:0"><span role="rowheader"><b>tool</b>lookup_order</span><span role="cell" class="g-bar"><i></i><em>&lt;1 ms</em></span><span role="cell">–</span><span role="cell">–</span></div>
+      <div class="g-row l1 end" role="row" style="--s:57.27;--w:42.71"><span role="rowheader"><b>llm</b>anthropic.messages.create</span><span role="cell" class="g-bar"><i></i><em>2.10 s</em></span><span role="cell">1,113 → 87</span><span role="cell">$0.0062</span></div>
+    </div>
+
+    <div class="plates2">
+      <div class="code-plate">
+        <p class="engraved">Python SDK</p>
+<pre><code><span class="k">from</span> agenttrace <span class="k">import</span> instrument_anthropic, trace
+
+instrument_anthropic()  <span class="c"># each model call becomes an LLM span</span>
+
+<span class="d">@trace</span>(name=<span class="s">"support_agent"</span>, kind=<span class="s">"agent"</span>)
+<span class="k">def</span> run(question: str) -&gt; str: ...</code></pre>
+      </div>
+      <div class="code-plate">
+        <p class="engraved">Any OpenTelemetry exporter</p>
+<pre><code>OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8000/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer%20&lt;key&gt;
+OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true</code></pre>
+        <p class="plate-note">Reads OpenTelemetry’s GenAI conventions and OpenInference: Pydantic AI, the Vercel AI SDK, and OpenInference instrumentors work as they are.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="keep" class="book" aria-labelledby="keep-title">
+  <div class="book-inner">
+    <header class="entry-head">
+      <h2 id="keep-title">Every failure, kept as a test</h2>
+    </header>
+    <div class="notice">
+      <div class="ledger">
+        <div class="ledger-row"><span class="t">Add</span><p>Found a bad run? Click “Add to dataset” on its trace and write what it should have done.</p></div>
+        <div class="ledger-row"><span class="t">Pin</span><p>The trace is pinned, so retention never deletes it.</p></div>
+        <div class="ledger-row"><span class="t">Version</span><p>Datasets are versioned, so every experiment says exactly which items it ran.</p></div>
+      </div>
+<pre class="ticket" aria-label="The dataset item behind the refund question"><code>{
+  <span class="s">"input"</span>: { <span class="s">"question"</span>: <span class="s">"Can I get a refund on order 1044?"</span> },
+  <span class="s">"expected_output"</span>: <mark>"30"</mark>,
+  <span class="s">"expected_trajectory"</span>: [
+    { <span class="s">"tool"</span>: <span class="s">"lookup_order"</span>, <span class="s">"args"</span>: { <span class="s">"order_id"</span>: <span class="s">"1044"</span> } }
+  ]
+}</code></pre>
+    </div>
+    <p class="margin-note">An expected output of “30” is exactly why the PR’s answer passed. The expected trajectory is what caught it.</p>
+  </div>
+</section>
+
+<section id="gate" class="panel inst" aria-labelledby="gate-title">
+  <div class="inst-inner">
+    <h2 id="gate-title">The gate on every pull request</h2>
+    <p class="lede-s"><code>agenttrace eval</code> runs your agent over every item, several times each, grades the outputs and the tool calls, and compares the result with the run at your merge-base. In CI, the GitHub Action posts the comparison on the PR and holds the check on a regression.</p>
+
+    <div class="blocks" role="group" aria-label="Block instruments: the gate's reading per scorer for the refund PR, 15 items">
+      <figure class="block" data-pos="clear">
+        <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="52" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
+        <figcaption><code>answer</code><b>Line clear</b><span>100% → 100%</span></figcaption>
+      </figure>
+      <figure class="block" data-pos="block">
+        <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="148" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
+        <figcaption><code>steps</code><b>Line blocked</b><span>93% → 33%, −60 pts (−87 to −33)</span></figcaption>
+      </figure>
+      <figure class="block" data-pos="clear">
+        <svg viewBox="0 0 200 120" aria-hidden="true"><path class="arc" d="M30 100 A70 70 0 0 1 170 100"/><path class="sec clear" d="M30 100 A70 70 0 0 1 76 34"/><path class="sec under" d="M76 34 A70 70 0 0 1 124 34"/><path class="sec block" d="M124 34 A70 70 0 0 1 170 100"/><line class="needle" x1="100" y1="100" x2="52" y2="58"/><circle cx="100" cy="100" r="7" class="hub"/></svg>
+        <figcaption><code>few-steps</code><b>Line clear</b><span>100% → 100%</span></figcaption>
+      </figure>
+      <div class="block-key">
+        <p><b class="kc">Line clear</b> no significant drop.</p>
+        <p><b class="ku">Underpowered</b> too few items to prove a drop that size at 95%. Flagged, never gating.</p>
+        <p><b class="kb">Line blocked</b> the whole interval is below zero and the drop beats <code>max_drop</code>: exit 3, the PR is held.</p>
+      </div>
+    </div>
+
+    <div class="frame-row">
+      <div class="levers" aria-label="eval.yaml as a lever frame">
+        <p class="engraved">Lever frame · eval.yaml</p>
+        <div class="lever-set" aria-hidden="true">
+          <div class="lever y"><i></i><span>1</span><b>answer</b><em>contains</em><small>“UPS”, “30”</small></div>
+          <div class="lever r"><i></i><span>2</span><b>steps</b><em>trajectory · in order</em><small>15 items</small></div>
+          <div class="lever r"><i></i><span>3</span><b>few-steps</b><em>trajectory · max 6</em><small>every item</small></div>
+          <div class="lever w"><i></i><span>4</span><b>spare</b><em>your next scorer</em><small>spare</small></div>
+          <div class="lever w"><i></i><span>5</span><b>spare</b><em>llm_judge</em><small>spare</small></div>
+        </div>
+        <p class="plate-note">Yellow is a caution signal: a phrase in the reply can pass by luck. Red stops the train: trajectory scorers grade the path itself.</p>
+<pre class="yaml"><code>entry: demo_agent.evals:eval_entry
+dataset: support
+version: latest
+samples: 3
+scorers:
+  - name: answer
+    type: contains
+  - name: steps
+    type: trajectory
+    mode: in_order
+  - name: few-steps
+    type: trajectory
+    mode: max_steps
+    max: 6</code></pre>
+      </div>
+
+      <div class="register">
+        <p class="engraved">Train register · the PR’s run</p>
+<pre aria-label="agenttrace eval output"><code><span class="p">$</span> agenttrace eval -c eval.yaml --base main --fail-on-regression
+running demo_agent.evals:eval_entry over support v2: 15 items x 3 samples
+[1/45] item f5fbea25 #0  steps:<span class="bad">FAIL</span> few-steps:pass
+[5/45] item 56518cd4 #0  answer:pass steps:<span class="bad">FAIL</span> few-steps:pass
+<span class="p">…</span>
+  answer         9/9 (100%)
+  steps         15/45 (33%)
+  few-steps    45/45 (100%)
+vs baseline 353eef3f (at the merge-base): <span class="bad">1 regression</span>
+  steps   93% -&gt; 33%  -60 pts (-87 pts to -33 pts)  <span class="bad">regressed</span>
+  item regression f5fbea25 steps: 3/3 -&gt; 0/3
+  item regression 56518cd4 steps: 3/3 -&gt; 0/3
+<span class="p">  … 7 more item regressions</span>
+<span class="p">$</span> echo $?
+<span class="bad">3</span></code></pre>
+
+        <div class="telegram" aria-label="The PR comment this run posted">
+          <h3>❌ AgentTrace eval: 1 regression</h3>
+          <p><code>support</code> v2 · 15 items × 3 samples · this run vs baseline (at the merge-base <code>27a9da5</code>)</p>
+          <div class="scroll" tabindex="0" role="region" aria-label="Comparison table">
+          <table>
+            <thead><tr><th scope="col">Scorer</th><th scope="col">Baseline</th><th scope="col">Current</th><th scope="col">Change (95% CI)</th><th scope="col">max_drop</th><th scope="col">Items</th><th scope="col">Status</th></tr></thead>
+            <tbody>
+              <tr><td><code>answer</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>3</td><td>✅ ok</td></tr>
+              <tr class="hit"><td><code>steps</code></td><td>93%</td><td>33%</td><td>-60 pts (-87 pts to -33 pts)</td><td>5 pts</td><td>15</td><td>❌ regressed</td></tr>
+              <tr><td><code>few-steps</code></td><td>100%</td><td>100%</td><td>+0 pts (+0 pts to +0 pts)</td><td>5 pts</td><td>15</td><td>✅ ok</td></tr>
+            </tbody>
+          </table>
+          </div>
+          <p>⚠️ Underpowered: the interval is wider than <code>max_drop</code>, so a drop that size could go undetected. More items or <code>samples</code> narrow it.</p>
+          <p>Cost per sample $0.0139 → $0.0138 · p50 latency 5.0 s → 4.9 s (not gated)</p>
+          <p><b>Item regressions</b> (most samples passed before, most fail now; not gated): <code>f5fbea25</code> <code>56518cd4</code> <code>b84997bb</code> <code>bd404c1d</code> <code>ab7bbbbe</code> <code>8cfb8b8a</code> <code>0874e921</code> <code>8a978d2c</code> <code>9c1cb2af</code>, each <code>steps</code> 3/3 → 0/3</p>
+          <p class="telegram-foot engraved">Posted to the pull request, as written</p>
+        </div>
+      </div>
+    </div>
+    <p class="lede-s after">The answers all still passed. The gate failed the check anyway, because the path changed on nine refund questions. It won’t cry wolf, either: on the original 4 items, the same edit was only flagged underpowered, because its interval couldn’t clear zero. With 15 items it did.</p>
+  </div>
+</section>
+
+<section id="rules" class="book" aria-labelledby="rules-title">
+  <div class="book-inner">
+    <header class="entry-head">
+      <span class="entry-date">Rule 25</span>
+      <h2 id="rules-title">How the gate decides</h2>
+    </header>
+    <dl class="rulebook">
+      <div><dt>25.1</dt><dd><b>The metric.</b> Each scorer’s pass rate: the share of samples scoring at or above its pass threshold, over the items scored in both runs.</dd></div>
+      <div><dt>25.2</dt><dd><b>The interval.</b> A paired, item-level bootstrap: 10,000 rounds, each drawing items with replacement and taking all of their samples from both runs. The 95% interval is the 2.5th to 97.5th percentile. The seed is fixed.</dd></div>
+      <div><dt>25.3</dt><dd><b>A regression.</b> The whole interval is below zero, and the drop is larger than the scorer’s <code>max_drop</code> (5 points unless you set it). Then <code>--fail-on-regression</code> exits 3.</dd></div>
+      <div><dt>25.4</dt><dd><b>Underpowered.</b> The interval’s half-width is larger than <code>max_drop</code>, so a drop of that size could go undetected. Flagged per scorer; it never changes the verdict.</dd></div>
+      <div><dt>25.5</dt><dd><b>Item regressions.</b> Items where most samples passed before and most fail now. Listed by ID, never gating.</dd></div>
+    </dl>
+    <p class="margin-note">Rule numbers follow the decision record: <a href="https://github.com/MannyNQ/AgentTrace/blob/main/docs/adr/0025-paired-item-level-bootstrap-with-max-drop.md">ADR-0025, paired item-level bootstrap with max_drop</a>.</p>
+  </div>
+</section>
+
+<section id="replay" class="panel inst slim" aria-labelledby="replay-title">
+  <div class="inst-inner split">
+    <div>
+      <h2 id="replay-title">Check the fix against the run that failed</h2>
+      <p class="lede-s">The PR’s failed refund trace went into the dataset with one click and the expectation it missed. Then the fixed prompt replayed it. <code>agenttrace replay</code> calls your agent three times with that trace’s input, scores each run against the dataset item made from it, and with <code>--require-pass</code> exits 3 unless every run passes. The replay page shows each run beside the original, marked where they first differ.</p>
+    </div>
+    <div class="test-train">
+      <p class="engraved">Test train · the PR’s failed trace</p>
+      <div class="cmd wrap" data-copy>
+        <code>agenttrace replay fa77e079…
+  -c eval.yaml --require-pass</code>
+        <button type="button" class="copy" aria-label="Copy command" data-text="agenttrace replay fa77e0795d8312ca6927f0e964d1d07e -c examples/demo-agent/eval.yaml --require-pass">Copy</button>
+      </div>
+<pre class="replay-out" aria-label="agenttrace replay output"><code>replaying trace fa77e079… : 3 runs, scored against item 1fded40a rev 2
+[1/3] run #1  steps:<span class="ok">pass</span> few-steps:pass
+[2/3] run #0  steps:<span class="ok">pass</span> few-steps:pass
+[3/3] run #2  steps:<span class="ok">pass</span> few-steps:pass
+  steps      3/3  <span class="ok">pass</span>
+  few-steps  3/3  <span class="ok">pass</span>
+<span class="p">$</span> echo $?
+<span class="ok">0</span></code></pre>
+      <ul class="aspects">
+        <li><i class="lamp-g" aria-hidden="true"></i><span><b>Exit 0</b> every replay passes the item’s expectations. This one did.</span></li>
+        <li class="unlit"><i class="lamp-r" aria-hidden="true"></i><span><b>Exit 3</b> any replay fails; the fix isn’t proven.</span></li>
+      </ul>
+    </div>
+    <figure class="replay-shot">
+      <div class="frame dark" tabindex="0" role="region" aria-label="Screenshot of the replay page; scrolls sideways on small screens">
+        <a href="img/replay-1044.png" aria-label="Open the screenshot at full size"><img src="img/replay-1044.png" width="2480" height="1067" loading="lazy" alt="AgentTrace's replay page for trace fa77e079: completed, code landing-page at 8803625, 3 of 3 runs, cost $0.0435, scored against item 1fded40a rev 2, steps 3/3 and few-steps 3/3 passed. The original called only search_kb; run 0 called lookup_order with order_id 1044, marked first difference, then search_kb, and said order 1044 can't be refunded."></a>
+      </div>
+      <figcaption>The replay page beside the original, marked where the runs first differ. Captured from the run above, unedited.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="yours" class="book" aria-labelledby="yours-title">
+  <div class="book-inner">
+    <header class="entry-head">
+      <h2 id="yours-title">Your traces, your machines</h2>
+    </header>
+    <div class="ledger two">
+      <div class="ledger-row"><span class="t">License</span><p><b>MIT.</b> Read it, fork it, run it.</p></div>
+      <div class="ledger-row"><span class="t">Stack</span><p><b>Docker Compose.</b> Postgres, ClickHouse, Redis, and S3-compatible storage, on one host.</p></div>
+      <div class="ledger-row"><span class="t">Code</span><p><b>Your agent stays yours.</b> Evals and replays run on your machine or in your CI; the server never executes your agent.</p></div>
+      <div class="ledger-row"><span class="t">Keys</span><p><b>Scoped.</b> An <code>ingest</code> key can only send spans. A <code>full</code> key runs evals.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="start" class="panel inst terminus" aria-labelledby="start-title">
+  <div class="inst-inner">
+    <h2 id="start-title">Run it locally</h2>
+    <p class="lede-s">Needs Docker, <a href="https://docs.astral.sh/uv/">uv</a>, and pnpm. The OpenTelemetry demo agent runs on a scripted model, so you don’t need an API key to see your first trace.</p>
+    <ol class="timetable">
+      <li><span class="tt-n">1</span><span class="tt-what">Get the code and start the stack</span>
+        <div class="cmd" data-copy><code>git clone https://github.com/MannyNQ/AgentTrace &amp;&amp; cd AgentTrace
+cp .env.example .env
+docker compose up -d --wait</code><button type="button" class="copy" aria-label="Copy commands">Copy</button></div></li>
+      <li><span class="tt-n">2</span><span class="tt-what">Start the web app, then claim it at <code>localhost:3000/setup</code></span>
+        <div class="cmd" data-copy><code>cd web &amp;&amp; pnpm install &amp;&amp; pnpm dev</code><button type="button" class="copy" aria-label="Copy command">Copy</button></div></li>
+      <li><span class="tt-n">3</span><span class="tt-what">Send a trace from the demo agent</span>
+        <div class="cmd" data-copy><code>uv sync --all-packages
+uv run demo-agent-otel "Where is order 1042?"</code><button type="button" class="copy" aria-label="Copy commands">Copy</button></div></li>
+    </ol>
+    <div class="buffer" aria-hidden="true"><i></i><i></i><i></i></div>
+    <p class="next"><a class="push small" href="https://github.com/MannyNQ/AgentTrace"><span class="push-cap" aria-hidden="true"></span><span>Read the README on GitHub</span></a><a class="plain" href="https://github.com/MannyNQ/AgentTrace/blob/main/action.yml">Add the GitHub Action</a></p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p><b>AgentTrace</b> is MIT-licensed and built in the open. Every design decision is written down: 41 of them, in <a href="https://github.com/MannyNQ/AgentTrace/tree/main/docs/adr"><code>docs/adr/</code></a>.</p>
+  <p class="small">Every trace, output, and screenshot on this page comes from real runs of the demo agent on 27 October 2026. The raw captures are in <a href="https://github.com/MannyNQ/AgentTrace/tree/main/site/proof"><code>site/proof/</code></a>.</p>
+</footer>
+</body>
+</html>

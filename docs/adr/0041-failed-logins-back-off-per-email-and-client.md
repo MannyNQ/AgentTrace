@@ -1,6 +1,6 @@
 # 41. Failed logins back off per email and client, and are capped per client
 
-Status: accepted. Replaces the login limit in design.md's Phase 7 (ten failures per email in 15 minutes, then 429).
+Status: accepted. Replaces the login limit in architecture.md's Phase 7 (ten failures per email in 15 minutes, then 429).
 
 ## Context
 

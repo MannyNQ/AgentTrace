@@ -45,7 +45,7 @@ REPLAY_OF_ATTRIBUTE = "agenttrace.replay_of"  # services/ingest/.../trace_inputs
 # On a fork run's root span, `<trace_id>:<span_id>` of the original's root span, since its
 # `replay_of` names the fork point, maybe in another replay run that can expire first (ADR-0040).
 REPLAY_ORIGIN_ATTRIBUTE = "agenttrace.replay_origin"
-# Without eval.yaml (`--entry` alone): GLOSSARY.md, design.md Phase 5.
+# Without eval.yaml (`--entry` alone): GLOSSARY.md, architecture.md Phase 5.
 DEFAULT_RUNS = 3
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_CONCURRENCY = 1

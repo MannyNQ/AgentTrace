@@ -27,7 +27,7 @@ function rootEnv(key: string): string | undefined {
   return value || undefined;
 }
 
-/** Where people open the web app; the session cookie is `Secure` when it's https (design.md). */
+/** Where people open the web app; the session cookie is `Secure` when it's https (architecture.md). */
 export const PUBLIC_URL =
   process.env.AGENTTRACE_PUBLIC_URL || rootEnv("AGENTTRACE_PUBLIC_URL") || "http://localhost:3000";
 

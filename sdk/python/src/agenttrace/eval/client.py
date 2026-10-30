@@ -81,7 +81,7 @@ class Client:
         raise ApiError(f"{method} {path}: couldn't reach {self.base} ({error})")
 
     def project(self) -> dict[str, Any]:
-        """The key's project, whose slug the web app's links need (design.md, Phase 6)."""
+        """The key's project, whose slug the web app's links need (architecture.md, Phase 6)."""
         return self.request("GET", "/v1/project")
 
     def dataset(self, dataset: str) -> dict[str, Any]:

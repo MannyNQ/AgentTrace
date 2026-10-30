@@ -1,8 +1,9 @@
 """Scorers (GLOSSARY.md): each grades one sample from 0 to 1, with a reason when it fails.
 
 A scorer that needs an expectation the item doesn't have is skipped for that item, rather than
-scoring 0 (design.md, Phase 3). Built-in scores are 1 or 0. A custom scorer is a function taking a
-`Case` and returning a bool, a number from 0 to 1, a `(score, reason)` pair, or None to skip.
+scoring 0 (architecture.md, Phase 3). Built-in scores are 1 or 0. A custom scorer is a function
+taking a `Case` and returning a bool, a number from 0 to 1, a `(score, reason)` pair, or None to
+skip.
 The LLM judge asks an Anthropic model for a pass or fail verdict (ADR-0027); when the model can't
 be reached it skips the sample, raising `Skipped` with the reason. A judge that's misconfigured (no
 credentials, a bad key, an unknown model) is never skipped: it fails when the scorers are built,

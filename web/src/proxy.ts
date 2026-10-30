@@ -3,14 +3,14 @@ import { DEFAULT_PROJECT, PROJECT_COOKIE, PROJECT_HEADER, SESSION_COOKIE, SLUG }
 
 // Runs before every page (Next's proxy, formerly middleware). It only checks that a session
 // cookie is present; ingest decides whether it's valid, and a page whose session has expired is
-// sent to /login by the ingest client. Project pages live under /p/<slug>/ (design.md, Phase 6).
+// sent to /login by the ingest client. Project pages live under /p/<slug>/ (architecture.md, Phase 6).
 
 const INGEST_URL = process.env.INGEST_URL ?? "http://localhost:8000";
 
 /** Pages for signing in, and the status page, which shows only what ingest's /health shows. */
 const PUBLIC = /^\/(login|setup|status)$|^\/(invite|reset)\/[^/]+$/;
 const PROJECT_PATH = /^\/p\/([^/]+)(?:\/|$)/;
-/** A project's own path: it opens on the overview (design.md, Phase 8). */
+/** A project's own path: it opens on the overview (architecture.md, Phase 8). */
 const PROJECT_HOME = /^\/p\/[^/]+\/?$/;
 /** Paths from before projects were in URLs, as PR comments and the CLI printed them. */
 const OLD_PATH = /^\/(?:api\/)?(traces|datasets|experiments|replays)(?:\/([^/]+))?/;

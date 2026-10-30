@@ -1,5 +1,5 @@
 """Ingest's refusals reach people as sentences that say what to do about the key (ADR-0033),
-and the CLI's links go into the key's project (design.md, Phase 6)."""
+and the CLI's links go into the key's project (architecture.md, Phase 6)."""
 
 import logging
 

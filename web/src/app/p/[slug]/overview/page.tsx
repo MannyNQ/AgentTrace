@@ -19,7 +19,7 @@ import {
 import { Legend, Lines, StackedBars, Tile, type Column, type Series } from "./charts";
 import { ViewerZone } from "./zone";
 
-// The project's landing page (design.md, Phase 8): is the agent getting slower, pricier, or less
+// The project's landing page (architecture.md, Phase 8): is the agent getting slower, pricier, or less
 // reliable, and where? Every number links to the traces behind it.
 
 const TOOL_SORTS = ["calls", "errors", "p95", "name"] as const;

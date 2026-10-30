@@ -1,5 +1,5 @@
 """Projects: listing them, creating them with a slug that never changes, and renaming them or
-changing their retention (design.md, Phase 6). Only owners create and change projects; storage
+changing their retention (architecture.md, Phase 6). Only owners create and change projects; storage
 is the auth `Store`."""
 
 import re

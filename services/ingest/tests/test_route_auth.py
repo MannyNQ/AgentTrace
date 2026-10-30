@@ -1,5 +1,5 @@
 """Every /v1 and /otlp route is guarded, apart from the public ones `auth.PUBLIC_ROUTES` names. A
-new route that forgets its guard fails here instead of shipping open (design.md, Phase 6).
+new route that forgets its guard fails here instead of shipping open (architecture.md, Phase 6).
 
 Each route in the OpenAPI schema is called with no credentials. Guards run before FastAPI
 validates the path or body, so a guarded route answers the guard's 401 whatever it's sent."""
