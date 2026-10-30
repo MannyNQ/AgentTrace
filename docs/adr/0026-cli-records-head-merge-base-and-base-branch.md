@@ -9,7 +9,7 @@ ADR-0007 picks the newest completed experiment at the PR's merge-base commit, el
 ## Decision
 
 - On a pull request, the CLI records the PR head SHA, read from the event payload at `GITHUB_EVENT_PATH`, as `git_commit`. Elsewhere it keeps Phase 3's behavior.
-- The CLI computes the merge-base of the recorded commit (the PR head, not the checked-out merge commit, whose merge-base would be the base branch's tip) with `git merge-base <commit> origin/<base>`, and records it as `git_merge_base`, along with `git_base_branch`. Outside GitHub, `agenttrace eval --base <branch>` does the same. The GitHub Action unshallows the checkout and fetches the base branch, so the history is there. Outside a PR, both are empty.
+- The CLI computes the merge-base of the recorded commit (the PR head, not the checked-out merge commit, whose merge-base would be the base branch's tip) with `git merge-base <commit> origin/<base>`, and records it as `git_merge_base`, along with `git_base_branch`. Outside GitHub, `trayce eval --base <branch>` does the same. The GitHub Action unshallows the checkout and fetches the base branch, so the history is there. Outside a PR, both are empty.
 - The server selects a baseline from `(project, eval.yaml hash, git_merge_base, git_base_branch)`: newest completed experiment whose `git_commit` is the merge-base, else newest completed on the base branch, else none.
 
 ## Consequences

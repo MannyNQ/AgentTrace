@@ -10,12 +10,12 @@ import pytest
 from fastapi.testclient import TestClient
 from stack import emit_spans, register_key
 
-from agenttrace import Span, new_span_id, new_trace_id
-from agenttrace.eval.results import EVAL_TAG
-from agenttrace.pricing import Price, PriceTable
-from agenttrace.spans import TraceMetadata
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
+from trayce import Span, new_span_id, new_trace_id
+from trayce.eval.results import EVAL_TAG
+from trayce.pricing import Price, PriceTable
+from trayce.spans import TraceMetadata
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
 
 pytestmark = pytest.mark.integration
 
@@ -168,8 +168,8 @@ def test_concurrent_reads_share_one_client(api: TestClient):
     """The overview's panels load in parallel, on threads sharing one store."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from agenttrace_ingest.analytics_store import ClickHouseAnalytics
-    from agenttrace_ingest.trace_filter import TraceFilter
+    from trayce_ingest.analytics_store import ClickHouseAnalytics
+    from trayce_ingest.trace_filter import TraceFilter
 
     store = ClickHouseAnalytics(Settings())
     now = datetime.now(UTC)

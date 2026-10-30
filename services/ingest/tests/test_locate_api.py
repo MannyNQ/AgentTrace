@@ -6,9 +6,9 @@ from fake_auth import FakeAuth, FakeLimiter
 from fake_datasets import FakeDatasets, FakePins
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.auth import Auth
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.auth import Auth
+from trayce_ingest.settings import Settings
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 OTHER = UUID("00000000-0000-0000-0000-0000000000bb")
@@ -31,7 +31,7 @@ def client() -> tuple[TestClient, str]:
     store.add_project(FOREIGN, "foreign", org_id=uuid4())
     held = {("trace", TRACE): OTHER, ("replay", REPLAY): FOREIGN}
     app = create_app(
-        Settings(agenttrace_setup_token="t"),
+        Settings(trayce_setup_token="t"),
         checks={},
         auth_store=store,
         limiter=FakeLimiter(),

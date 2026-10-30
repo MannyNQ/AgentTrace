@@ -3,9 +3,9 @@ from uuid import UUID
 
 import pytest
 
-from agenttrace import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
-from agenttrace.pricing import Price, PriceTable
-from agenttrace_worker.pipeline import (
+from trayce import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
+from trayce.pricing import Price, PriceTable
+from trayce_worker.pipeline import (
     COLUMNS,
     PayloadLimits,
     store_payload,

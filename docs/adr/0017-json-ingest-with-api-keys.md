@@ -8,9 +8,9 @@ Phase 1 needs one way for the SDK to send spans. OTLP is the standard, but its m
 
 ## Decision
 
-`POST /v1/spans` takes `{"spans": [...]}`, each matching `agenttrace.Span`, up to 1000 spans and 5 MB. If any span is invalid, the whole batch is rejected with 422; a valid batch is queued and answered with `202 {"accepted": n}`.
+`POST /v1/spans` takes `{"spans": [...]}`, each matching `trayce.Span`, up to 1000 spans and 5 MB. If any span is invalid, the whole batch is rejected with 422; a valid batch is queued and answered with `202 {"accepted": n}`.
 
-Requests carry `Authorization: Bearer <key>`. Keys live in a Postgres `api_keys` table as SHA-256 hashes, each mapping to a project. On startup, ingest upserts the key from `AGENTTRACE_API_KEY` for the default project, so a fresh install works with the key in `.env`.
+Requests carry `Authorization: Bearer <key>`. Keys live in a Postgres `api_keys` table as SHA-256 hashes, each mapping to a project. On startup, ingest upserts the key from `TRAYCE_API_KEY` for the default project, so a fresh install works with the key in `.env`.
 
 ## Consequences
 

@@ -1,14 +1,14 @@
 ---
 name: verify
-description: Launch and drive a real, isolated AgentTrace instance (docker compose stack, ingest API, worker, Next.js web UI, demo-agent CLI) to prove behavior end to end and capture evidence. Use after changing anything in services/, infra/, web/, sdk/, examples/demo-agent/, or docker-compose.yml, or whenever you need to show a feature works in the running app rather than in unit tests.
+description: Launch and drive a real, isolated Trayce instance (docker compose stack, ingest API, worker, Next.js web UI, demo-agent CLI) to prove behavior end to end and capture evidence. Use after changing anything in services/, infra/, web/, sdk/, examples/demo-agent/, or docker-compose.yml, or whenever you need to show a feature works in the running app rather than in unit tests.
 ---
 
-# Verify AgentTrace
+# Verify Trayce
 
-Drive a throwaway AgentTrace instance the way a user would, and keep proof. Everything goes through one helper:
+Drive a throwaway Trayce instance the way a user would, and keep proof. Everything goes through one helper:
 
 ```bash
-.claude/skills/verify/bin/agenttrace-verify <command>
+.claude/skills/verify/bin/trayce-verify <command>
 ```
 
 Run it from the repo root. Commands: `up`, `doctor`, `health [name]`, `page [name]`, `store-stop <svc>`, `store-start <svc>`, `agent "<question>" [name]`, `emit [name]`, `post <name> <key> <file>`, `ch <name> "<sql>"`, `traces [trace_id] [name]`, `web-restart`, `down`.
@@ -25,11 +25,11 @@ The feature map in [`features/README.md`](features/README.md) lists what to veri
 | Demo agent CLI | `uv run demo-agent "<question>"`, traced into the instance; `uv run demo-agent-otel "<question>"`, over OTLP | `agent`; the otlp recipe |
 | Stored state | ClickHouse `spans`/`traces`, Postgres datasets, Redis streams, S3 payloads | `ch`, `docker exec` |
 
-`H` exports `AGENTTRACE_API_KEY` (from `.env`, else `at-local-dev-key`) and `AGENTTRACE_ENDPOINT=http://127.0.0.1:18000`, so compose registers the same key the SDK sends and every agent run is traced into this instance, never the dev stack. The web server runs with `TRACE_QUIET_PERIOD_S=20`.
+`H` exports `TRAYCE_API_KEY` (from `.env`, else `tr-local-dev-key`) and `TRAYCE_ENDPOINT=http://127.0.0.1:18000`, so compose registers the same key the SDK sends and every agent run is traced into this instance, never the dev stack. The web server runs with `TRACE_QUIET_PERIOD_S=20`.
 
 ## Isolation
 
-The helper runs a separate compose project, `agenttrace-verify`, with its own fresh volumes, on these ports:
+The helper runs a separate compose project, `trayce-verify`, with its own fresh volumes, on these ports:
 
 | Service | Verify port | Dev default |
 |---|---|---|
@@ -40,14 +40,14 @@ The helper runs a separate compose project, `agenttrace-verify`, with its own fr
 | Redis | 16379 | 6379 |
 | S3 (SeaweedFS) | 18333 | 8333 |
 
-The web build goes to `web/.next-verify` (`NEXT_DIST_DIR`), so it never collides with a running `next dev`. The user's dev stack (`-p agenttrace`, default ports) can keep running alongside, and you must not touch it.
+The web build goes to `web/.next-verify` (`NEXT_DIST_DIR`), so it never collides with a running `next dev`. The user's dev stack (`-p trayce`, default ports) can keep running alongside, and you must not touch it.
 
 Only one verification instance can run at a time, since the ports are fixed. `up` refuses to start if any verify port is taken or a run is already active. Never "fix" that by killing whatever holds the port. Run `doctor` to see whether it's yours. If it isn't, stop and report.
 
 ## Launch
 
 ```bash
-.claude/skills/verify/bin/agenttrace-verify up
+.claude/skills/verify/bin/trayce-verify up
 ```
 
 What it does, in order (about 25 s warm, a few minutes on a first image build):
@@ -55,10 +55,10 @@ What it does, in order (about 25 s warm, a few minutes on a first image build):
 1. Refuses if a run is active or any verify port is in use.
 2. Copies `.env.example` to `.env` if `.env` is missing.
 3. Creates `verify-artifacts/<run-id>/` and records the git SHA.
-4. Runs `docker compose -p agenttrace-verify up -d --build --wait`. Fresh volumes mean Postgres and ClickHouse run their init SQL. "Healthy" for ingest means its `/health` passed, which requires the default project row, the `spans` table, Redis, and the `payloads` bucket, not just open ports.
+4. Runs `docker compose -p trayce-verify up -d --build --wait`. Fresh volumes mean Postgres and ClickHouse run their init SQL. "Healthy" for ingest means its `/health` passed, which requires the default project row, the `spans` table, Redis, and the `payloads` bucket, not just open ports.
 4a. Claims the install (ADR-0034) with the setup token from ingest's logs, as owner `verify-owner@example.com` / `verify-owner-password`, and keeps that session in `verify-artifacts/.state/cookies.txt` for `traces`. Sign in with the same credentials in the browser pane. Start with `CLAIM=0 up` to test the setup page on an unclaimed install; `traces` then refuses to run.
 5. Builds the web app (`next build`) into `.next-verify`, restoring `web/tsconfig.json` afterwards because the build rewrites it.
-6. Starts `next start` on 127.0.0.1:13000 in its own process group, with only `INGEST_URL=http://127.0.0.1:18000` and `AGENTTRACE_PUBLIC_URL=http://127.0.0.1:13000`: no store credentials or API key (ADR-0031).
+6. Starts `next start` on 127.0.0.1:13000 in its own process group, with only `INGEST_URL=http://127.0.0.1:18000` and `TRAYCE_PUBLIC_URL=http://127.0.0.1:13000`: no store credentials or API key (ADR-0031).
 
 It's ready when it prints `READY run=<id> ingest=http://127.0.0.1:18000 web=http://127.0.0.1:13000 artifacts=<dir>`. A non-zero exit prints the tail of the failing log, and the full logs are in the run dir (`compose-up.log`, `web-build.log`, `web.log`).
 
@@ -67,32 +67,32 @@ Set `RUN_ID=<name>` before `up` to name the run dir instead of using a timestamp
 ## Doctor
 
 ```bash
-.claude/skills/verify/bin/agenttrace-verify doctor
+.claude/skills/verify/bin/trayce-verify doctor
 ```
 
 This is read-only. Run it first, and again whenever anything looks off. It prints:
 
 - The active run and the SHA it was built from versus HEAD. If they differ, your change isn't in the running instance: run `down` then `up`.
-- Health of each `agenttrace-verify-*` container.
+- Health of each `trayce-verify-*` container.
 - That ingest is published on :18000 by our project.
 - `GET /health` status.
 - That the :13000 listener's process group is the one `up` started.
 
-It ends with `DOCTOR OK` or `DOCTOR FAIL` (exit 1). Don't drive a `DOCTOR FAIL` instance. Read the failing line, check `docker logs agenttrace-verify-<svc>-1`, fix, then `down` and `up`.
+It ends with `DOCTOR OK` or `DOCTOR FAIL` (exit 1). Don't drive a `DOCTOR FAIL` instance. Read the failing line, check `docker logs trayce-verify-<svc>-1`, fix, then `down` and `up`.
 
 ## Drive
 
 Each command writes `<name>.cmd` (command and exit code), `<name>.out` and `<name>.err` to the run dir, then prints the result. Pass a name to keep several captures apart (`health health-redis-down`).
 
-- **API health:** `agenttrace-verify health [name]` curls `/health`. The body is followed by `http_status=<code>`.
-- **Web page, as text:** `agenttrace-verify page [name]` saves the full server-rendered HTML of `/status` and writes `<name>.summary` with one `label => result` line per store, or `Ingest API unreachable`.
+- **API health:** `trayce-verify health [name]` curls `/health`. The body is followed by `http_status=<code>`.
+- **Web page, as text:** `trayce-verify page [name]` saves the full server-rendered HTML of `/status` and writes `<name>.summary` with one `label => result` line per store, or `Ingest API unreachable`.
 - **Web page, visually:** use the built-in browser pane. Navigate to `http://127.0.0.1:13000/status`, find the heading `Service health` with `find`, then take a `screenshot`. Every other page needs a session: sign in at `/login` first. Copy the screenshot file the tool reports into the run dir with a descriptive name.
-- **Fault injection:** `agenttrace-verify store-stop <svc>` and `store-start <svc>`, where svc is `postgres`, `clickhouse`, `redis`, `seaweedfs` or `ingest`. These only touch the verify project. `store-start` waits for the service to be healthy again.
-- **Demo agent:** `agenttrace-verify agent "Where is order 1042?"` runs the CLI and captures `agent.{cmd,out,err}`. It needs `ANTHROPIC_API_KEY` in `.env`. Each run calls the real API and costs money.
+- **Fault injection:** `trayce-verify store-stop <svc>` and `store-start <svc>`, where svc is `postgres`, `clickhouse`, `redis`, `seaweedfs` or `ingest`. These only touch the verify project. `store-start` waits for the service to be healthy again.
+- **Demo agent:** `trayce-verify agent "Where is order 1042?"` runs the CLI and captures `agent.{cmd,out,err}`. It needs `ANTHROPIC_API_KEY` in `.env`. Each run calls the real API and costs money.
 - **Side effects:** check stored state directly, read-only.
-  - `docker exec agenttrace-verify-postgres-1 psql -U agenttrace -d agenttrace -tAc "<sql>"`
-  - `docker exec agenttrace-verify-clickhouse-1 clickhouse-client --user agenttrace --password agenttrace -q "<sql>"`
-  - `docker exec agenttrace-verify-redis-1 redis-cli <cmd>`
+  - `docker exec trayce-verify-postgres-1 psql -U trayce -d trayce -tAc "<sql>"`
+  - `docker exec trayce-verify-clickhouse-1 clickhouse-client --user trayce --password trayce -q "<sql>"`
+  - `docker exec trayce-verify-redis-1 redis-cli <cmd>`
 
 ## Evidence
 
@@ -112,12 +112,12 @@ Rules:
 ## Cleanup
 
 ```bash
-.claude/skills/verify/bin/agenttrace-verify down
+.claude/skills/verify/bin/trayce-verify down
 ```
 
-This kills only the process group `up` started, runs `docker compose -p agenttrace-verify down -v` (only our project and our volumes), removes `web/.next-verify` and `verify-artifacts/.state`, and keeps `verify-artifacts/<run-id>/`. Run it after every run, including failed ones. Never `docker compose down` without `-p agenttrace-verify`, and never kill by process name: either would take out the user's dev stack or dev server.
+This kills only the process group `up` started, runs `docker compose -p trayce-verify down -v` (only our project and our volumes), removes `web/.next-verify` and `verify-artifacts/.state`, and keeps `verify-artifacts/<run-id>/`. Run it after every run, including failed ones. Never `docker compose down` without `-p trayce-verify`, and never kill by process name: either would take out the user's dev stack or dev server.
 
-Afterwards, `lsof -nP -iTCP:13000 -sTCP:LISTEN` and `docker ps -a --filter name=agenttrace-verify` should both come back empty.
+Afterwards, `lsof -nP -iTCP:13000 -sTCP:LISTEN` and `docker ps -a --filter name=trayce-verify` should both come back empty.
 
 ## Gotchas
 

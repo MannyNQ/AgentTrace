@@ -13,7 +13,7 @@ The public `/status` page shows whether the stack is up; it needs no session and
 
 - Open `http://localhost:3000/status` (dev) or `http://127.0.0.1:13000/status` (verify instance) in a browser, or follow "Service status" on a project's home page.
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 

@@ -1,6 +1,6 @@
 # Demo agent
 
-The Keyly support agent answers customer questions in a terminal by calling five tools (`lookup_order`, `check_inventory`, `issue_refund`, `search_kb`, `escalate`) against fixed demo data. It shows each tool call with ✓ or ✗ and then a short answer. It's the app AgentTrace will trace from Phase 1, so its observable behavior must stay stable.
+The Keyly support agent answers customer questions in a terminal by calling five tools (`lookup_order`, `check_inventory`, `issue_refund`, `search_kb`, `escalate`) against fixed demo data. It shows each tool call with ✓ or ✗ and then a short answer. It's the app Trayce will trace from Phase 1, so its observable behavior must stay stable.
 
 ## Sub-features
 
@@ -9,14 +9,14 @@ The Keyly support agent answers customer questions in a terminal by calling five
 - `agent-refund-allowed` refunds a delivered order inside the 30-day window.
 - `agent-refund-refused` declines a refund outside the window and explains the policy.
 - `agent-escalate` hands warranty claims to a human.
-- `agent-traced` sends each run to AgentTrace: a `support_agent` agent span with an LLM span per model call and a tool span per tool call, priced and shown in the UI.
-- `agent-full-capture` records each LLM span with the whole request and response, and each tool span (through `agenttrace.call_tool`) with the hook that recorded it and how its output was recorded and, on failure, the error message, which is what a fork needs to stub a step (ADR-0039, ADR-0040).
+- `agent-traced` sends each run to Trayce: a `support_agent` agent span with an LLM span per model call and a tool span per tool call, priced and shown in the UI.
+- `agent-full-capture` records each LLM span with the whole request and response, and each tool span (through `trayce.call_tool`) with the hook that recorded it and how its output was recorded and, on failure, the error message, which is what a fork needs to stub a step (ADR-0039, ADR-0040).
 
 ## How to get to it (user POV)
 
 - Run `uv run demo-agent "<question>"` from the repo root, with `ANTHROPIC_API_KEY` set in `.env`.
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 
@@ -32,7 +32,7 @@ Preconditions:
 
 - **Traced.** After the steps above, run `H traces '' traces-agent`. There's one `support_agent` line per run, each `ok` (the tool-error run too, since the agent recovers) with tag `demo-agent` and a cost in dollars. Then `H traces <trace_id of the tool-error run> trace-agent-tool-error`: `[agent] support_agent` with `[llm] anthropic.messages.create` and `[tool] lookup_order ✗ ToolError` beneath it. Check the LLM span's model and cost with `H ch agent-llm-cost "SELECT model, input_tokens, output_tokens, cost_usd FROM spans WHERE kind='llm' ORDER BY start_time"`: every row has a non-null cost equal to `(input_tokens*4 + output_tokens*20)/1e6` for `claude-opus-5-5`.
 
-- **Full capture.** After the order-status and tool-error runs, get the first LLM span: `H ch llm-span "SELECT trace_id, span_id, input_uri != '' FROM spans WHERE kind='llm' ORDER BY start_time LIMIT 1 FORMAT TSV"`. With the instance's key (`KEY=$(grep '^AGENTTRACE_API_KEY=' .env | cut -d= -f2-); KEY=${KEY:-at-local-dev-key}`), fetch its full payloads into the run dir: `curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:18000/v1/traces/<trace_id>/spans/<span_id>/input | jq -r .text > verify-artifacts/<run-id>/llm-input.json` and the same with `output` into `llm-output.json` (the endpoint wraps the payload as a JSON string in `{"text": ...}`). `jq -S 'keys' llm-input.json` lists `betas`, `fallbacks`, `max_tokens`, `messages`, `model`, `output_config`, `system`, `tools`, and no `extra_*` or `timeout`; `jq '[.tools[] | has("input_schema")] | all'` is `true`. `jq -S 'keys' llm-output.json` includes `content`, `id`, `model`, `stop_reason`, `usage`. The first call's input is about 2 KB, so it's inline (the third column is 0); later calls in a long run grow past 8 KB and are offloaded, and the endpoint reads them from S3 the same way. Then `H ch tool-marks "SELECT name, status, attributes['agenttrace.interceptor'], attributes['agenttrace.output_recorded'], attributes['agenttrace.error_message'] FROM spans WHERE kind='tool' ORDER BY start_time FORMAT TSV"`: every tool span has `call_tool`, every `ok` one `json` (the demo tools return plain dicts), and the tool-error run's `lookup_order` row is `error` with an empty output mark (an errored call has no output) and `No order with id \'9999\'.` (ClickHouse's TSV escapes the quotes).
+- **Full capture.** After the order-status and tool-error runs, get the first LLM span: `H ch llm-span "SELECT trace_id, span_id, input_uri != '' FROM spans WHERE kind='llm' ORDER BY start_time LIMIT 1 FORMAT TSV"`. With the instance's key (`KEY=$(grep '^TRAYCE_API_KEY=' .env | cut -d= -f2-); KEY=${KEY:-tr-local-dev-key}`), fetch its full payloads into the run dir: `curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:18000/v1/traces/<trace_id>/spans/<span_id>/input | jq -r .text > verify-artifacts/<run-id>/llm-input.json` and the same with `output` into `llm-output.json` (the endpoint wraps the payload as a JSON string in `{"text": ...}`). `jq -S 'keys' llm-input.json` lists `betas`, `fallbacks`, `max_tokens`, `messages`, `model`, `output_config`, `system`, `tools`, and no `extra_*` or `timeout`; `jq '[.tools[] | has("input_schema")] | all'` is `true`. `jq -S 'keys' llm-output.json` includes `content`, `id`, `model`, `stop_reason`, `usage`. The first call's input is about 2 KB, so it's inline (the third column is 0); later calls in a long run grow past 8 KB and are offloaded, and the endpoint reads them from S3 the same way. Then `H ch tool-marks "SELECT name, status, attributes['trayce.interceptor'], attributes['trayce.output_recorded'], attributes['trayce.error_message'] FROM spans WHERE kind='tool' ORDER BY start_time FORMAT TSV"`: every tool span has `call_tool`, every `ok` one `json` (the demo tools return plain dicts), and the tool-error run's `lookup_order` row is `error` with an empty output mark (an errored call has no output) and `No order with id \'9999\'.` (ClickHouse's TSV escapes the quotes).
 
 ## Gotchas
 

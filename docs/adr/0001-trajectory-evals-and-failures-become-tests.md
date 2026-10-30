@@ -4,11 +4,11 @@ Status: accepted
 
 ## Context
 
-Langfuse, LangSmith, Phoenix, Braintrust, and Helicone already cover general LLM tracing and evals. AgentTrace can't out-feature them and needs a sharp angle.
+Langfuse, LangSmith, Phoenix, Braintrust, and Helicone already cover general LLM tracing and evals. Trayce can't out-feature them and needs a sharp angle.
 
 ## Decision
 
-AgentTrace's angle is the loop from a production failure to a CI regression test that grades the agent's steps:
+Trayce's angle is the loop from a production failure to a CI regression test that grades the agent's steps:
 
 - **Trajectory evals**: first-class scoring of which tools the agent called, in what order, with what arguments, in how many steps.
 - **Failures become tests**: one click turns a failed trace into a dataset item, including its trajectory.

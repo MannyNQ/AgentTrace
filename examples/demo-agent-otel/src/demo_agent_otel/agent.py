@@ -1,7 +1,7 @@
 """The demo agent's support tools on Pydantic AI, traced only with OpenTelemetry.
 
 Pydantic AI's instrumentation records the run, each model request, and each tool call as spans in
-OpenTelemetry's GenAI conventions; nothing here imports `agenttrace`. The model is a
+OpenTelemetry's GenAI conventions; nothing here imports `trayce`. The model is a
 `FunctionModel` running a fixed policy, so it needs no API key, no network, and answers the same
 way every time, like the demo agent's mock tools.
 """

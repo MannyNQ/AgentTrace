@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { projectLinks } from "@/lib/links";
 import type { Contents, Item } from "@/lib/datasets";
 
-/** "AgentTrace / <project> / ...". `trail` paths are inside the project, like "/datasets". The
+/** "Trayce / <project> / ...". `trail` paths are inside the project, like "/datasets". The
  * links need the request's project, so the static shell shows the labels until they stream in. */
 export function Crumbs({ trail }: { trail: [string, string?][] }) {
   return (
@@ -18,7 +18,7 @@ export function Crumbs({ trail }: { trail: [string, string?][] }) {
 async function LinkedCrumbs({ trail }: { trail: [string, string?][] }) {
   const at = await projectLinks();
   const slug = at("").slice("/p/".length);
-  const all: [string, string?][] = [["AgentTrace", "/"], [slug, at("")], ...trail.map(([l, h]): [string, string?] => [l, h && at(h)])];
+  const all: [string, string?][] = [["Trayce", "/"], [slug, at("")], ...trail.map(([l, h]): [string, string?] => [l, h && at(h)])];
   return all.map(([label, href], i) => (
     <span key={`${i}-${label}`}>
       {i > 0 && " / "}

@@ -1,10 +1,10 @@
 [project]
-name = "agenttrace-ingest"
+name = "trayce-ingest"
 version = "0.0.1"
-description = "AgentTrace ingestion API"
+description = "Trayce ingestion API"
 requires-python = ">=3.12"
 dependencies = [
-  "agenttrace",
+  "trayce",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic-settings>=2.4",
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-agenttrace-admin = "agenttrace_ingest.admin:main"
+trayce-admin = "trayce_ingest.admin:main"
 
 [build-system]
 requires = ["hatchling"]

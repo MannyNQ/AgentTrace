@@ -9,7 +9,7 @@ A replay always shows each run beside the original, with the first difference ma
 Other places to get the expectation:
 
 - **A published dataset version.** Publishing is the step after the fix works. Requiring it first slows the loop and puts unproven expectations into versions CI runs.
-- **Flags on `agenttrace replay`.** A second place to write expectations, outside the dataset, that CI never sees.
+- **Flags on `trayce replay`.** A second place to write expectations, outside the dataset, that CI never sees.
 - **No scoring.** The user judges the side-by-side by eye, which doesn't answer "does my fix work" for a trajectory with many steps.
 
 ## Decision

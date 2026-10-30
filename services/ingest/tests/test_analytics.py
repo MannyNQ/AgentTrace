@@ -11,10 +11,10 @@ from fake_auth import FakeAuth
 from fake_datasets import FakeDatasets, FakePins
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest import analytics as an
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.trace_filter import TraceFilter
+from trayce_ingest import analytics as an
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
+from trayce_ingest.trace_filter import TraceFilter
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 NOW = datetime(2026, 10, 26, 15, 40, tzinfo=UTC)
@@ -243,7 +243,7 @@ class FailingClickHouse:
 def test_a_zone_clickhouse_lacks_is_the_caller_s_fault(message: str, error: str):
     from clickhouse_connect.driver.exceptions import DatabaseError
 
-    from agenttrace_ingest.analytics_store import ClickHouseAnalytics
+    from trayce_ingest.analytics_store import ClickHouseAnalytics
 
     store = ClickHouseAnalytics(Settings())
     store.__dict__["_clickhouse"] = FailingClickHouse(DatabaseError(message))

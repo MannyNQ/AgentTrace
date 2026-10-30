@@ -213,7 +213,7 @@ export async function readPayload(traceId: string, spanId: string, which: "input
   return (await api.read<{ text: string }>(path))?.text ?? null;
 }
 
-/** What a trace did, in the shape a replay run records (sdk `agenttrace.eval.runner`): its tool
+/** What a trace did, in the shape a replay run records (sdk `trayce.eval.runner`): its tool
  * calls in start order, and the root span's output. Null when the trace has expired. */
 export async function traceOutcome(
   traceId: string,

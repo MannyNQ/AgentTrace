@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from agenttrace import call_tool, trace
-from agenttrace._playback import (
+from trayce import call_tool, trace
+from trayce._playback import (
     LlmRecording,
     NoRecording,
     Playback,
@@ -85,9 +85,9 @@ def test_traced_and_async_tools_are_answered_without_running(collected):
     finally:
         deactivate(token)
     assert ran == []
-    assert all(s.attributes["agenttrace.stubbed"] == "true" for s in collected.spans)
+    assert all(s.attributes["trayce.stubbed"] == "true" for s in collected.spans)
 
 
 def test_without_a_playback_tools_run(collected):
     assert call_tool("lookup", {"order": "42"}, lambda order: {"live": order}) == {"live": "42"}
-    assert "agenttrace.stubbed" not in collected.spans[0].attributes
+    assert "trayce.stubbed" not in collected.spans[0].attributes

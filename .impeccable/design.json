@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-10-28T05:52:34+00:00",
-  "title": "Design System: AgentTrace",
+  "title": "Design System: Trayce",
   "scope": "The public landing page in site/. The self-hosted product UI in web/ is a separate surface not covered here.",
   "extensions": {
     "colorMeta": {
@@ -602,7 +602,7 @@
       "kind": "nav",
       "refersTo": "nav-link",
       "description": "Slate rail with the wordmark and condensed uppercase links.",
-      "html": "<header class=\"ds-rail\"><a class=\"ds-wordmark\" href=\"#\"><svg viewBox=\"0 0 32 32\" width=\"30\" height=\"30\" aria-hidden=\"true\"><path d=\"M3 11h26\" stroke=\"#fff3d2\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M3 11h9l8 10h9\" stroke=\"#6f7a80\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"27\" cy=\"11\" r=\"3.4\" fill=\"#4fe08c\"/><circle cx=\"27\" cy=\"21\" r=\"3.4\" fill=\"#ff5a4b\"/></svg><span>AgentTrace</span></a><nav><a href=\"#path\">The failure</a><a href=\"#gate\">The gate</a><a href=\"#start\">Quickstart</a></nav></header>",
+      "html": "<header class=\"ds-rail\"><a class=\"ds-wordmark\" href=\"#\"><svg viewBox=\"0 0 32 32\" width=\"30\" height=\"30\" aria-hidden=\"true\"><path d=\"M3 11h26\" stroke=\"#fff3d2\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\"/><path d=\"M3 11h9l8 10h9\" stroke=\"#6f7a80\" stroke-width=\"3\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><circle cx=\"27\" cy=\"11\" r=\"3.4\" fill=\"#4fe08c\"/><circle cx=\"27\" cy=\"21\" r=\"3.4\" fill=\"#ff5a4b\"/></svg><span>Trayce</span></a><nav><a href=\"#path\">The failure</a><a href=\"#gate\">The gate</a><a href=\"#start\">Quickstart</a></nav></header>",
       "css": ".ds-rail{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:14px 24px;border-bottom:1px solid var(--panel-line,#414b52);background:var(--panel,#20272b)}.ds-wordmark{display:inline-flex;align-items:center;gap:10px;text-decoration:none;font:700 1.45rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;color:var(--panel-ink,#ece8dc)}.ds-rail nav{display:flex;gap:24px}.ds-rail nav a{font:600 0.95rem/1 \"Barlow Condensed\",\"Arial Narrow\",sans-serif;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;color:var(--panel-dim,#a8b1b5);padding:8px 0}.ds-rail nav a:hover{color:var(--panel-ink,#ece8dc)}.ds-rail a:focus-visible{outline:3px solid var(--yellow,#ffc83a);outline-offset:3px}"
     },
     {

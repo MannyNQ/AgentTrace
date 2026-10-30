@@ -25,10 +25,10 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 from web_session import cookie_header
 
-from agenttrace import Span, new_span_id, new_trace_id
-from agenttrace.eval.results import EVAL_TAG
-from agenttrace.exporter import flush, get_exporter
-from agenttrace.spans import TraceMetadata
+from trayce import Span, new_span_id, new_trace_id
+from trayce.eval.results import EVAL_TAG
+from trayce.exporter import flush, get_exporter
+from trayce.spans import TraceMetadata
 
 SERVICE = f"overview-verify-{uuid.uuid4().hex[:6]}"  # its own per run, so reruns don't add up
 ingest, web = sys.argv[1].rstrip("/"), sys.argv[2].rstrip("/")
@@ -61,7 +61,7 @@ def sdk_trace(ms: int, *, error=False, tags=(), children=()) -> None:
                           kind=kind, start_time=begin,
                           end_time=begin + timedelta(milliseconds=child_ms), **fields))  # fmt: skip
     exporter = get_exporter()
-    assert exporter, "set AGENTTRACE_API_KEY and AGENTTRACE_ENDPOINT"
+    assert exporter, "set TRAYCE_API_KEY and TRAYCE_ENDPOINT"
     for s in spans:
         exporter.export(s)
 

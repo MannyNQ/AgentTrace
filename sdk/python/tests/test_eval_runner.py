@@ -9,11 +9,11 @@ from uuid import uuid4
 
 import pytest
 
-from agenttrace import span, tracing
-from agenttrace.eval import config, scorers
-from agenttrace.eval.client import ApiError, DatasetVersion, VersionItem
-from agenttrace.eval.results import Finish, NewExperiment, SampleResult, ToolCall
-from agenttrace.eval.runner import (
+from trayce import span, tracing
+from trayce.eval import config, scorers
+from trayce.eval.client import ApiError, DatasetVersion, VersionItem
+from trayce.eval.results import Finish, NewExperiment, SampleResult, ToolCall
+from trayce.eval.runner import (
     MAX_ARG_BYTES,
     MAX_TRAJECTORY_BYTES,
     MAX_UPLOAD_BYTES,

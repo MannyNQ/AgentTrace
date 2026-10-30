@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from agenttrace import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
+from trayce import Span, SpanKind, TraceMetadata, new_span_id, new_trace_id
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 

@@ -13,7 +13,7 @@ const STORE_LABELS: Record<StoreName, string> = {
 export default function StatusPage() {
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
-      <p className="font-mono text-xs uppercase tracking-widest text-muted">AgentTrace</p>
+      <p className="font-mono text-xs uppercase tracking-widest text-muted">Trayce</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">Status</h1>
       <section className="mt-6">
         <h2 className="text-sm font-medium">Service health</h2>

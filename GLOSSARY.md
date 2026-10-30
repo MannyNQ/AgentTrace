@@ -1,6 +1,6 @@
 # Glossary
 
-The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms exactly; don't drift to the synonyms listed under "Avoid".
+The vocabulary Trayce uses in code, UI, docs, and issues. Use these terms exactly; don't drift to the synonyms listed under "Avoid".
 
 ## Tenancy
 
@@ -8,7 +8,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Project**: One agent or app being monitored. Every span, dataset, and experiment belongs to exactly one project, and every query is scoped by `project_id`. Every member of the org can see every project. See ADR-0002.
 
-**Project slug**: A project's URL name, as in `/p/<slug>/traces`. Generated from the name at creation, unique within the org, and never changed; the name stays editable. The default project's slug is `default`. Session requests to the API name their project with it in the `AgentTrace-Project` header (ADR-0032).
+**Project slug**: A project's URL name, as in `/p/<slug>/traces`. Generated from the name at creation, unique within the org, and never changed; the name stays editable. The default project's slug is `default`. Session requests to the API name their project with it in the `Trayce-Project` header (ADR-0032).
 
 **User**: A person with an account: an email, an argon2id password hash, and one org membership. Created by claiming the install or accepting an invite. Deactivated, never deleted.
 
@@ -18,13 +18,13 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Session**: A logged-in user's access, an opaque token held by ingest (hashed) and by the web app in an httpOnly cookie. Lasts 30 days, sliding. See ADR-0032. _Avoid_ confusing it with Session ID, which groups traces.
 
-**API key**: A secret that authenticates the SDK, the CLI, or CI as one project. Shown once, stored as a SHA-256 hash, revoked rather than deleted. The key from `AGENTTRACE_API_KEY` is re-added on every startup and can't be revoked in the UI; the published dev key `at-local-dev-key` is accepted only while `AGENTTRACE_PUBLIC_URL` is localhost. See ADR-0017 and ADR-0033.
+**API key**: A secret that authenticates the SDK, the CLI, or CI as one project. Shown once, stored as a SHA-256 hash, revoked rather than deleted. The key from `TRAYCE_API_KEY` is re-added on every startup and can't be revoked in the UI; the published dev key `tr-local-dev-key` is accepted only while `TRAYCE_PUBLIC_URL` is localhost. See ADR-0017 and ADR-0033.
 
 **Key scope**: What an API key may do: `ingest` (send spans only, for agents in production) or `full` (the whole project API, for the CLI and CI). See ADR-0033.
 
 **Invite**: An owner-created, single-use link, valid for 7 days, that lets a person create a user with the role chosen in the invite. Password-reset links work the same way. Deactivating a user voids the unused links they made. There is no email.
 
-**Setup token**: The secret needed to claim an install that has no users yet, from `AGENTTRACE_SETUP_TOKEN` or printed in ingest's logs. Claiming creates the first owner. See ADR-0034.
+**Setup token**: The secret needed to claim an install that has no users yet, from `TRAYCE_SETUP_TOKEN` or printed in ingest's logs. Claiming creates the first owner. See ADR-0034.
 
 ## Tracing
 
@@ -62,9 +62,9 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **OTLP ingest**: The `POST /otlp/v1/traces` endpoint, which takes spans from any OpenTelemetry exporter over OTLP/HTTP and translates each one into a span, stored like any other. Authenticated by an API key, as `/v1/spans` is. A span that can't be stored is dropped and reported back rather than failing the request. See ADR-0035.
 
-**OTel bridge**: The SDK's in-process version of the same translation. It turns OpenTelemetry spans into spans as they end, so the eval runner sees an OTel-instrumented agent's trajectory. The eval runner and `agenttrace replay` install it automatically; elsewhere it's installed with `agenttrace.otel.install()`. See ADR-0036.
+**OTel bridge**: The SDK's in-process version of the same translation. It turns OpenTelemetry spans into spans as they end, so the eval runner sees an OTel-instrumented agent's trajectory. The eval runner and `trayce replay` install it automatically; elsewhere it's installed with `trayce.otel.install()`. See ADR-0036.
 
-**Convention**: The attribute vocabulary an OpenTelemetry span was translated from: `gen_ai` (OpenTelemetry's GenAI conventions), `openinference`, or `none`, recorded in the span's `agenttrace.convention` attribute. A span with neither becomes a `custom` span. _Avoid_: semconv, as shorthand.
+**Convention**: The attribute vocabulary an OpenTelemetry span was translated from: `gen_ai` (OpenTelemetry's GenAI conventions), `openinference`, or `none`, recorded in the span's `trayce.convention` attribute. A span with neither becomes a `custom` span. _Avoid_: semconv, as shorthand.
 
 ## Evals
 
@@ -92,7 +92,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **eval.yaml**: The eval config in the user's repo: the entry point (`module:function`, called with the item's `input`), dataset and `version` (a number or `latest`), scorers with their pass thresholds and `max_drop`, `samples`, `concurrency`, and `timeout_s`. Its hash, over the parsed config as canonical JSON without `name`, `concurrency`, `version`, and `max_drop`, decides which experiments can be compared. See ADR-0022 and ADR-0023.
 
-**Eval runner**: The CLI process (`agenttrace eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. `agenttrace replay` runs replay runs through it unchanged. See ADR-0006.
+**Eval runner**: The CLI process (`trayce eval`) that runs the user's agent over a dataset version, scores the outputs, and uploads results. Runs on the user's machine or in their CI, never on the server. `trayce replay` runs replay runs through it unchanged. See ADR-0006.
 
 **Experiment**: One run of one version of the agent over one dataset version with a set of scorers. Status is `running`, `completed`, or `failed`; `failed` means the runner failed, not the agent. See ADR-0023.
 
@@ -122,7 +122,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 ## Replay
 
-**Replay**: One re-run of a recorded trace's root input through the user's entry point, `--samples k` times (default 3), started with `agenttrace replay <trace_id>`. Stored as one `replays` row with a status (`running`, `completed`, or `failed`), its git commit, branch, and dirty flag, and its runs. Scored only when the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation; the runs are then scored against that draft revision, recorded as `(item_id, rev)` (ADR-0030). Not an experiment: it pins no dataset version. See ADR-0028 and ADR-0029. _Avoid_: calling a replay run a Sample.
+**Replay**: One re-run of a recorded trace's root input through the user's entry point, `--samples k` times (default 3), started with `trayce replay <trace_id>`. Stored as one `replays` row with a status (`running`, `completed`, or `failed`), its git commit, branch, and dirty flag, and its runs. Scored only when the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation; the runs are then scored against that draft revision, recorded as `(item_id, rev)` (ADR-0030). Not an experiment: it pins no dataset version. See ADR-0028 and ADR-0029. _Avoid_: calling a replay run a Sample.
 
 **Replay run**: One execution within a replay, and its own trace. Its root span carries `replay_of`, the `(trace_id, span_id)` of the original trace's root span, or of the fork point for a fork. A whole-trace replay of a replay run points at the original's root span, so its `replay_of` never chains; a fork points at the trace it forked, which may itself be a replay run, so forks chain, and names the original's root span in `replay_origin` as well. Errored runs score 0, as in an errored sample. See ADR-0028 and ADR-0040. _Avoid_: Sample, which is an experiment's run.
 
@@ -134,7 +134,7 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Stubbed prefix**: The steps of a fork before its fork point, each answered with the original trace's recorded result rather than run.
 
-**Stubbable**: A step whose recording can stand in for running it: an LLM span with the full request and response (ADR-0039), or a tool span from `@trace(kind="tool")` or `agenttrace.call_tool` whose output survived recording unchanged and untruncated. A fork whose prefix, or a tool-stubbed replay whose trace, needs a step that isn't stubbable is refused, naming the step.
+**Stubbable**: A step whose recording can stand in for running it: an LLM span with the full request and response (ADR-0039), or a tool span from `@trace(kind="tool")` or `trayce.call_tool` whose output survived recording unchanged and untruncated. A fork whose prefix, or a tool-stubbed replay whose trace, needs a step that isn't stubbable is refused, naming the step.
 
 **Divergence**: A fork run's prefix leaving the recording: a tool call with no recorded match, after which the run goes live from that step and records it as `diverged_at`. An LLM request that differs from its recording isn't a divergence; the stub is still returned and the differing fields are recorded as a warning, since a changed prompt is usually the fix being tested.
 
@@ -150,4 +150,4 @@ The vocabulary AgentTrace uses in code, UI, docs, and issues. Use these terms ex
 
 **Production traffic**: Traces that are neither eval samples' traces nor replay runs. The overview counts only these unless told otherwise.
 
-**Service name**: `service_name` on a trace, from its root span's `resource.service.name`: an OpenTelemetry resource attribute over OTLP, or `AGENTTRACE_SERVICE_NAME` (else `OTEL_SERVICE_NAME`) in the SDK. Empty for traces stored before Phase 8.
+**Service name**: `service_name` on a trace, from its root span's `resource.service.name`: an OpenTelemetry resource attribute over OTLP, or `TRAYCE_SERVICE_NAME` (else `OTEL_SERVICE_NAME`) in the SDK. Empty for traces stored before Phase 8.

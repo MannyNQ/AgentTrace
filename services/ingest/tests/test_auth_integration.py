@@ -10,11 +10,11 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.auth import DEFAULT_PROJECT_ID, FREE_LOGIN_FAILURES, User, hash_token
-from agenttrace_ingest.auth_store import PostgresAuth, RedisLimiter
-from agenttrace_ingest.datasets import Conflict
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.auth import DEFAULT_PROJECT_ID, FREE_LOGIN_FAILURES, User, hash_token
+from trayce_ingest.auth_store import PostgresAuth, RedisLimiter
+from trayce_ingest.datasets import Conflict
+from trayce_ingest.settings import Settings
 
 pytestmark = pytest.mark.integration
 

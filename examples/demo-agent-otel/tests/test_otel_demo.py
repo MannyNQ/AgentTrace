@@ -3,9 +3,9 @@ No API key or network: the model is a `FunctionModel`."""
 
 import pytest
 
-from agenttrace import SpanKind, SpanStatus, add_span_processor, otel, span, tracing
-from agenttrace.eval.runner import trajectory
 from demo_agent_otel.agent import MODEL_NAME, run
+from trayce import SpanKind, SpanStatus, add_span_processor, otel, span, tracing
+from trayce.eval.runner import trajectory
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,7 @@ def bridged(monkeypatch):
 REFUND_1043 = "I'd like to return order 1043, I changed my mind."
 
 
-def test_its_spans_nest_under_an_agenttrace_span_through_the_bridge(bridged):
+def test_its_spans_nest_under_an_trayce_span_through_the_bridge(bridged):
     with span("sample", "agent", input={"question": "q"}) as root:
         run(REFUND_1043)
     spans = [s for s in bridged if s.trace_id == root.trace_id and s.span_id != root.span_id]
@@ -53,7 +53,7 @@ def test_its_spans_nest_under_an_agenttrace_span_through_the_bridge(bridged):
     llm = by_kind[SpanKind.LLM]
     assert len(llm) == 3  # one per model request: two tool calls, then the answer
     assert all(s.model == MODEL_NAME and s.input_tokens and s.output_tokens for s in llm)
-    assert all(s.attributes["agenttrace.convention"] == "gen_ai" for s in spans)
+    assert all(s.attributes["trayce.convention"] == "gen_ai" for s in spans)
 
 
 def test_a_failed_tool_call_is_an_error_span(bridged):

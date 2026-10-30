@@ -32,18 +32,18 @@ jobs:
       - run: docker compose up -d --build --wait --wait-timeout 180
       - run: uv sync --all-packages --frozen
       - name: Seed and publish the support dataset
-        run: python3 -I .claude/skills/verify/bin/seed_support_dataset.py http://localhost:8000 at-local-dev-key
+        run: python3 -I .claude/skills/verify/bin/seed_support_dataset.py http://localhost:8000 tr-local-dev-key
       - name: Baseline, as a push to the base branch at the merge-base
         env:
-          AGENTTRACE_ENDPOINT: http://localhost:8000
-          AGENTTRACE_API_KEY: at-local-dev-key
+          TRAYCE_ENDPOINT: http://localhost:8000
+          TRAYCE_API_KEY: tr-local-dev-key
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE: ${{ github.base_ref }}
         run: |
           merge_base=$(git merge-base "$HEAD_SHA" "origin/$BASE")
           GITHUB_EVENT_NAME=push GITHUB_SHA="$merge_base" GITHUB_REF_NAME="$BASE" \
             GITHUB_HEAD_REF= GITHUB_BASE_REF= \
-            uv run agenttrace eval -c .github/eval-gate/eval.yaml --name baseline
+            uv run trayce eval -c .github/eval-gate/eval.yaml --name baseline
 
       - name: The gate passes
         id: good
@@ -51,7 +51,7 @@ jobs:
         with:
           config: .github/eval-gate/eval.yaml
           api-url: http://localhost:8000
-          api-key: at-local-dev-key
+          api-key: tr-local-dev-key
           run-prefix: uv run
           install: "false"
 
@@ -64,7 +64,7 @@ jobs:
         with:
           config: .github/eval-gate/eval-broken.yaml
           api-url: http://localhost:8000
-          api-key: at-local-dev-key
+          api-key: tr-local-dev-key
           run-prefix: uv run
           install: "false"
 

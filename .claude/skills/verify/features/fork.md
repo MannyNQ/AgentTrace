@@ -11,10 +11,10 @@ A fork replays a recorded trace up to a chosen step and runs the user's current 
 ## How to get to it (user POV)
 
 - Find the failing step on the trace page: select the LLM span before the wrong tool call and open "Fork from here".
-- Run the command it shows with the fix in the working tree: `agenttrace replay <trace> --from <span>`.
+- Run the command it shows with the fix in the working tree: `trayce replay <trace> --from <span>`.
 - Read the fork's replay page from the replays list on the trace page.
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 
@@ -24,12 +24,12 @@ Preconditions:
 Run, from the repo root:
 
 ```bash
-KEY=$(grep '^AGENTTRACE_API_KEY=' .env | cut -d= -f2-); KEY=${KEY:-at-local-dev-key}
-AGENTTRACE_API_KEY=$KEY AGENTTRACE_ENDPOINT=http://127.0.0.1:18000 \
+KEY=$(grep '^TRAYCE_API_KEY=' .env | cut -d= -f2-); KEY=${KEY:-tr-local-dev-key}
+TRAYCE_API_KEY=$KEY TRAYCE_ENDPOINT=http://127.0.0.1:18000 \
   uv run python .claude/skills/verify/bin/fork_demo.py verify-artifacts/<run-id> | tee verify-artifacts/<run-id>/fork-demo.out
 ```
 
-`fork_demo.py` drives the real CLI. It records the original with `bin/fork_entry.py` (the demo agent with `FORK_PROMPT=broken`), finds the LLM step that asked for `issue_refund`, runs `agenttrace replay <trace> --entry fork_entry:entry --from <that span> --samples 2` with `FORK_PROMPT=fixed` and `FORK_TOOL_LOG`, then runs a whole replay as the control. It prints one `ok`/`FAIL` line per check and ends with `FORK OK` or `FORK FAIL` (exit 1). Artifacts in the run dir: `fork-original-<n>.json` (the original's steps), `fork-replay.out` (the CLI's command, exit code and output), `fork-replay.json` (the replay as ingest stores it), the two tool logs, and `fork-control.out` (the control replay's output).
+`fork_demo.py` drives the real CLI. It records the original with `bin/fork_entry.py` (the demo agent with `FORK_PROMPT=broken`), finds the LLM step that asked for `issue_refund`, runs `trayce replay <trace> --entry fork_entry:entry --from <that span> --samples 2` with `FORK_PROMPT=fixed` and `FORK_TOOL_LOG`, then runs a whole replay as the control. It prints one `ok`/`FAIL` line per check and ends with `FORK OK` or `FORK FAIL` (exit 1). Artifacts in the run dir: `fork-original-<n>.json` (the original's steps), `fork-replay.out` (the CLI's command, exit code and output), `fork-replay.json` (the replay as ingest stores it), the two tool logs, and `fork-control.out` (the control replay's output).
 
 For the UI, sign in and open the original's trace page and the fork's replay page (the replay ID is in `fork-replay.out`): the claims are under `rp-ui-fork` in [replay.md](./replay.md).
 

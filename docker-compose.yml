@@ -1,8 +1,8 @@
-name: agenttrace
-# Host ports are overridable (AGENTTRACE_*_PORT) so a second project (-p) can run beside this one.
+name: trayce
+# Host ports are overridable (TRAYCE_*_PORT) so a second project (-p) can run beside this one.
 # Everything listens on 127.0.0.1 by default: ingest and the worker reach the stores on the compose
-# network. Set AGENTTRACE_INGEST_BIND=0.0.0.0 to publish ingest to agents on other machines, once
-# AGENTTRACE_API_KEY is a key of your own.
+# network. Set TRAYCE_INGEST_BIND=0.0.0.0 to publish ingest to agents on other machines, once
+# TRAYCE_API_KEY is a key of your own.
 
 x-service-env: &service-env
   POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -16,13 +16,13 @@ x-service-env: &service-env
   S3_BUCKET: ${S3_BUCKET}
   # The key ingest registers for the default project (ADR-0017). The default matches .env.example
   # and the demo agent's, so a .env from before Phase 1 still works.
-  AGENTTRACE_API_KEY: ${AGENTTRACE_API_KEY:-at-local-dev-key}
+  TRAYCE_API_KEY: ${TRAYCE_API_KEY:-tr-local-dev-key}
   # ADR-0034: claims the install. Unset, ingest prints a setup token in its logs until claimed.
-  AGENTTRACE_SETUP_TOKEN: ${AGENTTRACE_SETUP_TOKEN:-}
+  TRAYCE_SETUP_TOKEN: ${TRAYCE_SETUP_TOKEN:-}
   # Where people open the web app. Unless it's localhost, ingest refuses the dev key above.
-  AGENTTRACE_PUBLIC_URL: ${AGENTTRACE_PUBLIC_URL:-}
-  # ADR-0041: peers whose AgentTrace-Client-IP header ingest believes. Unset: loopback and private.
-  AGENTTRACE_TRUSTED_FORWARDERS: ${AGENTTRACE_TRUSTED_FORWARDERS:-}
+  TRAYCE_PUBLIC_URL: ${TRAYCE_PUBLIC_URL:-}
+  # ADR-0041: peers whose Trayce-Client-IP header ingest believes. Unset: loopback and private.
+  TRAYCE_TRUSTED_FORWARDERS: ${TRAYCE_TRUSTED_FORWARDERS:-}
   # ADR-0004: a trace whose root never ended is complete after this much quiet.
   TRACE_QUIET_PERIOD_S: ${TRACE_QUIET_PERIOD_S:-300}
 
@@ -33,7 +33,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports: ["127.0.0.1:${AGENTTRACE_POSTGRES_PORT:-5432}:5432"]
+    ports: ["127.0.0.1:${TRAYCE_POSTGRES_PORT:-5432}:5432"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres:/docker-entrypoint-initdb.d:ro
@@ -46,11 +46,11 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:25.8-alpine
     environment:
-      CLICKHOUSE_DB: agenttrace
+      CLICKHOUSE_DB: trayce
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
-    ports: ["127.0.0.1:${AGENTTRACE_CLICKHOUSE_HTTP_PORT:-8123}:8123", "127.0.0.1:${AGENTTRACE_CLICKHOUSE_NATIVE_PORT:-9000}:9000"]
+    ports: ["127.0.0.1:${TRAYCE_CLICKHOUSE_HTTP_PORT:-8123}:8123", "127.0.0.1:${TRAYCE_CLICKHOUSE_NATIVE_PORT:-9000}:9000"]
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
     volumes:
@@ -67,8 +67,8 @@ services:
     image: redis:7.4-alpine
     # Capped, and refusing writes rather than evicting at the cap: evicting would drop queued span
     # batches or login-failure counts. A full queue answers span ingest with 503 (ADR-0015).
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${AGENTTRACE_REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
-    ports: ["127.0.0.1:${AGENTTRACE_REDIS_PORT:-6379}:6379"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${TRAYCE_REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:${TRAYCE_REDIS_PORT:-6379}:6379"]
     volumes: [redis-data:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -80,7 +80,7 @@ services:
   seaweedfs:
     image: chrislusf/seaweedfs:4.42
     command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json"]
-    ports: ["127.0.0.1:${AGENTTRACE_S3_PORT:-8333}:8333"]
+    ports: ["127.0.0.1:${TRAYCE_S3_PORT:-8333}:8333"]
     volumes:
       - seaweedfs-data:/data
       - ./infra/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
@@ -94,11 +94,11 @@ services:
     build:
       context: .
       dockerfile: services/Dockerfile
-      args: { PACKAGE: agenttrace-ingest }
-    command: ["uvicorn", "agenttrace_ingest.app:app", "--host", "0.0.0.0", "--port", "8000"]
+      args: { PACKAGE: trayce-ingest }
+    command: ["uvicorn", "trayce_ingest.app:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     environment: *service-env
-    ports: ["${AGENTTRACE_INGEST_BIND:-127.0.0.1}:${AGENTTRACE_INGEST_PORT:-8000}:8000"]
+    ports: ["${TRAYCE_INGEST_BIND:-127.0.0.1}:${TRAYCE_INGEST_PORT:-8000}:8000"]
     depends_on:
       postgres: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
@@ -114,8 +114,8 @@ services:
     build:
       context: .
       dockerfile: services/Dockerfile
-      args: { PACKAGE: agenttrace-worker }
-    command: ["agenttrace-worker"]
+      args: { PACKAGE: trayce-worker }
+    command: ["trayce-worker"]
     restart: unless-stopped
     environment: *service-env
     depends_on:
@@ -124,7 +124,7 @@ services:
       redis: { condition: service_healthy }
       seaweedfs: { condition: service_healthy }
     healthcheck:
-      test: ["CMD", "python", "-m", "agenttrace_worker.healthcheck"]
+      test: ["CMD", "python", "-m", "trayce_worker.healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -30,7 +30,7 @@ async function Members() {
     <>
       <section className="mt-6" aria-label="Invite">
         <h2 className="text-sm font-medium">Invite someone</h2>
-        <p className="mt-1 text-xs text-muted">AgentTrace sends no email: copy the link to them.</p>
+        <p className="mt-1 text-xs text-muted">Trayce sends no email: copy the link to them.</p>
         <InviteForm />
       </section>
       <div className="mt-8 overflow-x-auto rounded-md border border-line">

@@ -40,7 +40,7 @@ async function Settings() {
         <h2 className="text-sm font-medium">API keys</h2>
         <p className="mt-1 text-xs text-muted">
           Give agents in production an <code className="font-mono">ingest</code> key, and the CLI and CI a{" "}
-          <code className="font-mono">full</code> one, as <code className="font-mono">AGENTTRACE_API_KEY</code>.
+          <code className="font-mono">full</code> one, as <code className="font-mono">TRAYCE_API_KEY</code>.
         </p>
         <CreateKeyForm />
         <KeyTable keys={keys} />
@@ -78,7 +78,7 @@ function KeyTable({ keys }: { keys: KeyInfo[] }) {
                 {k.revoked_at ? (
                   "revoked"
                 ) : k.from_env ? (
-                  <span title="Re-added from AGENTTRACE_API_KEY on every startup; change it in .env">from .env</span>
+                  <span title="Re-added from TRAYCE_API_KEY on every startup; change it in .env">from .env</span>
                 ) : (
                   <form action={revokeKeyAction.bind(null, k.id)}>
                     <button className="underline">Revoke</button>

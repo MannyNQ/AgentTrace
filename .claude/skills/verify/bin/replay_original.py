@@ -1,8 +1,8 @@
 """Record a 'production' trace of the scripted support agent (.github/eval-gate/gate_agent.py), for
-the replay recipe: its root span input is what `agenttrace replay` re-runs. Set EVAL_GATE_BROKEN=1
+the replay recipe: its root span input is what `trayce replay` re-runs. Set EVAL_GATE_BROKEN=1
 to record the failure. Prints the trace ID.
 
-    EVAL_GATE_BROKEN=1 AGENTTRACE_API_KEY=... AGENTTRACE_ENDPOINT=http://127.0.0.1:18000 \
+    EVAL_GATE_BROKEN=1 TRAYCE_API_KEY=... TRAYCE_ENDPOINT=http://127.0.0.1:18000 \
         uv run python .claude/skills/verify/bin/replay_original.py "Refund order 1043?"
 """
 
@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4] / ".github" / "eval-g
 
 import gate_agent  # noqa: E402
 
-from agenttrace import span  # noqa: E402
-from agenttrace.exporter import flush  # noqa: E402
+from trayce import span  # noqa: E402
+from trayce.exporter import flush  # noqa: E402
 
 question = {"question": sys.argv[1]}
 with span("support_agent", "agent", input=question) as root:

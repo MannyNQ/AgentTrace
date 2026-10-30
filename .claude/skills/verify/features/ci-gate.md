@@ -1,6 +1,6 @@
 # CI gate
 
-A completed experiment is compared with its baseline (ADR-0007, ADR-0026): the newest completed experiment with the same `eval.yaml` hash at the merge-base commit, else the newest on the base branch, else none. Ingest computes the comparison (ADR-0024): per scorer, the pass rate over items scored in both runs, a paired item-level bootstrap 95% interval of the change, and a regression when the interval is below zero and the drop exceeds the scorer's `max_drop` (ADR-0025). `agenttrace eval` prints it, writes it as the PR comment's markdown, and with `--fail-on-regression` exits 3 on a regression. The web app shows it on the experiment page and at `/experiments/<id>/compare/<baseline>`. The `llm_judge` scorer grades with an Anthropic model, untraced, with its cost kept apart (ADR-0027). `action.yml` runs all this in GitHub Actions.
+A completed experiment is compared with its baseline (ADR-0007, ADR-0026): the newest completed experiment with the same `eval.yaml` hash at the merge-base commit, else the newest on the base branch, else none. Ingest computes the comparison (ADR-0024): per scorer, the pass rate over items scored in both runs, a paired item-level bootstrap 95% interval of the change, and a regression when the interval is below zero and the drop exceeds the scorer's `max_drop` (ADR-0025). `trayce eval` prints it, writes it as the PR comment's markdown, and with `--fail-on-regression` exits 3 on a regression. The web app shows it on the experiment page and at `/experiments/<id>/compare/<baseline>`. The `llm_judge` scorer grades with an Anthropic model, untraced, with its cost kept apart (ADR-0027). `action.yml` runs all this in GitHub Actions.
 
 ## Sub-features
 
@@ -15,20 +15,20 @@ A completed experiment is compared with its baseline (ADR-0007, ADR-0026): the n
 
 ## How to get to it (user POV)
 
-- The CLI: `uv run agenttrace eval -c examples/demo-agent/eval.yaml --base main --fail-on-regression --report-md report.md --web-url http://127.0.0.1:13000`.
+- The CLI: `uv run trayce eval -c examples/demo-agent/eval.yaml --base main --fail-on-regression --report-md report.md --web-url http://127.0.0.1:13000`.
 - The web app: an experiment's page → "Versus baseline" → "Open the comparison" or "Compare with…" → an item's input.
 - The PR comment's item links, which open the side-by-side view.
-- The API: `curl -H "Authorization: Bearer $AGENTTRACE_API_KEY" http://127.0.0.1:18000/v1/experiments/<id>/comparison`.
-- GitHub Actions: `uses: MannyNQ/AgentTrace@<ref>` with `api-url` and `api-key`; this repo's own `Eval gate` workflow runs it on PRs that touch the SDK, ingest, or the Action.
+- The API: `curl -H "Authorization: Bearer $TRAYCE_API_KEY" http://127.0.0.1:18000/v1/experiments/<id>/comparison`.
+- GitHub Actions: `uses: MannyNQ/Trayce@<ref>` with `api-url` and `api-key`; this repo's own `Eval gate` workflow runs it on PRs that touch the SDK, ingest, or the Action.
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 
-- A healthy run, `support` seeded with `seed_support_dataset.py` (see the experiments entry), `git fetch origin main`, and `MB=$(git merge-base HEAD origin/main)`. `ANTHROPIC_API_KEY` in `.env` for the demo-agent and judge journeys (about $0.40 for two 12-sample runs plus a 4-sample judge run); the scripted journey needs none. Below, `ENV` is `AGENTTRACE_API_KEY="$KEY" AGENTTRACE_ENDPOINT=http://127.0.0.1:18000`.
+- A healthy run, `support` seeded with `seed_support_dataset.py` (see the experiments entry), `git fetch origin main`, and `MB=$(git merge-base HEAD origin/main)`. `ANTHROPIC_API_KEY` in `.env` for the demo-agent and judge journeys (about $0.40 for two 12-sample runs plus a 4-sample judge run); the scripted journey needs none. Below, `ENV` is `TRAYCE_API_KEY="$KEY" TRAYCE_ENDPOINT=http://127.0.0.1:18000`.
 
-- **Baseline on main.** `GITHUB_EVENT_NAME=push GITHUB_SHA=$MB GITHUB_REF_NAME=main ENV uv run agenttrace eval -c examples/demo-agent/eval.yaml --name "main baseline"`: exit 0, `steps 9/12`, and `baseline: none yet`.
-- **PR passes.** `ENV uv run agenttrace eval -c examples/demo-agent/eval.yaml --name "pr good" --base main --fail-on-regression --report-md $RUN/pr-good.md --web-url http://127.0.0.1:13000`: exit 0, `vs baseline <main baseline id> (at the merge-base): no regressions`; the markdown starts `### ✅ AgentTrace eval: no regressions` and names the merge-base commit.
+- **Baseline on main.** `GITHUB_EVENT_NAME=push GITHUB_SHA=$MB GITHUB_REF_NAME=main ENV uv run trayce eval -c examples/demo-agent/eval.yaml --name "main baseline"`: exit 0, `steps 9/12`, and `baseline: none yet`.
+- **PR passes.** `ENV uv run trayce eval -c examples/demo-agent/eval.yaml --name "pr good" --base main --fail-on-regression --report-md $RUN/pr-good.md --web-url http://127.0.0.1:13000`: exit 0, `vs baseline <main baseline id> (at the merge-base): no regressions`; the markdown starts `### ✅ Trayce eval: no regressions` and names the merge-base commit.
 - **PR regresses.** The same with `ANTHROPIC_API_KEY=invalid` and `--name "pr broken"` (every sample errors): exit 3, `answer`, `steps`, and `few-steps` regressed (`-75 pts (-100 pts to -25 pts)` for steps), the underpowered note, and 9 item regressions (`item <id>`) linking to `/experiments/<pr broken>/compare/<main baseline>/items/<item>`.
 - **UI.** The "pr broken" page shows "3 regressions vs main baseline (at the merge-base · <sha>)" and "Open the comparison (9 item regressions) →". The compare page lists every item with red `3/3 → 0/3` cells shaded; "Where is order 1045?" shows `0/3 → 0/3` under steps (it failed in both). The item view shows the baseline's passing samples beside the errored ones, with `lookup_order` marked "missing · first mismatch". "Compare with…" lists "pr good" and "main baseline" only.
 - **Judge.** A copy of eval.yaml with `samples: 1` and `{name: helpful, type: llm_judge, model: claude-haiku-5-5, criteria: …, include: [input, output, trajectory]}`: each line shows `helpful:pass` or `helpful:FAIL`, `baseline: none yet` (new hash), and `SELECT c.reason, s.judge_usage, s.judge_cost_usd …` has a reason, a `claude-haiku-5-5` usage entry and a cost per sample. `H ch x "SELECT count() FROM spans WHERE parent_span_id = '' AND name = 'anthropic.messages.create'"` is 0, and sample traces hold only the agent's model. Its page shows `judge $…`, "No baseline yet", and `llm judge · claude-haiku-5-5 · <criteria>`; `/experiments/<judge run>/compare/<main baseline>` shows "the baseline ran a different eval.yaml (its hash differs)".

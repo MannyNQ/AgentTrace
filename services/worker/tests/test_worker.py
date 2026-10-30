@@ -6,8 +6,8 @@ from uuid import UUID
 import pytest
 import redis
 
-from agenttrace import Span, new_span_id, new_trace_id
-from agenttrace_worker.main import (
+from trayce import Span, new_span_id, new_trace_id
+from trayce_worker.main import (
     DEAD_STREAM,
     GROUP,
     STREAM,
@@ -16,8 +16,8 @@ from agenttrace_worker.main import (
     ensure_group,
     run_forever,
 )
-from agenttrace_worker.settings import Settings
-from agenttrace_worker.stores import Dedup
+from trayce_worker.settings import Settings
+from trayce_worker.stores import Dedup
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
 PROJECT = "00000000-0000-0000-0000-000000000001"
@@ -170,7 +170,7 @@ def test_survives_redis_outage_with_backoff():
 
 
 def test_batch_parse_keeps_project():
-    from agenttrace_worker.main import parse
+    from trayce_worker.main import parse
 
     b = parse(("1-0", entry_fields("x")))
     assert b.project_id == UUID(PROJECT) and b.spans[0].name == "x"

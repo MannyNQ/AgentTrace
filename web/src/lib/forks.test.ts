@@ -36,8 +36,8 @@ const span = (spanId: string, kind: string, over: Partial<ForkSpan> = {}): ForkS
   outputPreview: kind === "llm" ? '{"id": "msg_1"}' : '{"a": 1}',
   attributes:
     kind === "llm"
-      ? { "agenttrace.interceptor": "anthropic" }
-      : { "agenttrace.interceptor": "call_tool", "agenttrace.output_recorded": "json" },
+      ? { "trayce.interceptor": "anthropic" }
+      : { "trayce.interceptor": "call_tool", "trayce.output_recorded": "json" },
   ...over,
 });
 

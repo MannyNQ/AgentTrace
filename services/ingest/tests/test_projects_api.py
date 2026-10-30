@@ -4,7 +4,7 @@ changes, and owner-only renames and retention changes."""
 import pytest
 from test_auth_api import Api
 
-from agenttrace_ingest.projects import slugify
+from trayce_ingest.projects import slugify
 
 
 @pytest.fixture

@@ -12,7 +12,7 @@ Phase 5 answers "why did it fail and does my fix work". A replay runs the agent 
 
 ## Decision
 
-- `agenttrace replay <trace_id>` calls the user's entry point with the trace's root span input, on the user's machine. The entry point is `eval.yaml`'s (`--config`, default `eval.yaml`), with the same contract as ADR-0022; `--entry module:function` overrides it.
+- `trayce replay <trace_id>` calls the user's entry point with the trace's root span input, on the user's machine. The entry point is `eval.yaml`'s (`--config`, default `eval.yaml`), with the same contract as ADR-0022; `--entry module:function` overrides it.
 - The CLI reads the input from `GET /v1/traces/{trace_id}/input` in the ingest service, authenticated with API keys (ADR-0017). It uses Add to dataset's copy logic: the root span's input, fetched from S3 when it was offloaded. An input the SDK truncated is refused with 422. The CLI never reads the stores.
 - Tools run live, exactly as in `eval`.
 - Each run is its own trace, under a root span the runner opens. That root span carries `replay_of`, pointing at the original trace's root span as `(trace_id, span_id)`. The span ID is redundant while replays always start at the root; it's there so fork-from-step can point at a later span without a schema change.

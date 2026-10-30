@@ -67,7 +67,7 @@ async function TraceList({ searchParams }: { searchParams: PageProps<"/p/[slug]/
             ? "No older traces."
             : describe(filter).length
               ? "No traces match this filter."
-              : "No traces yet. Run the demo agent with AGENTTRACE_API_KEY set."}
+              : "No traces yet. Run the demo agent with TRAYCE_API_KEY set."}
         </p>
       </>
     );

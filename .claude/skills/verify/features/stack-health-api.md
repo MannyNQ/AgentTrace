@@ -1,6 +1,6 @@
 # Stack health API
 
-`GET /health` on the ingest API tells an operator whether AgentTrace can work. It answers 200 with every store `ok`, or 503 with `status: degraded` and the failing store's real error, and goes back to 200 once the store returns. The worker rides out the same outage and resumes consuming.
+`GET /health` on the ingest API tells an operator whether Trayce can work. It answers 200 with every store `ok`, or 503 with `status: degraded` and the failing store's real error, and goes back to 200 once the store returns. The worker rides out the same outage and resumes consuming.
 
 ## Sub-features
 
@@ -14,7 +14,7 @@
 - `curl http://<host>:8000/health` (dev) or `:18000` (verify instance).
 - The web status page at `/status`, which renders this same response without a session. See [web-health-page.md](./web-health-page.md).
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 
@@ -24,8 +24,8 @@ Preconditions:
 - **One store down.** Stop Redis. Run `H store-stop redis`, then `H health health-redis-down`. The response shows `http_status=503` and `"status":"degraded"`, `redis` starts with `error: ConnectionError`, and postgres, clickhouse and s3 are still `ok`.
 - **Each store.** Repeat the previous step for `postgres`, `clickhouse` and `seaweedfs` (that one reports as `s3`), using capture names `health-<svc>-down`. Only the stopped store shows `error: …`. Restart each one before the next with `H store-start <svc>`.
 - **Recovery.** Run `H store-start redis`, then `H health health-recovered`. It prints `http_status=200` with all four stores `ok`.
-- **Worker reconnect.** After the Redis restart, run `docker inspect -f '{{.State.Status}}' agenttrace-verify-worker-1` and `docker logs agenttrace-verify-worker-1 2>&1 | grep "redis unavailable" > verify-artifacts/<run-id>/worker-reconnect.log`. The status is `running`, and the log has at least one `redis unavailable (…); retrying in 1s` line.
-- **Worker consumes again.** Run `docker exec agenttrace-verify-redis-1 redis-cli XADD spans '*' span '{}'`, wait 3 s, then `docker exec agenttrace-verify-redis-1 redis-cli XINFO GROUPS spans`. It shows `consumers` `1` and `pending` `0`, and `docker logs agenttrace-verify-worker-1` contains `received 1 span entries`.
+- **Worker reconnect.** After the Redis restart, run `docker inspect -f '{{.State.Status}}' trayce-verify-worker-1` and `docker logs trayce-verify-worker-1 2>&1 | grep "redis unavailable" > verify-artifacts/<run-id>/worker-reconnect.log`. The status is `running`, and the log has at least one `redis unavailable (…); retrying in 1s` line.
+- **Worker consumes again.** Run `docker exec trayce-verify-redis-1 redis-cli XADD spans '*' span '{}'`, wait 3 s, then `docker exec trayce-verify-redis-1 redis-cli XINFO GROUPS spans`. It shows `consumers` `1` and `pending` `0`, and `docker logs trayce-verify-worker-1` contains `received 1 span entries`.
 - **Proof.** Keep `health-ok`, `health-redis-down`, `health-recovered`, `worker-reconnect.log` and the final `XINFO` output in the run dir. Finish with `H doctor`, which must report `DOCTOR OK`.
 
 ## Gotchas

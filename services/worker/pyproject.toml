@@ -1,10 +1,10 @@
 [project]
-name = "agenttrace-worker"
+name = "trayce-worker"
 version = "0.0.1"
-description = "AgentTrace span processing worker"
+description = "Trayce span processing worker"
 requires-python = ">=3.12"
 dependencies = [
-  "agenttrace",
+  "trayce",
   "redis>=5.0",
   "pydantic-settings>=2.4",
   "psycopg[binary]>=3.2",
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-agenttrace-worker = "agenttrace_worker.main:main"
+trayce-worker = "trayce_worker.main:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -14,9 +14,9 @@ from fake_auth import FakeAuth, FakeLimiter
 from fake_datasets import FakeDatasets, FakePins
 from fastapi.testclient import TestClient
 
-from agenttrace import new_span_id, new_trace_id
-from agenttrace_ingest.app import create_app, purge_expired_forever
-from agenttrace_ingest.auth import (
+from trayce import new_span_id, new_trace_id
+from trayce_ingest.app import create_app, purge_expired_forever
+from trayce_ingest.auth import (
     CLIENT_HEADER,
     DEV_KEY,
     FREE_LOGIN_FAILURES,
@@ -32,9 +32,9 @@ from agenttrace_ingest.auth import (
     hash_token,
     is_local,
 )
-from agenttrace_ingest.auth_store import RedisLimiter
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.traces import Unavailable
+from trayce_ingest.auth_store import RedisLimiter
+from trayce_ingest.settings import Settings
+from trayce_ingest.traces import Unavailable
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")  # slug p-aa
 OTHER = UUID("00000000-0000-0000-0000-0000000000bb")  # slug p-bb, same org
@@ -62,7 +62,7 @@ class Api:
         self.limiter = FakeLimiter()
         self.queue = Queue()
         self.datasets = FakeDatasets()
-        settings.setdefault("agenttrace_setup_token", SETUP)
+        settings.setdefault("trayce_setup_token", SETUP)
         app = create_app(
             Settings(**settings),
             checks={},
@@ -93,7 +93,7 @@ class Api:
         if session is not None:
             headers["Authorization"] = f"Session {session}"
         if project is not None:
-            headers["AgentTrace-Project"] = project
+            headers["Trayce-Project"] = project
         r = self.c.request(method, path, json=json, headers=headers)
         if status is not None:
             assert r.status_code == status, r.text
@@ -200,7 +200,7 @@ def test_the_env_key_is_full_and_can_t_be_revoked(api: Api):
     env = next(k for k in keys if k["from_env"])
     assert env["scope"] == "full" and env["hint"] == "1234" and env["name"] == ".env"
     r = api.call("POST", f"/v1/keys/{env['id']}/revoke", session=owner, project="p-aa", status=409)
-    assert "AGENTTRACE_API_KEY" in api.error(r)
+    assert "TRAYCE_API_KEY" in api.error(r)
     api.call("GET", "/v1/datasets", key="env-key-1234", status=200)
 
 
@@ -219,8 +219,8 @@ def test_a_new_env_key_releases_the_old_one(api: Api):
         ("http://localhost:3000", True),
         ("http://127.0.0.1:13000", True),
         ("http://[::1]:3000", True),
-        ("http://agenttrace.localhost", True),
-        ("https://agenttrace.example.com", False),
+        ("http://trayce.localhost", True),
+        ("https://trayce.example.com", False),
         ("https://localhost.example.com", False),
         ("http://10.0.0.5:3000", False),
     ],
@@ -238,7 +238,7 @@ def test_the_dev_key_is_refused_and_revoked_once_the_install_isn_t_local():
     api = Api()
     a = Auth(api.store, api.limiter)
     a.register_env_key(DEV_KEY, LOCAL, PROJECT)  # an earlier start, before going public
-    assert not a.register_env_key(DEV_KEY, "https://agenttrace.example.com", PROJECT)
+    assert not a.register_env_key(DEV_KEY, "https://trayce.example.com", PROJECT)
     info = api.store.api_keys[hash_token(DEV_KEY)]
     assert info.revoked_at is not None and not info.from_env
     api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
@@ -248,7 +248,7 @@ def test_going_public_with_a_key_of_your_own_revokes_the_dev_key():
     api = Api()
     a = Auth(api.store, api.limiter)
     a.register_env_key(DEV_KEY, LOCAL, PROJECT)  # the quickstart
-    assert a.register_env_key("at_my-own-secret", "https://agenttrace.example.com", PROJECT)
+    assert a.register_env_key("tr_my-own-secret", "https://trayce.example.com", PROJECT)
     assert api.store.api_keys[hash_token(DEV_KEY)].revoked_at is not None
     api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
 
@@ -257,7 +257,7 @@ def test_a_public_install_with_no_env_key_revokes_the_dev_key():
     api = Api()
     a = Auth(api.store, api.limiter)
     a.register_env_key(DEV_KEY, LOCAL, PROJECT)
-    assert a.refuse_dev_key("https://agenttrace.example.com")
+    assert a.refuse_dev_key("https://trayce.example.com")
     api.call("GET", "/v1/datasets", key=DEV_KEY, status=401)
 
 
@@ -271,8 +271,8 @@ def test_a_local_install_keeps_the_dev_key():
 
 def test_a_key_of_your_own_works_on_a_public_install(api: Api):
     a = Auth(api.store, api.limiter)
-    assert a.register_env_key("at_my-own-secret", "https://agenttrace.example.com", PROJECT)
-    api.call("GET", "/v1/datasets", key="at_my-own-secret", status=200)
+    assert a.register_env_key("tr_my-own-secret", "https://trayce.example.com", PROJECT)
+    api.call("GET", "/v1/datasets", key="tr_my-own-secret", status=200)
 
 
 # --- Managing keys --------------------------------------------------------------------------
@@ -289,7 +289,7 @@ def test_an_owner_creates_a_key_shown_once(api: Api):
         status=201,
     ).json()
     key, info = r["key"], r["info"]
-    assert key.startswith("at_") and info["hint"] == key[-4:] and info["scope"] == "ingest"
+    assert key.startswith("tr_") and info["hint"] == key[-4:] and info["scope"] == "ingest"
     listed = api.call("GET", "/v1/keys", session=owner, project="p-aa").text
     assert key not in listed and "prod agent" in listed
     api.spans(key=key, status=202)
@@ -325,7 +325,7 @@ def test_a_session_names_its_project_in_a_header(api: Api):
     listed = api.call("GET", "/v1/datasets", session=owner, project="p-aa").json()["datasets"]
     assert [d["name"] for d in listed] == ["a"]
     r = api.call("GET", "/v1/datasets", session=owner, status=422)
-    assert "AgentTrace-Project" in api.error(r)
+    assert "Trayce-Project" in api.error(r)
 
 
 def test_another_orgs_project_looks_like_no_project(api: Api):
@@ -380,7 +380,7 @@ def test_claiming_with_the_setup_token_makes_the_owner(api: Api):
 
 
 def test_without_the_env_token_a_printed_token_claims_it():
-    api = Api(agenttrace_setup_token=None)
+    api = Api(trayce_setup_token=None)
     printed = Auth(api.store, api.limiter).prepare_setup()  # what another ingest process logged
     assert printed
     body = {"token": printed, "email": OWNER[0], "password": OWNER[1]}
@@ -791,7 +791,7 @@ def test_the_purge_loop_survives_a_failed_pass():
 
 
 def test_the_trusted_forwarders_can_be_narrowed():
-    api = Api(peer="10.0.0.2", agenttrace_trusted_forwarders="10.0.0.9/32")  # not this peer
+    api = Api(peer="10.0.0.2", trayce_trusted_forwarders="10.0.0.9/32")  # not this peer
     api.claim()
     for i in range(MAX_CLIENT_LOGIN_FAILURES):
         api.login(f"u{i}@example.com", "not-the-password", status=401, client=f"192.0.2.{i}")

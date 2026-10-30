@@ -22,10 +22,10 @@ import pytest
 from fastapi.testclient import TestClient
 from stack import emit_root, register_key
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.auth import PUBLIC_ROUTES, hash_token
-from agenttrace_ingest.auth_store import PostgresAuth
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.auth import PUBLIC_ROUTES, hash_token
+from trayce_ingest.auth_store import PostgresAuth
+from trayce_ingest.settings import Settings
 
 pytestmark = pytest.mark.integration
 
@@ -175,7 +175,7 @@ def world() -> Iterator[World]:
 
 
 def session_on(session: str, p: Project) -> dict[str, str]:
-    return {"Authorization": f"Session {session}", "AgentTrace-Project": p.slug}
+    return {"Authorization": f"Session {session}", "Trayce-Project": p.slug}
 
 
 ANALYTICS = ("volume", "latency", "cost", "tools", "models")

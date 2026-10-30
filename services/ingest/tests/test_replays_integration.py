@@ -8,12 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 from stack import emit_root, emit_spans, register_key
 
-from agenttrace import Span
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.migrate import migrate_clickhouse
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import clickhouse_client
-from agenttrace_ingest.trace_inputs import (
+from trayce import Span
+from trayce_ingest.app import create_app
+from trayce_ingest.migrate import migrate_clickhouse
+from trayce_ingest.settings import Settings
+from trayce_ingest.stores import clickhouse_client
+from trayce_ingest.trace_inputs import (
     REPLAY_OF_ATTRIBUTE,
     REPLAY_ORIGIN_ATTRIBUTE,
     TRUNCATED_ATTRIBUTE,
@@ -240,7 +240,7 @@ def test_steps_come_from_clickhouse_with_offloaded_payloads(api: TestClient):
                 kind="llm",
                 input=big,
                 output={"id": "msg_1"},
-                attributes={"agenttrace.interceptor": "anthropic"},
+                attributes={"trayce.interceptor": "anthropic"},
             ),
             at(
                 2,
@@ -250,8 +250,8 @@ def test_steps_come_from_clickhouse_with_offloaded_payloads(api: TestClient):
                 input={"id": "7"},
                 output="123",
                 attributes={
-                    "agenttrace.interceptor": "call_tool",
-                    "agenttrace.output_recorded": "text",
+                    "trayce.interceptor": "call_tool",
+                    "trayce.output_recorded": "text",
                 },
             ),
         ]

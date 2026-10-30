@@ -7,11 +7,11 @@ from fake_experiments import FakePrices
 from fake_replays import FakeReplays
 from fastapi.testclient import TestClient
 
-from agenttrace.eval.results import SpanRef
-from agenttrace.pricing import Price, PriceTable
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.datasets import Refused
-from agenttrace_ingest.settings import Settings
+from trayce.eval.results import SpanRef
+from trayce.pricing import Price, PriceTable
+from trayce_ingest.app import create_app
+from trayce_ingest.datasets import Refused
+from trayce_ingest.settings import Settings
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 OTHER = UUID("00000000-0000-0000-0000-0000000000bb")

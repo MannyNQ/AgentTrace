@@ -1,4 +1,4 @@
-Captured 2026-10-27 from a local verify stack (run 20261027-201809). Nothing here is edited; links in the outputs point at the local stack that produced them.
+Captured 2026-10-27 from a local verify stack (run 20261027-201809). Nothing here is edited; links in the outputs point at the local stack that produced them. These captures predate the product's rename from AgentTrace to Trayce, so they say `agenttrace`; the landing page shows them with only the name changed.
 
 The page's proof (support dataset v2, 15 items):
 

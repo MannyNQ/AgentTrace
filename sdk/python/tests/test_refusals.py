@@ -6,11 +6,11 @@ import logging
 import pytest
 from test_exporter import make_span
 
-from agenttrace import _refusals as refusals
-from agenttrace.cli import _project_url
-from agenttrace.eval.client import ApiError, Client
-from agenttrace.eval.replay import summary
-from agenttrace.exporter import Config, Exporter
+from trayce import _refusals as refusals
+from trayce.cli import _project_url
+from trayce.eval.client import ApiError, Client
+from trayce.eval.replay import summary
+from trayce.exporter import Config, Exporter
 
 SCOPE = {"detail": {"error": "this needs a full API key; this one's scope is ingest"}}
 UNKNOWN = {"detail": {"error": "unknown or revoked API key"}}
@@ -25,7 +25,7 @@ def test_a_refusal_is_its_error_text():
 
 
 def test_a_key_refusal_says_what_to_do():
-    assert "Check AGENTTRACE_API_KEY" in refusals.explain(401, "unknown or revoked API key")
+    assert "Check TRAYCE_API_KEY" in refusals.explain(401, "unknown or revoked API key")
     scope = refusals.explain(403, SCOPE["detail"]["error"])
     assert "need a full key" in scope and "Settings" in scope
     assert refusals.explain(403, "only an owner can do this") == "only an owner can do this"
@@ -48,11 +48,11 @@ def test_the_exporter_logs_the_reason_not_json(http_server, caplog):
             flush_interval_s=60,
         )
     )
-    with caplog.at_level(logging.WARNING, logger="agenttrace"):
+    with caplog.at_level(logging.WARNING, logger="trayce"):
         ex.export(make_span())
         ex.flush()
-    assert "unknown or revoked API key. Check AGENTTRACE_API_KEY" in caplog.text
-    assert "agenttrace.configure()" in caplog.text
+    assert "unknown or revoked API key. Check TRAYCE_API_KEY" in caplog.text
+    assert "trayce.configure()" in caplog.text
     assert '{"detail"' not in caplog.text
 
 
@@ -68,7 +68,7 @@ def test_the_exporter_cuts_a_long_refusal(http_server, caplog):
             api_key="k", endpoint=http_server(lambda p, h, b: (422, fields)), flush_interval_s=60
         )
     )
-    with caplog.at_level(logging.WARNING, logger="agenttrace"):
+    with caplog.at_level(logging.WARNING, logger="trayce"):
         ex.export(make_span())
         ex.flush()
     assert "some fields are invalid" in caplog.text

@@ -8,9 +8,9 @@ Phase 2 adds the first writes that don't come from the SDK: creating datasets, e
 
 ## Decision
 
-All dataset reads and writes go through `/v1/datasets` in the ingest service, authenticated with Bearer API keys like `/v1/spans` (ADR-0017). The key resolves the project; every query is scoped to it. The rules live in `agenttrace_ingest.datasets`, behind a store interface.
+All dataset reads and writes go through `/v1/datasets` in the ingest service, authenticated with Bearer API keys like `/v1/spans` (ADR-0017). The key resolves the project; every query is scoped to it. The rules live in `trayce_ingest.datasets`, behind a store interface.
 
-The web app calls the API from server actions and server components, with `INGEST_URL` and `AGENTTRACE_API_KEY` read from server-only environment variables. Trace reads stay direct (ADR-0018).
+The web app calls the API from server actions and server components, with `INGEST_URL` and `TRAYCE_API_KEY` read from server-only environment variables. Trace reads stay direct (ADR-0018).
 
 ## Consequences
 

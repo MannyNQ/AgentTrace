@@ -1,10 +1,10 @@
-# AgentTrace
+# Trayce
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues on MannyNQ/AgentTrace via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues on MannyNQ/Trayce via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

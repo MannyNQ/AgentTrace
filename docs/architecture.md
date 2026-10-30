@@ -1,6 +1,6 @@
-# AgentTrace design doc (v1)
+# Trayce design doc (v1)
 
-AgentTrace is a self-hostable, open-source platform for teams building LLM agents. It answers three questions: what did my agent do (tracing), why did it fail and does my fix work (replay), and did my change break anything else (evals in CI).
+Trayce is a self-hostable, open-source platform for teams building LLM agents. It answers three questions: what did my agent do (tracing), why did it fail and does my fix work (replay), and did my change break anything else (evals in CI).
 
 Vocabulary is defined in [`GLOSSARY.md`](../GLOSSARY.md). Lasting decisions are in [`docs/adr/`](adr/). This doc ties them together.
 
@@ -23,7 +23,7 @@ Failures become tests, and tests grade trajectories (ADR-0001). A failed product
    replays
 
  browser ──▶ web (Next.js) ──/v1 with the user's session──▶ ingest API
- agenttrace CLI (eval and replay, run on the client) ──/v1 with a full API key──▶ ingest API
+ trayce CLI (eval and replay, run on the client) ──/v1 with a full API key──▶ ingest API
 ```
 
 | Store | Holds | Why |
@@ -46,7 +46,7 @@ Key constraints from the ADRs:
 
 | Path | What |
 |---|---|
-| `sdk/python/` | `agenttrace` package. Phase 0: the span contract (`Span`, `SpanKind`, ID helpers) |
+| `sdk/python/` | `trayce` package. Phase 0: the span contract (`Span`, `SpanKind`, ID helpers) |
 | `services/ingest/` | FastAPI ingest API. Phase 0: `/health` across all four stores |
 | `services/worker/` | Redis Streams consumer. Phase 0: joins the `workers` group and acks |
 | `web/` | Next.js UI. Phase 0: a service health page |
@@ -77,7 +77,7 @@ The demo agent's runs appear in the UI:
 1. **Dataset writes go through the ingest API.** `/v1/datasets` authenticates with API keys like `/v1/spans`. The web app calls it from server actions; the Phase 3 CLI will use the same endpoints (ADR-0019).
 2. **Versions are lists of item revisions.** Editing a draft item adds a revision; a version points at one revision per item, so unchanged items are shared between versions. Publishing requires an expectation on every new or changed item (ADR-0020).
 3. **Optimistic concurrency.** Every item edit and delete names the revision it was based on. A stale revision gets 409, and the UI says to reload.
-4. **Migrations.** Ingest applies numbered SQL files from `agenttrace_ingest/migrations/` on startup, recording each in `schema_migrations` under an advisory lock. Existing stacks upgrade in place; the Phase 0 and Phase 1 init SQL stays as it is.
+4. **Migrations.** Ingest applies numbered SQL files from `trayce_ingest/migrations/` on startup, recording each in `schema_migrations` under an advisory lock. Existing stacks upgrade in place; the Phase 0 and Phase 1 init SQL stays as it is.
 5. **Add to dataset copies the input.** The server reads the trace's root span from ClickHouse, fetches the full input from S3 when it was offloaded, and copies it into Postgres. The client sends only the trace ID. An input the SDK truncated can't be added.
 
 Also settled:
@@ -111,7 +111,7 @@ Also settled:
 - Trajectory modes `exact`, `in_order`, and `any_order` compare against the item's expected trajectory; `forbidden` (a tool list) and `max_steps` (a limit) take their parameters from the scorer config and apply to every item. One scorer entry has one mode; list several for several. Scores are 1 or 0, with a reason naming the first mismatch. Arguments match by Phase 2's partial equality; regex and wildcards wait for a dataset that needs them.
 - Built-in scorers in Phase 3: exact match, contains, regex, JSON schema, and trajectory, plus custom Python scorers by import path. The LLM judge moves to Phase 4.
 - An errored sample (the agent raised or exceeded `timeout_s`, default 120) scores 0 on every scorer.
-- `agenttrace eval` ships in the `agenttrace` package (`agenttrace.eval`); PyYAML and jsonschema sit behind the `agenttrace[eval]` extra. It exits 0 when the experiment completes, 1 when it's `failed`, and 2 when the run couldn't start, in which case nothing is recorded.
+- `trayce eval` ships in the `trayce` package (`trayce.eval`); PyYAML and jsonschema sit behind the `trayce[eval]` extra. It exits 0 when the experiment completes, 1 when it's `failed`, and 2 when the run couldn't start, in which case nothing is recorded.
 - Each scorer type in `eval.yaml` has its own fields, and unknown fields are errors. `exact_match` compares JSON values (strings without surrounding whitespace); `contains` checks each of a list of phrases, case-insensitively by default; `regex` takes a `pattern` for every item, or the item's `expected_output` as the pattern; `json_schema` reads `schema` or `schema_file` (relative to `eval.yaml`, read at load so it's hashed); `custom` names a function taking a `Case` and returning a bool, a 0-1 number, `(score, reason)`, or None to skip.
 - The `eval.yaml` hash leaves out `name`, `concurrency`, and `version`; `--dataset-version` overrides the version without changing it.
 - Samples run on one asyncio loop: async entry points directly, sync ones on a thread pool, both bounded by `concurrency`, with the timeout counted from each sample's start. A timed-out async sample is cancelled; a sync one can't be, so its thread is abandoned and the CLI exits without waiting for it. A run that stops (an upload refused, Ctrl-C) is marked `failed` at once and the CLI exits without waiting for samples still running.
@@ -119,13 +119,13 @@ Also settled:
 
 ## Phase 3 plan
 
-`agenttrace eval` runs the demo agent over a published dataset version, and the experiment shows up in the UI with per-item trajectory scores:
+`trayce eval` runs the demo agent over a published dataset version, and the experiment shows up in the UI with per-item trajectory scores:
 
 1. SDK: span-processor hook, `eval.yaml` loading and hashing, the runner (thread pool and async, per-sample root spans, timeouts), the built-in scorers and custom scorer loading, and the results uploader.
 2. Ingest: experiments schema and `/v1/experiments` (create, upsert samples, finish, list, read), cost from the price table on sample upload, pinning on item creation, and the backfill migration.
 3. Web: experiments list (filterable by dataset) and an experiment page with per-scorer pass rates (mean and spread across samples, with denominators), a per-item table of pass counts, and per-sample output, actual versus expected trajectory with the first mismatch marked, scorer reasons, and the trace link.
 4. Demo agent: an `eval_entry` adapter and an `eval.yaml`.
-5. Proof: scorer unit tests, runner tests with a scripted fake agent and a fake API, experiments API integration tests against Postgres, and an `evals` entry in the verify skill that seeds and publishes a dataset with one item built to fail its trajectory check, runs `agenttrace eval`, and checks the experiment in the UI.
+5. Proof: scorer unit tests, runner tests with a scripted fake agent and a fake API, experiments API integration tests against Postgres, and an `evals` entry in the verify skill that seeds and publishes a dataset with one item built to fail its trajectory check, runs `trayce eval`, and checks the experiment in the UI.
 
 ## Decisions settled in Phase 4
 
@@ -138,9 +138,9 @@ Also settled:
 
 - Cost per sample and p50 latency are compared but don't gate.
 - Item regressions are per scorer: more than half the item's samples passed in the baseline and more than half fail now. Listed, never gating.
-- `agenttrace eval --fail-on-regression` exits 3 on a metric regression; 0, 1, and 2 keep their Phase 3 meanings, and with the flag a comparison that can't be fetched exits 1 (fail closed). No baseline means exit 0. Without the flag, `eval` still prints the comparison. No separate `compare` command. `--base <branch>` finds a baseline outside a GitHub pull request, for local previews.
+- `trayce eval --fail-on-regression` exits 3 on a metric regression; 0, 1, and 2 keep their Phase 3 meanings, and with the flag a comparison that can't be fetched exits 1 (fail closed). No baseline means exit 0. Without the flag, `eval` still prints the comparison. No separate `compare` command. `--base <branch>` finds a baseline outside a GitHub pull request, for local previews.
 - `--report-md <path>` writes the comparison as the PR comment's markdown, so rendering is tested Python and can be previewed locally.
-- The GitHub Action is a composite `action.yml` at the repo root (`MannyNQ/AgentTrace@v0`). Inputs: `config`, `api-url`, `api-key`, `web-url`, `github-token`, plus `run-prefix` (e.g. `uv run`, for agents whose dependencies live in a uv project) and `install` (pip-install `agenttrace[eval]` from the action's copy of the SDK, default on). On a pull request it unshallows the checkout and fetches the base branch for the merge-base, runs `eval` with `--fail-on-regression` only on `pull_request`, writes the markdown to `$GITHUB_STEP_SUMMARY`, and creates or updates one sticky comment per config, found by `<!-- agenttrace:<eval.yaml path> -->` and by its author (the token's user). On pushes it runs ungated, which builds the base branch's baselines.
+- The GitHub Action is a composite `action.yml` at the repo root (`MannyNQ/Trayce@v0`). Inputs: `config`, `api-url`, `api-key`, `web-url`, `github-token`, plus `run-prefix` (e.g. `uv run`, for agents whose dependencies live in a uv project) and `install` (pip-install `trayce[eval]` from the action's copy of the SDK, default on). On a pull request it unshallows the checkout and fetches the base branch for the merge-base, runs `eval` with `--fail-on-regression` only on `pull_request`, writes the markdown to `$GITHUB_STEP_SUMMARY`, and creates or updates one sticky comment per config, found by `<!-- trayce:<eval.yaml path> -->` and by its author (the token's user). On pushes it runs ungated, which builds the base branch's baselines.
 - On fork PRs, secrets are unavailable: the Action skips with a step-summary note and exits 0. No `pull_request_target`.
 - The PR comment, top to bottom: verdict (✅ / ❌ N regressions / ⚪ no baseline) with links to both experiments and how the baseline was chosen; a per-scorer table (baseline, current, change with 95% CI, `max_drop`, denominator, regressed / ok / underpowered); cost per sample and p50 latency; up to 10 item regressions (by item ID) linking to their compare view, then "+N more"; counts of items added and removed.
 - The judge is configured with `model`, `criteria`, and optional `include` (`input`, `output`, `expected_output`, `trajectory`); all of it is in the hash. Judge calls share `concurrency`. A misconfigured judge (no credentials, a bad key, an unknown model) exits 2 before the run, or stops it, rather than skipping every sample.
@@ -162,14 +162,14 @@ A pull request's eval is compared with its baseline, posted as a PR comment, and
 
 ## Decisions settled in Phase 5
 
-1. **A replay re-runs the whole trace on the client.** `agenttrace replay <trace_id>` calls the user's entry point with the trace's root input. Each run's trace carries `replay_of`, the original's root span `(trace_id, span_id)`, so fork-from-step can come later without a schema change. A server-side single-call playground is out under ADR-0006 (ADR-0028, building on ADR-0022).
+1. **A replay re-runs the whole trace on the client.** `trayce replay <trace_id>` calls the user's entry point with the trace's root input. Each run's trace carries `replay_of`, the original's root span `(trace_id, span_id)`, so fork-from-step can come later without a schema change. A server-side single-call playground is out under ADR-0006 (ADR-0028, building on ADR-0022).
 2. **Replays are their own entity.** A Postgres `replays` table behind `/v1/replays` holds the group, its status, and per-run scores. The lifecycle is experiments' (ADR-0023): client-generated IDs, `running`, runs upserted as scored, then `completed` or `failed`. ClickHouse's trace summary gets a `replay_of` column. Replay traces expire normally and replaying doesn't pin the original (ADR-0029, consistent with ADR-0021).
 3. **Replays score against the item's current draft revision.** If the trace is the `source_trace_id` of an item in `eval.yaml`'s dataset draft and the item has an expectation, the runs are scored with `eval.yaml`'s scorers and the revision `(item_id, rev)` is recorded. Otherwise the replay is unscored (ADR-0030).
 
 Also settled:
 
 - Fork-from-step waits for fuller LLM capture: today LLM spans record only `system` and `messages` as input, parameters as strings, and tools by name without schemas. Tools run live, as in `eval`; stubbing recorded tool results waits for the same ADR.
-- The entry point comes from `eval.yaml` (`agenttrace replay <trace_id> [--config eval.yaml]`); `--entry module:function` overrides it. `--entry` with no `eval.yaml` is allowed and unscored, with `samples` 3, `timeout_s` 120, and `concurrency` 1.
+- The entry point comes from `eval.yaml` (`trayce replay <trace_id> [--config eval.yaml]`); `--entry module:function` overrides it. `--entry` with no `eval.yaml` is allowed and unscored, with `samples` 3, `timeout_s` 120, and `concurrency` 1.
 - `GET /v1/traces/{trace_id}/input` returns the root span's input with Add to dataset's copy logic, fetching it from S3 when offloaded. A truncated input is refused with 422. The CLI never touches the stores.
 - `--samples k` defaults to 3, as in `eval`. Each run is its own trace with `replay_of`. Runs use the eval runner unchanged: `concurrency` and `timeout_s` from `eval.yaml`, a runner-opened root span per run, and an errored run scores 0.
 - Any trace whose root span input is available untruncated can be replayed, including experiment sample traces and traces still running. Replaying a replay resolves to the original's root span, so `replay_of` never chains.
@@ -181,7 +181,7 @@ Also settled:
 - The trace list hides replay traces unless "Show replays" is on.
 - The trace page gets a "Replays" panel (time, commit and dirty flag, pass counts if scored) and a "Replay" button that shows the CLI command to copy, since the server can't run it (ADR-0006). A replay page shows the original and the k runs side by side with the Phase 4 side-by-side component, the first difference marked, and scorer reasons. There is no top-level replays list.
 - The server computes each run's cost on arrival, and the CLI reuses the byte-bounded uploader.
-- ClickHouse schema changes are migrations too. Ingest applies numbered SQL files from `agenttrace_ingest/migrations/clickhouse/` on startup and records each in a ClickHouse `schema_migrations` table, as it does for Postgres. The init SQL stays as it is, so existing stacks upgrade in place. Phase 5's file adds `replay_of` to `traces` and swaps `traces_mv`'s query in place with `MODIFY QUERY`, so no insert goes unsummarized; traces already stored get `''`, which is right, since none of them are replays. Migrations retry in the background while ClickHouse is down, so ingest still takes spans.
+- ClickHouse schema changes are migrations too. Ingest applies numbered SQL files from `trayce_ingest/migrations/clickhouse/` on startup and records each in a ClickHouse `schema_migrations` table, as it does for Postgres. The init SQL stays as it is, so existing stacks upgrade in place. Phase 5's file adds `replay_of` to `traces` and swaps `traces_mv`'s query in place with `MODIFY QUERY`, so no insert goes unsummarized; traces already stored get `''`, which is right, since none of them are replays. Migrations retry in the background while ClickHouse is down, so ingest still takes spans.
 - Phase 6 is still auth.
 
 ## Phase 5 plan
@@ -189,37 +189,37 @@ Also settled:
 A failed trace is re-run against a fix, and the result is compared with the original and scored against the item's expectation:
 
 1. Ingest: a ClickHouse migration runner, a replays migration (the `replays` table and its runs, and a `replay_of` column on `traces` filled from the root span by `traces_mv`), `/v1/replays` (create, upsert runs, finish, list, read) with cost on arrival, and `GET /v1/traces/{trace_id}/input`.
-2. SDK and CLI: `agenttrace replay` with `--config`, `--entry`, `--samples`, and `--require-pass`; `replay_of` on each run's root span; root resolution for replays of replays; the draft-item lookup and scoring; git and dirty-flag capture; the pass-count printout; exit codes 0, 1, 2, and 3.
+2. SDK and CLI: `trayce replay` with `--config`, `--entry`, `--samples`, and `--require-pass`; `replay_of` on each run's root span; root resolution for replays of replays; the draft-item lookup and scoring; git and dirty-flag capture; the pass-count printout; exit codes 0, 1, 2, and 3.
 3. Web: the "Replays" panel and "Replay" button on the trace page, the "Show replays" toggle on the trace list, and the replay page with the original and the runs side by side, the first difference marked, and scorer reasons.
 4. Proof: unit tests for the first difference and replay scoring; CLI tests with a scripted fake agent for exits 0, 2, and 3 and for chain flattening; integration tests for `/v1/replays` and `/v1/traces/{id}/input`, with offloaded and truncated input; and a `replay` entry in the verify skill that breaks the demo agent, adds the trace to a dataset, sets an expectation, replays (fails), fixes the agent, replays (3/3), and checks the replay page. No new CI workflow.
 
 ## Decisions settled in Phase 6
 
 1. **Ingest is the only reader of the stores.** Trace, span, and payload reads move behind `/v1/traces`; the web container keeps only `INGEST_URL` (ADR-0031, superseding ADR-0018).
-2. **Ingest owns users and sessions.** Local email and password (argon2id), opaque hashed session tokens in Postgres, the web app forwarding the token from an httpOnly cookie. Session requests name the project in `AgentTrace-Project: <slug>` on the same `/v1` paths. Users belong to one org as `owner` or `member` (ADR-0032).
+2. **Ingest owns users and sessions.** Local email and password (argon2id), opaque hashed session tokens in Postgres, the web app forwarding the token from an httpOnly cookie. Session requests name the project in `Trayce-Project: <slug>` on the same `/v1` paths. Users belong to one org as `owner` or `member` (ADR-0032).
 3. **API keys have a scope.** `ingest` (spans only) or `full`. The `.env` key stays a `full` key for the default project (ADR-0033).
-4. **Claiming an install takes a setup token**, from `AGENTTRACE_SETUP_TOKEN` or printed in ingest's logs (ADR-0034).
+4. **Claiming an install takes a setup token**, from `TRAYCE_SETUP_TOKEN` or printed in ingest's logs (ADR-0034).
 
 Also settled:
 
 - Several projects per org, with the project in the URL: `/p/<slug>/traces`. A slug is generated from the name at creation, is unique within the org, and never changes; the name stays editable. The default project's slug is `default`.
 - Old paths (`/traces/<id>`, `/experiments/<id>`, `/replays/<id>`, ...) redirect to `/p/<slug>/...` for the entity's project, after the same access check as any read, so links already in PR comments keep working. `/` redirects to the last project used, kept in a cookie, else `default`.
 - Owners only: members, invites, roles, API keys, creating and renaming projects, and project settings such as `retention_days`. Members can do everything else in every project of the org. Removing a member deactivates them and revokes their sessions; keys they created keep working. The last owner can't be demoted or removed.
-- `AGENTTRACE_PUBLIC_URL` is where people open the web app, defaulting to `http://localhost:3000`. The cookie is `Secure` when it's https, and ingest accepts the published dev key only while it's localhost (ADR-0033).
+- `TRAYCE_PUBLIC_URL` is where people open the web app, defaulting to `http://localhost:3000`. The cookie is `Secure` when it's https, and ingest accepts the published dev key only while it's localhost (ADR-0033).
 - Password hashing (argon2id, 64 MiB each) runs on at most 4 threads of its own; requests waiting for one wait as coroutines, so a login flood can't exhaust memory or hold up span ingest, whose guard answers cached keys without a thread.
-- Sessions last 30 days, sliding, with the expiry extended at most once a day. The cookie is httpOnly, `SameSite=Lax`, and `Secure` when `AGENTTRACE_PUBLIC_URL` is https. Logout revokes the session; a password change revokes the user's other sessions. Failed logins back off per email and client address and are capped per address (ADR-0041), counted in Redis; while Redis can't be reached, signing in answers 503 rather than going uncounted. Ingest deletes expired sessions and links every hour. Passwords need 12 or more characters, with no composition rules. Next server actions check the origin, and the browser never talks to ingest, so there is no separate CSRF token.
-- Invites and password resets are owner-created links: single use, 7-day expiry, the role chosen in the invite. `agenttrace-admin reset-password <email>` covers a locked-out owner.
-- The SDK, `agenttrace eval`, `agenttrace replay`, and the GitHub Action keep using `AGENTTRACE_API_KEY`. The SDK needs an `ingest` key; eval and replay need a `full` key. There is no `agenttrace login`. The CLI prints links with the project slug.
+- Sessions last 30 days, sliding, with the expiry extended at most once a day. The cookie is httpOnly, `SameSite=Lax`, and `Secure` when `TRAYCE_PUBLIC_URL` is https. Logout revokes the session; a password change revokes the user's other sessions. Failed logins back off per email and client address and are capped per address (ADR-0041), counted in Redis; while Redis can't be reached, signing in answers 503 rather than going uncounted. Ingest deletes expired sessions and links every hour. Passwords need 12 or more characters, with no composition rules. Next server actions check the origin, and the browser never talks to ingest, so there is no separate CSRF token.
+- Invites and password resets are owner-created links: single use, 7-day expiry, the role chosen in the invite. `trayce-admin reset-password <email>` covers a locked-out owner.
+- The SDK, `trayce eval`, `trayce replay`, and the GitHub Action keep using `TRAYCE_API_KEY`. The SDK needs an `ingest` key; eval and replay need a `full` key. There is no `trayce login`. The CLI prints links with the project slug.
 - The read API mirrors what the web app read itself: `GET /v1/traces` (newest first, `before_start` and `before_trace` from the previous page's `next`, replays hidden unless `show_replays`), `GET /v1/traces/{id}` (summary and spans), `.../spans/{span_id}/{input|output}` (the full payload), `.../outcome` (tool calls with full arguments and the root output, for the replay page), and `POST /v1/traces/live` (which of a dataset's source traces still exist). Responses say whether a payload was offloaded but never show storage URIs. Ingest decides trace status, so `TRACE_QUIET_PERIOD_S` moves to it. When ClickHouse or object storage can't be read, these routes answer 503 with which store and why; reading a column a pending ClickHouse migration adds says so. Half a cursor is 422. A replay's original trace must be in the caller's project, like every other reference in a request body.
 - `GET /v1/projects` lists the org's projects for a session; owners `POST` new ones. `GET /v1/project` is the project a request acts on, for keys and sessions alike (the CLI reads its slug), and owners `PATCH` its name or `retention_days` (1 to 3650; new spans only, ADR-0016). A taken slug gets `-2`, `-3`, ...; a taken name is 409.
-- The web app's project pages live under `app/p/[slug]/`. Its proxy (Next's middleware) checks for a session cookie, sends paths without a project to the last one opened (a cookie) or `default`, and sets an `x-agenttrace-project` request header from the URL, overwriting any copy a client sends; the ingest client forwards that and the session to ingest, so pages and server actions never name the project themselves. An expired session redirects to `/login`. Old paths (`/traces/<id>`, `/experiments/<id>`, `/replays/<id>`, `/datasets/<id>`, `/api/traces/...`) ask `GET /v1/locate/{kind}/{id}` which of the user's projects holds the entity and redirect there. The health check moves to a public `/status`, since `/` now redirects. Org pages are `/projects` and `/members`; project settings and keys are `/p/<slug>/settings`; `/account/password` changes the password.
-- Deferred, not to be built in Phase 6: OIDC/SSO, SMTP, per-project access lists, a multi-org UI, an audit log, OTLP ingest, and `agenttrace login`.
+- The web app's project pages live under `app/p/[slug]/`. Its proxy (Next's middleware) checks for a session cookie, sends paths without a project to the last one opened (a cookie) or `default`, and sets an `x-trayce-project` request header from the URL, overwriting any copy a client sends; the ingest client forwards that and the session to ingest, so pages and server actions never name the project themselves. An expired session redirects to `/login`. Old paths (`/traces/<id>`, `/experiments/<id>`, `/replays/<id>`, `/datasets/<id>`, `/api/traces/...`) ask `GET /v1/locate/{kind}/{id}` which of the user's projects holds the entity and redirect there. The health check moves to a public `/status`, since `/` now redirects. Org pages are `/projects` and `/members`; project settings and keys are `/p/<slug>/settings`; `/account/password` changes the password.
+- Deferred, not to be built in Phase 6: OIDC/SSO, SMTP, per-project access lists, a multi-org UI, an audit log, OTLP ingest, and `trayce login`.
 
 ## Phase 6 plan
 
 Every request is authenticated, every read and write is checked against the project, and the web app holds no store credentials:
 
-1. Ingest auth core: Postgres migrations (users, memberships, sessions, invites, key scope and fields, project slugs); the auth resolver for keys and sessions with the project header; login, setup, invite, and reset endpoints, with login-failure counters in Redis; the `agenttrace-admin` command; and a test that walks the route table and fails on any `/v1` route without the auth dependency, outside an allowlist (`/health`, login, setup, invite acceptance).
+1. Ingest auth core: Postgres migrations (users, memberships, sessions, invites, key scope and fields, project slugs); the auth resolver for keys and sessions with the project header; login, setup, invite, and reset endpoints, with login-failure counters in Redis; the `trayce-admin` command; and a test that walks the route table and fails on any `/v1` route without the auth dependency, outside an allowlist (`/health`, login, setup, invite acceptance).
 2. Ingest read API: `/v1/traces` for the list, summaries, spans, and payloads, taking over the queries in `web/src/lib/traces.ts`; `/v1/me` and `/v1/projects`.
 3. Web: setup, login, and invite pages; `/p/<slug>/` routing and the old-path redirects; all reads through ingest; settings pages for members, keys, and projects; store credentials and the API key removed from the web service in compose. The shared key stays a valid `full` key until this step removes it, so the web app works throughout steps 1 and 2.
 4. SDK and CLI: errors that name the missing key scope, and links printed with the slug.
@@ -227,18 +227,18 @@ Every request is authenticated, every read and write is checked against the proj
 
 ## Decisions settled in Phase 7
 
-1. **OTLP spans are translated into the span contract at ingest.** `POST /otlp/v1/traces` takes OTLP/HTTP, maps each span from OpenTelemetry's GenAI conventions or OpenInference into an `agenttrace.Span`, and queues it on the same stream, so storage, cost, dedup, and trace completion don't change. It drops only spans it can't store and reports them in `partial_success`, unlike `/v1/spans` (ADR-0035, amending ADR-0017).
-2. **The SDK bridges OpenTelemetry in-process.** An `agenttrace[otel]` extra translates OTel spans as they end with the same code, and the SDK uses OTel's context as its own, so `agenttrace eval` and `agenttrace replay` see an OTel-instrumented agent's trajectory (ADR-0036, amending ADR-0022).
+1. **OTLP spans are translated into the span contract at ingest.** `POST /otlp/v1/traces` takes OTLP/HTTP, maps each span from OpenTelemetry's GenAI conventions or OpenInference into an `trayce.Span`, and queues it on the same stream, so storage, cost, dedup, and trace completion don't change. It drops only spans it can't store and reports them in `partial_success`, unlike `/v1/spans` (ADR-0035, amending ADR-0017).
+2. **The SDK bridges OpenTelemetry in-process.** An `trayce[otel]` extra translates OTel spans as they end with the same code, and the SDK uses OTel's context as its own, so `trayce eval` and `trayce replay` see an OTel-instrumented agent's trajectory (ADR-0036, amending ADR-0022).
 
 Also settled:
 
 - Users set `OTEL_EXPORTER_OTLP_ENDPOINT=<ingest>/otlp` and `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <key>`; an `ingest` key is enough. Protobuf and JSON bodies, gzipped or not; responses use the request's encoding. No gRPC: every major OTel SDK can send HTTP, and gRPC would add a listener and a port.
 - Errors follow OTLP's retry rules: 400 for a body that can't be decoded or breaks the 5 MB (decompressed) or 1000-span limit, 401 or 403 for a bad key, and 503 with `Retry-After` while Redis can't be reached, since exporters don't retry a 500.
-- The translator lives in the `agenttrace` package beside the span contract. Its mapping table is the only place convention attribute names appear, and it reads old and new GenAI names, since those conventions are still at Development status. Vendor namespaces (`traceloop.*`, `claude_code.*`, `gcp.vertex.agent.*`) aren't mapped; their spans are `custom` with attributes kept. Spans without a convention, such as HTTP and database spans, are kept as `custom` too, since they are often the root.
-- Every translated span carries `agenttrace.convention` (`gen_ai`, `openinference`, or `none`), an attribute, not a column.
+- The translator lives in the `trayce` package beside the span contract. Its mapping table is the only place convention attribute names appear, and it reads old and new GenAI names, since those conventions are still at Development status. Vendor namespaces (`traceloop.*`, `claude_code.*`, `gcp.vertex.agent.*`) aren't mapped; their spans are `custom` with attributes kept. Spans without a convention, such as HTTP and database spans, are kept as `custom` too, since they are often the root.
+- Every translated span carries `trayce.convention` (`gen_ai`, `openinference`, or `none`), an attribute, not a column.
 - `CHAIN` maps to `custom`, not `agent`: LangChain wraps nearly every step in a chain. Embeddings are `llm` spans, so their tokens are priced.
 - Message and tool-call content moves into the span's input and output and through the 8 KB offload; other attribute values are cut to 4 KB. A span with no content from its convention takes `input.value` and `output.value`, so an agent's root span can carry the run's input for "Add to dataset" and replay; Pydantic AI's `invoke_agent` span has none. The OTLP setup docs say to set `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT=true`, since without it tool spans have no arguments for trajectory scorers to match.
-- The eval runner and `agenttrace replay` install the bridge whenever `opentelemetry-sdk` is importable; production code calls `agenttrace.otel.install()`. Running the bridge and an OTLP exporter together sends each span twice with the same IDs, and the worker keeps one. Context is shared only once the bridge is installed, and an OTel LLM span directly under an SDK LLM span is dropped as a duplicate, since the Anthropic SDK records its own spans inside `instrument_anthropic()`'s (ADR-0036).
+- The eval runner and `trayce replay` install the bridge whenever `opentelemetry-sdk` is importable; production code calls `trayce.otel.install()`. Running the bridge and an OTLP exporter together sends each span twice with the same IDs, and the worker keeps one. Context is shared only once the bridge is installed, and an OTel LLM span directly under an SDK LLM span is dropped as a duplicate, since the Anthropic SDK records its own spans inside `instrument_anthropic()`'s (ADR-0036).
 - The web app's "key created" view shows the OTLP env lines next to the SDK's, since the key is shown only once. Nothing else in the UI changes: translated spans are ordinary spans.
 - Deferred: OTLP logs and metrics (they'd go under `/otlp` too), gRPC, model-name aliases in the price table, lifting child-span metadata onto the root, and vendor namespaces.
 
@@ -246,12 +246,12 @@ Also settled:
 
 An agent instrumented only with OpenTelemetry is traced, can have a failed trace added to a dataset, and can be evaluated and replayed:
 
-1. Translator in `agenttrace`: the kind table, both conventions, tokens and cost fields, content, trace metadata, status, resource attributes, and remote parents, tested against recorded GenAI and OpenInference spans.
+1. Translator in `trayce`: the kind table, both conventions, tokens and cost fields, content, trace metadata, status, resource attributes, and remote parents, tested against recorded GenAI and OpenInference spans.
 2. `POST /otlp/v1/traces` in ingest: protobuf, JSON, and gzip; per-span rejection with `partial_success`; the error codes above; spans pushed onto the existing stream.
 3. SDK `otel` extra: the bridge, OTel's context as the SDK's, and automatic install in `eval` and `replay`.
 4. `examples/demo-agent-otel/`: a Pydantic AI agent on `FunctionModel`, offline like the demo agent's mock tools, exporting over OTLP.
 5. Web: the OTLP env lines in the "key created" view.
-6. Proof and docs: an `otlp` entry in the verify skill that sends demo-agent-otel traces to `/otlp/v1/traces` with an `ingest` key and checks span kinds, tokens, cost, and the trace tree in the UI, adds a failed trace to a dataset, runs `agenttrace eval` on it through the bridge with a trajectory scorer that sees its tool calls, and runs `agenttrace replay`; the README status line and an OTLP setup section with the content-capture note; and an eng-log entry for anything that surprises us.
+6. Proof and docs: an `otlp` entry in the verify skill that sends demo-agent-otel traces to `/otlp/v1/traces` with an `ingest` key and checks span kinds, tokens, cost, and the trace tree in the UI, adds a failed trace to a dataset, runs `trayce eval` on it through the bridge with a trajectory scorer that sees its tool calls, and runs `trayce replay`; the README status line and an OTLP setup section with the content-capture note; and an eng-log entry for anything that surprises us.
 
 ## Decisions settled in Phase 8
 
@@ -268,7 +268,7 @@ Also settled:
 - Headline tiles: traces, trace error rate, p95 trace latency, and cost per completed trace, each with its change from the previous period of the same length as a plain percentage, with no significance test.
 - Panels: volume over time; errors by trace status and by span kind; p50, p95, and p99 trace latency over time; the slowest tools and models by p95, top 10, among names with at least 20 calls in the range; spend over time stacked by the top 5 models plus "other"; a per-model table of cost, calls, cost per call, and input, output, cache-read, and cache-write tokens (5m and 1h together); and a sortable tools table of every tool's calls, error rate, and p95, with names under 20 calls greyed out. Unpriced calls get their own row per model rather than counting as zero.
 - Every chart click opens the trace list filtered to what was clicked. The trace list gains filters for time range, status, tags, user ID, `service.name`, production versus eval and replay runs, and "has a span of kind K, name N, or model M", optionally only errored ones. Like the overview, the list shows production traffic by default, with "Show eval runs" and "Show replays" toggles.
-- `service_name` on `traces` is filled by `traces_mv` from the root span: `resource.service.name` for OTLP, and for the SDK `AGENTTRACE_SERVICE_NAME`, else `OTEL_SERVICE_NAME`. A ClickHouse migration adds the column and swaps the view's query with `MODIFY QUERY`, as in Phase 5; traces already stored get `''`.
+- `service_name` on `traces` is filled by `traces_mv` from the root span: `resource.service.name` for OTLP, and for the SDK `TRAYCE_SERVICE_NAME`, else `OTEL_SERVICE_NAME`. A ClickHouse migration adds the column and swaps the view's query with `MODIFY QUERY`, as in Phase 5; traces already stored get `''`.
 - Sessions and `full` keys read analytics; `ingest` keys get 403 (ADR-0033). Errors follow the read API: 503 naming the store, 422 for a bad filter.
 - Charts are hand-rolled SVG (line, stacked bar, sparkline) with a small client component for hover, on the app's theme tokens. No chart library. Each panel loads in its own `Suspense`.
 - Budget: the 30d overview loads in under 2 s at 1M traces and 20M spans in one project on the dev stack. A miss adds an hourly rollup or a `start_time` projection on `traces`, with an ADR amending ADR-0037. Measured: 1.40 s, with no rollup (eng-log, 2026-10-27).
@@ -290,18 +290,18 @@ A project's overview shows whether its agent is getting slower, pricier, or less
 
 Also settled:
 
-- The CLI is `agenttrace replay <trace_id> --from <span_id>` (a short prefix accepted) and `--stub-tools`. The web UI never runs user code (ADR-0006): "Fork from here" on an LLM or tool span copies the command, or shows why the span can't be a fork point.
+- The CLI is `trayce replay <trace_id> --from <span_id>` (a short prefix accepted) and `--stub-tools`. The web UI never runs user code (ADR-0006): "Fork from here" on an LLM or tool span copies the command, or shows why the span can't be a fork point.
 - A step is an LLM or tool span, in start-time order. At an LLM fork point that call runs live; at a tool fork point the LLM reply that asked for the tool is stubbed and the tool runs live. Agent and custom spans aren't fork points.
-- Interception is at the Anthropic integration's `messages.create`, `@trace(kind="tool")`, and a new `agenttrace.call_tool(name, args, fn)` helper for dispatch loops that only know the tool's name at call time. `span()` blocks, OTel-bridged and OTLP spans, and streamed calls aren't stubbable; a fork or tool-stubbed replay that needs one is refused before it starts, naming the step. The demo agent moves its tools to `call_tool`.
+- Interception is at the Anthropic integration's `messages.create`, `@trace(kind="tool")`, and a new `trayce.call_tool(name, args, fn)` helper for dispatch loops that only know the tool's name at call time. `span()` blocks, OTel-bridged and OTLP spans, and streamed calls aren't stubbable; a fork or tool-stubbed replay that needs one is refused before it starts, naming the step. The demo agent moves its tools to `call_tool`.
 - Prefix LLM calls match by order; tool calls match by name and full JSON equality of arguments, each recording used once, so parallel calls find theirs.
 - A prefix LLM request that differs from its recording still gets the stub, with the differing fields recorded as a warning: a changed prompt is usually the fix being tested. A prefix tool call with no match takes the run live from that step, recorded as `diverged_at`. Under `--stub-tools`, a live-suffix tool call with no match errors the run (it scores 0).
 - A tool span is stubbable only when its output round-trips through JSON unchanged and wasn't truncated; the SDK marks this when it records the span. A truncated LLM span isn't stubbable either.
-- Tool spans record the error message as well as the type. A stubbed errored call raises `agenttrace.RecordedToolError` carrying both; an agent catching a specific exception class sees a different one.
-- A fork's `replay_of` points at the fork point in the trace it forked, which may be a replay run, so forks chain; whole-trace replays still resolve to the original root. A fork run's root also carries `agenttrace.replay_origin`, the original's root span, so the original is one read away even after the runs between expire. `GET /v1/replays?trace_id=X` lists replays and forks of X as an original, and forks of X as the trace forked.
-- The CLI reads steps from `GET /v1/traces/{id}/steps` in ingest (ADR-0031): each step's kind, name, `span_id`, full input and output (from S3 when offloaded), and the attributes that decide stubbability: `agenttrace.interceptor` (which SDK hook recorded it), `agenttrace.output_recorded` on tool spans (`json`, `text` for a bare string, which the stored payload can't tell from JSON, or `lossy`), `agenttrace.truncated`, and the error message. The CLI decides refusals, beside the interceptors. A trace over 1000 steps or 64 MB of step payloads is refused.
+- Tool spans record the error message as well as the type. A stubbed errored call raises `trayce.RecordedToolError` carrying both; an agent catching a specific exception class sees a different one.
+- A fork's `replay_of` points at the fork point in the trace it forked, which may be a replay run, so forks chain; whole-trace replays still resolve to the original root. A fork run's root also carries `trayce.replay_origin`, the original's root span, so the original is one read away even after the runs between expire. `GET /v1/replays?trace_id=X` lists replays and forks of X as an original, and forks of X as the trace forked.
+- The CLI reads steps from `GET /v1/traces/{id}/steps` in ingest (ADR-0031): each step's kind, name, `span_id`, full input and output (from S3 when offloaded), and the attributes that decide stubbability: `trayce.interceptor` (which SDK hook recorded it), `trayce.output_recorded` on tool spans (`json`, `text` for a bare string, which the stored payload can't tell from JSON, or `lossy`), `trayce.truncated`, and the error message. The CLI decides refusals, beside the interceptors. A trace over 1000 steps or 64 MB of step payloads is refused.
 - `replays` gains `fork_trace_id` and `fork_span_id` (null for a whole-trace replay) and `tool_mode` (`live` or `recorded`); each run gains `diverged_at` and its LLM-request warnings. Scoring is unchanged (ADR-0030).
 - First difference still compares whole trajectories, so a prefix divergence is the first difference. The replay page collapses the stubbed prefix, marks the fork point, and shows divergence, warnings, and the fork lineage.
-- A stubbed call is still a span of the run, marked `agenttrace.stubbed`; a stubbed LLM call records zero tokens, so the run is priced at what its live calls cost. Only calls the playback's context reaches are answered: a thread started without copying the context, or a streamed LLM call (not traced at all), runs live even inside the prefix. A tool that makes its own LLM or tool calls can't be played back yet, since stubbing it skips them; the fork is refused.
+- A stubbed call is still a span of the run, marked `trayce.stubbed`; a stubbed LLM call records zero tokens, so the run is priced at what its live calls cost. Only calls the playback's context reaches are answered: a thread started without copying the context, or a streamed LLM call (not traced at all), runs live even inside the prefix. A tool that makes its own LLM or tool calls can't be played back yet, since stubbing it skips them; the fork is refused.
 - Deferred: stubbing `span()` blocks, OTel-bridged and OTLP spans, and streamed calls; decoders for tool outputs that don't round-trip; providers other than Anthropic; a server-side playground (still out under ADR-0006).
 
 ## Phase 9 plan

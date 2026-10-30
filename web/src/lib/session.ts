@@ -2,15 +2,15 @@
 // server-only imports so the proxy can use them.
 
 /** The session token from ingest, in an httpOnly cookie the browser never reads. */
-export const SESSION_COOKIE = "agenttrace_session";
+export const SESSION_COOKIE = "trayce_session";
 /** The last project opened, so `/` and old links can go back to it. Not a secret. */
-export const PROJECT_COOKIE = "agenttrace_project";
+export const PROJECT_COOKIE = "trayce_project";
 /** Set by the proxy from the `/p/<slug>/` URL, and only by it: it overwrites any copy a client
  * sends, so the ingest client can trust it as the project a request acts on. */
-export const PROJECT_HEADER = "x-agenttrace-project";
+export const PROJECT_HEADER = "x-trayce-project";
 export const DEFAULT_PROJECT = "default";
 /** Names the browser's address to ingest, which limits failed sign-ins per address (ADR-0041). */
-export const CLIENT_HEADER = "AgentTrace-Client-IP";
+export const CLIENT_HEADER = "Trayce-Client-IP";
 
 /** The browser's address from `X-Forwarded-For`, given how many reverse proxies sit in front of
  * the web app. Next only sets the header when a request arrives without one, so the trustworthy

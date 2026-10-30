@@ -1,5 +1,5 @@
 [project]
-name = "agenttrace-workspace"
+name = "trayce-workspace"
 version = "0.0.0"
 requires-python = ">=3.12"
 
@@ -16,7 +16,7 @@ members = [
 ]
 
 [tool.uv.sources]
-agenttrace = { workspace = true }
+trayce = { workspace = true }
 demo-agent = { workspace = true }
 
 [dependency-groups]
@@ -38,9 +38,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
-  "agenttrace",
-  "agenttrace_ingest",
-  "agenttrace_worker",
+  "trayce",
+  "trayce_ingest",
+  "trayce_worker",
   "demo_agent",
   "demo_agent_otel",
 ]

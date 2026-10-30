@@ -15,7 +15,7 @@ The web app lists the project's traces, newest first, with root span name, statu
 
 - From the overview (where `/` lands), follow "Traces" in the nav, then click a trace name, then click a span in the tree. Eval runs and replays are hidden until "Show eval runs" or "Show replays".
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 

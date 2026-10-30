@@ -7,7 +7,7 @@ from typing import Any
 
 from anthropic.types.beta import BetaToolParam
 
-from agenttrace import RecordedToolError, call_tool
+from trayce import RecordedToolError, call_tool
 
 DATA: dict[str, Any] = json.loads(files("demo_agent").joinpath("data.json").read_text())
 REFUND_WINDOW_DAYS = 30

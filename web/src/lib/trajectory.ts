@@ -2,7 +2,7 @@ import type { ToolCall } from "./datasets";
 
 /**
  * Lines up a sample's tool calls with the expected ones so the page can mark where they part.
- * Pass/fail and the reason come from the Python trajectory scorer (sdk agenttrace.eval.scorers);
+ * Pass/fail and the reason come from the Python trajectory scorer (sdk trayce.eval.scorers);
  * this mirrors its matching rules only to place the marks: same tool, and every listed argument
  * equal, unlisted ones ignored.
  */

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from agenttrace import SpanKind, SpanStatus, call_tool, span, trace
+from trayce import SpanKind, SpanStatus, call_tool, span, trace
 
 
 def test_nested_spans_share_a_trace_and_link_parents(collected):
@@ -29,11 +29,11 @@ def test_trace_metadata_on_a_child_is_dropped(collected):
 
 
 def test_a_root_span_names_its_service_from_the_environment(collected, monkeypatch):
-    monkeypatch.delenv("AGENTTRACE_SERVICE_NAME", raising=False)
+    monkeypatch.delenv("TRAYCE_SERVICE_NAME", raising=False)
     monkeypatch.setenv("OTEL_SERVICE_NAME", "from-otel")
     with span("first"), span("child"):
         pass
-    monkeypatch.setenv("AGENTTRACE_SERVICE_NAME", "support-agent")
+    monkeypatch.setenv("TRAYCE_SERVICE_NAME", "support-agent")
     with span("second", attributes={"resource.service.name": "explicit"}):
         pass
     with span("third"):
@@ -49,7 +49,7 @@ def test_exception_marks_error_and_propagates(collected):
         raise KeyError("x")
     s = collected.by_name("boom")
     assert s.status == SpanStatus.ERROR and s.error_type == "KeyError"
-    assert "agenttrace.error_message" not in s.attributes  # kept on tool spans only
+    assert "trayce.error_message" not in s.attributes  # kept on tool spans only
 
 
 def test_only_a_recorded_tool_error_keeps_another_class_name(collected):
@@ -70,8 +70,8 @@ def test_call_tool_records_a_tool_span_named_for_the_tool(collected):
     assert s.kind == SpanKind.TOOL
     assert s.input == {"order_id": "7"}  # the arguments given, without defaults filled in
     assert s.output == {"order_id": "7"}
-    assert s.attributes["agenttrace.output_recorded"] == "json"
-    assert s.attributes["agenttrace.interceptor"] == "call_tool"
+    assert s.attributes["trayce.output_recorded"] == "json"
+    assert s.attributes["trayce.interceptor"] == "call_tool"
 
 
 def test_call_tool_awaits_async_tools_and_records_their_errors(collected):
@@ -82,7 +82,7 @@ def test_call_tool_awaits_async_tools_and_records_their_errors(collected):
         asyncio.run(call_tool("search", {"q": "x"}, failing))
     s = collected.by_name("search")
     assert s.status == SpanStatus.ERROR and s.error_type == "ValueError"
-    assert s.attributes["agenttrace.error_message"] == "no results for x"
+    assert s.attributes["trayce.error_message"] == "no results for x"
 
 
 @dataclass
@@ -105,7 +105,7 @@ class Order:
 )
 def test_tool_spans_say_how_their_output_was_recorded(collected, output, recorded):
     call_tool("t", {}, lambda: output)
-    assert collected.by_name("t").attributes["agenttrace.output_recorded"] == recorded
+    assert collected.by_name("t").attributes["trayce.output_recorded"] == recorded
 
 
 def test_traced_tools_are_marked_as_answerable_and_other_spans_are_not(collected):
@@ -122,11 +122,11 @@ def test_traced_tools_are_marked_as_answerable_and_other_spans_are_not(collected
     agent()
     assert collected.by_name("lookup").attributes == {
         "team": "a",
-        "agenttrace.interceptor": "trace",
-        "agenttrace.output_recorded": "json",
+        "trayce.interceptor": "trace",
+        "trayce.output_recorded": "json",
     }
-    assert "agenttrace.interceptor" not in collected.by_name("agent").attributes
-    assert "agenttrace.interceptor" not in collected.by_name("raw").attributes
+    assert "trayce.interceptor" not in collected.by_name("agent").attributes
+    assert "trayce.interceptor" not in collected.by_name("raw").attributes
 
 
 def test_call_tool_awaits_async_callable_objects(collected):
@@ -141,7 +141,7 @@ def test_call_tool_awaits_async_callable_objects(collected):
 def test_only_tool_spans_say_how_their_output_was_recorded(collected):
     with span("work") as s:
         s.set_output((1, 2))
-    assert "agenttrace.output_recorded" not in collected.by_name("work").attributes
+    assert "trayce.output_recorded" not in collected.by_name("work").attributes
 
 
 def test_separate_top_level_spans_are_separate_traces(collected):
@@ -194,9 +194,9 @@ def test_unserializable_values_become_repr(collected):
 
 
 def test_no_api_key_means_no_export_and_no_error(monkeypatch):
-    from agenttrace import exporter
+    from trayce import exporter
 
-    monkeypatch.delenv("AGENTTRACE_API_KEY", raising=False)
+    monkeypatch.delenv("TRAYCE_API_KEY", raising=False)
     monkeypatch.setattr(exporter, "_config", None)
     monkeypatch.setattr(exporter, "_exporter", None)
     with span("quiet") as s:
@@ -205,7 +205,7 @@ def test_no_api_key_means_no_export_and_no_error(monkeypatch):
 
 
 def test_span_processors_see_spans_without_an_exporter(monkeypatch):
-    from agenttrace import add_span_processor, tracing
+    from trayce import add_span_processor, tracing
 
     monkeypatch.setattr(tracing, "get_exporter", lambda: None)
     seen, failing = [], []
@@ -227,7 +227,7 @@ def test_span_processors_see_spans_without_an_exporter(monkeypatch):
 
 
 def test_span_processors_run_before_export(collected):
-    from agenttrace import add_span_processor
+    from trayce import add_span_processor
 
     seen = []
     remove = add_span_processor(lambda s: seen.append((s.name, len(collected.spans))))

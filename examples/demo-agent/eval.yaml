@@ -1,5 +1,5 @@
 # The demo agent's evals. From the repo root, with the stack running and a published `support`
-# dataset:  uv run agenttrace eval -c examples/demo-agent/eval.yaml
+# dataset:  uv run trayce eval -c examples/demo-agent/eval.yaml
 entry: demo_agent.evals:eval_entry
 dataset: support
 version: latest

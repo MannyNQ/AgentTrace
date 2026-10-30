@@ -29,14 +29,14 @@ function rootEnv(key: string): string | undefined {
 
 /** Where people open the web app; the session cookie is `Secure` when it's https (architecture.md). */
 export const PUBLIC_URL =
-  process.env.AGENTTRACE_PUBLIC_URL || rootEnv("AGENTTRACE_PUBLIC_URL") || "http://localhost:3000";
+  process.env.TRAYCE_PUBLIC_URL || rootEnv("TRAYCE_PUBLIC_URL") || "http://localhost:3000";
 
 /** Where agents, the CLI, and CI reach ingest, for the setup shown with a new key. */
 export const PUBLIC_ENDPOINT =
-  process.env.AGENTTRACE_ENDPOINT || rootEnv("AGENTTRACE_ENDPOINT") || "http://localhost:8000";
+  process.env.TRAYCE_ENDPOINT || rootEnv("TRAYCE_ENDPOINT") || "http://localhost:8000";
 
 /** How many reverse proxies sit in front of the web app, for reading the browser's address. */
-const PROXY_HOPS = proxyHops(process.env.AGENTTRACE_PROXY_HOPS || rootEnv("AGENTTRACE_PROXY_HOPS"));
+const PROXY_HOPS = proxyHops(process.env.TRAYCE_PROXY_HOPS || rootEnv("TRAYCE_PROXY_HOPS"));
 
 /** A refusal from the API: `error` for people, plus whatever else the API said. */
 export type ApiError = {
@@ -73,7 +73,7 @@ async function call<T>(method: string, path: string, body?: unknown, options: Op
     const session = (await cookies()).get(SESSION_COOKIE)?.value;
     const project = incoming.get(PROJECT_HEADER);
     if (session) auth.Authorization = `Session ${session}`;
-    if (project) auth["AgentTrace-Project"] = project;
+    if (project) auth["Trayce-Project"] = project;
   }
   let res: Response;
   try {

@@ -2,8 +2,8 @@ import json
 import time
 from datetime import UTC, datetime
 
-from agenttrace import Span, SpanKind, new_span_id, new_trace_id
-from agenttrace.exporter import Config, Exporter
+from trayce import Span, SpanKind, new_span_id, new_trace_id
+from trayce.exporter import Config, Exporter
 
 
 def make_span(name="s") -> Span:
@@ -95,7 +95,7 @@ def test_an_oversized_span_is_truncated_and_marked_not_dropped(http_server):
     assert len(bodies[0]) <= 50_000 + 20  # the wire size, plus the {"spans":[...]} envelope
     sent = json.loads(bodies[0])["spans"][0]
     assert sent["span_id"] == big.span_id
-    assert sent["attributes"]["agenttrace.truncated"] == "input"  # the small output is kept
+    assert sent["attributes"]["trayce.truncated"] == "input"  # the small output is kept
     assert sent["output"] == "ok"
     assert sent["input"].startswith('{"messages": "ééé')
 

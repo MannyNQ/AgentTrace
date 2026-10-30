@@ -14,8 +14,8 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span, Status
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 TRACE = "0af7651916cd43dd8448eb211c80319c"
@@ -264,7 +264,7 @@ def test_resource_attributes_dont_multiply_an_export_by_its_root_count():
 
 
 def test_a_span_that_fails_to_translate_is_rejected_alone(monkeypatch):
-    import agenttrace_ingest.otlp as otlp
+    import trayce_ingest.otlp as otlp
 
     real = otlp.translate
 

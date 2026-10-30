@@ -31,7 +31,7 @@ RUNS = 3
 
 project, slug = uuid.uuid4(), f"bench-{secrets.token_hex(3)}"
 key = f"bench-{secrets.token_hex(16)}"
-with psycopg.connect("postgresql://agenttrace:agenttrace@127.0.0.1:15432/agenttrace") as conn:
+with psycopg.connect("postgresql://trayce:trayce@127.0.0.1:15432/trayce") as conn:
     conn.execute(
         "INSERT INTO projects (id, org_id, name, slug) VALUES (%s, %s, %s, %s)",
         (project, DEFAULT_ORG, slug, slug),
@@ -43,8 +43,8 @@ with psycopg.connect("postgresql://agenttrace:agenttrace@127.0.0.1:15432/agenttr
     )
 
 ch = clickhouse_connect.get_client(
-    host="127.0.0.1", port=18123, username="agenttrace", password="agenttrace",
-    database="agenttrace", autogenerate_session_id=False,
+    host="127.0.0.1", port=18123, username="trayce", password="trayce",
+    database="trayce", autogenerate_session_id=False,
 )  # fmt: skip
 # Span n belongs to trace n / 20; its first span is the root. Traces start uniformly over 30 days.
 # About 3% of spans fail; odd spans are LLM calls on four models, even ones tool calls on eight.

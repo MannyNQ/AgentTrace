@@ -11,11 +11,11 @@ import anthropic
 import httpx2
 import pytest
 
-from agenttrace import cli, span, tracing
-from agenttrace.eval import config, report, scorers
-from agenttrace.eval.client import Client, DatasetVersion, VersionItem
-from agenttrace.eval.results import ModelUsage, ToolCall
-from agenttrace.eval.runner import Git, git_from_env, score
+from trayce import cli, span, tracing
+from trayce.eval import config, report, scorers
+from trayce.eval.client import Client, DatasetVersion, VersionItem
+from trayce.eval.results import ModelUsage, ToolCall
+from trayce.eval.runner import Git, git_from_env, score
 
 BASE = {"entry": "pkg.mod:fn", "dataset": "support"}
 JUDGE = {"name": "helpful", "type": "llm_judge", "model": "claude-haiku-5-5", "criteria": "Polite."}
@@ -313,7 +313,7 @@ REGRESSED = {
 
 def test_the_pr_comment_shows_the_verdict_table_and_item_regressions():
     md = report.markdown({}, REGRESSED, "support", "http://w/")
-    assert md.startswith("### ❌ AgentTrace eval: 1 regression\n")
+    assert md.startswith("### ❌ Trayce eval: 1 regression\n")
     assert "[baseline](http://w/experiments/base) (at the merge-base `abcdef1`)" in md
     assert "| `steps` | 75% | 0% | -75 pts (-100 pts to -25 pts) | 5 pts | 4 | ❌ regressed |" in md
     assert "| `answer` | 100% | 100% | +0 pts (+0 pts to +0 pts) | 5 pts | 2 | ✅ ok |" in md
@@ -331,7 +331,7 @@ def test_without_a_baseline_the_comment_lists_scores_and_passes():
     cmp = {"experiment": experiment("cur"), "baseline": None, "regressions": 0}
     detail = {"scorer_stats": [{"scorer": "steps", "pass_rate": 0.75, "passed": 9, "scored": 12}]}
     md = report.markdown(detail, cmp, "support")
-    assert md.startswith("### ⚪ AgentTrace eval: no baseline")
+    assert md.startswith("### ⚪ Trayce eval: no baseline")
     assert "| `steps` | 75% | 9/12 |" in md
     assert "this run `cur`" in md  # no web URL: IDs instead of links
 
@@ -359,7 +359,7 @@ def fake_server(monkeypatch, tmp_path):
     }  # fmt: skip
     monkeypatch.setattr(Client, "experiment", lambda self, i: detail)
     monkeypatch.setattr(Client, "comparison", lambda self, i: calls["comparison"])
-    monkeypatch.setenv("AGENTTRACE_API_KEY", "k")
+    monkeypatch.setenv("TRAYCE_API_KEY", "k")
     monkeypatch.setenv("GITHUB_SHA", "c1")
     monkeypatch.setattr(sys, "path", list(sys.path))
     (tmp_path / "eval.yaml").write_text(
@@ -380,7 +380,7 @@ def test_a_regression_exits_3_only_with_the_flag(fake_server, tmp_path, capsys):
     assert "1 regression" in capsys.readouterr().out
     md = tmp_path / "report.md"
     assert gate(tmp_path, "--fail-on-regression", "--report-md", str(md)) == 3
-    assert md.read_text().startswith("### ❌ AgentTrace eval: 1 regression")
+    assert md.read_text().startswith("### ❌ Trayce eval: 1 regression")
 
 
 def test_no_baseline_or_no_regression_passes_the_gate(fake_server, tmp_path):
@@ -405,7 +405,7 @@ def test_only_fields_in_use_are_sent_so_an_older_ingest_accepts_them(monkeypatch
     monkeypatch.setattr(Client, "request", lambda self, m, p, body=None: sent.append(body))
     c = Client("http://x", "k")
     spec = config.parse({**BASE, "scorers": [{"name": "a", "type": "contains"}]})
-    from agenttrace.eval.results import NewExperiment, SampleResult
+    from trayce.eval.results import NewExperiment, SampleResult
 
     c.create_experiment(
         NewExperiment(
@@ -431,7 +431,7 @@ def test_only_fields_in_use_are_sent_so_an_older_ingest_accepts_them(monkeypatch
 
 
 def test_a_refused_create_exits_2_without_a_traceback(fake_server, tmp_path, monkeypatch, capsys):
-    from agenttrace.eval.client import ApiError
+    from trayce.eval.client import ApiError
 
     def refuse(self, e):
         raise ApiError("POST /v1/experiments: 422 some fields are invalid", 422)
@@ -470,7 +470,7 @@ def test_custom_scorers_are_called_one_at_a_time():
 def test_a_fatal_judge_error_fails_the_experiment():
     from test_eval_runner import SUPPORT, FakeApi
 
-    from agenttrace.eval.runner import RunError, Runner
+    from trayce.eval.runner import RunError, Runner
 
     api = FakeApi()
     broken = judge(status_error(anthropic.AuthenticationError, 401))[0]

@@ -24,7 +24,7 @@ function Bar({ user, project }: { user: User; project: Project | null }) {
     <nav className="border-b border-line text-sm" aria-label="Main">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 sm:px-6">
         <Link href="/" className="font-semibold">
-          AgentTrace
+          Trayce
         </Link>
         {project && (
           <>

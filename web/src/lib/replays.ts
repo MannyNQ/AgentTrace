@@ -3,7 +3,7 @@ import type { Item, ToolCall } from "./datasets";
 import type { ExperimentStatus, ScorerSpec, StoredScore } from "./experiments";
 import { ingest } from "./ingest";
 
-// ADR-0029: `agenttrace replay` uploads replays to the ingest API; the UI only reads them.
+// ADR-0029: `trayce replay` uploads replays to the ingest API; the UI only reads them.
 const { read } = ingest("/v1/replays");
 
 export type PassCount = { scorer: string; passed: number; scored: number };

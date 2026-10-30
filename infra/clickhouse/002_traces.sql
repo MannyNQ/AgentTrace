@@ -1,7 +1,7 @@
 -- Trace summaries, one aggregate row per trace, filled by traces_mv (ADR-0013).
 -- Read with GROUP BY trace_id and the matching aggregate (min/max/sum) to merge unmerged parts.
 -- Root-only fields hold '' or 0 on non-root rows, so max() picks the root's value.
-CREATE TABLE IF NOT EXISTS agenttrace.traces
+CREATE TABLE IF NOT EXISTS trayce.traces
 (
     project_id          UUID,
     trace_id            FixedString(32),

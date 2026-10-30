@@ -1,12 +1,12 @@
 """In-memory auth storage with the same contract as `auth_store.PostgresAuth`, including the
-atomic decisions it names. The rules under test are in `agenttrace_ingest.auth`."""
+atomic decisions it names. The rules under test are in `trayce_ingest.auth`."""
 
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from agenttrace_ingest.auth import (
+from trayce_ingest.auth import (
     DEFAULT_ORG_ID,
     MAX_CLIENT_LOGIN_FAILURES,
     Admission,
@@ -21,7 +21,7 @@ from agenttrace_ingest.auth import (
     hash_token,
     login_backoff_s,
 )
-from agenttrace_ingest.datasets import Conflict, NotFound
+from trayce_ingest.datasets import Conflict, NotFound
 
 
 @dataclass

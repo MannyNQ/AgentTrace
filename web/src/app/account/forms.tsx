@@ -91,7 +91,7 @@ export function SetupForm() {
             <input name="token" required autoComplete="off" className={`${field} font-mono`} />
             <span className="mt-1 block">
               From <code className="font-mono">docker compose logs ingest</code>, or the{" "}
-              <code className="font-mono">AGENTTRACE_SETUP_TOKEN</code> you set.
+              <code className="font-mono">TRAYCE_SETUP_TOKEN</code> you set.
             </span>
           </label>
           <Email state={state} />

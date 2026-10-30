@@ -1,9 +1,9 @@
 [project]
 name = "demo-agent"
 version = "0.0.1"
-description = "Customer-support demo agent: AgentTrace's test fixture and docs example"
+description = "Customer-support demo agent: Trayce's test fixture and docs example"
 requires-python = ">=3.12"
-dependencies = ["agenttrace[eval]", "anthropic>=1.0", "python-dotenv>=1.0"]
+dependencies = ["trayce[eval]", "anthropic>=1.0", "python-dotenv>=1.0"]
 
 [project.scripts]
 demo-agent = "demo_agent.cli:main"

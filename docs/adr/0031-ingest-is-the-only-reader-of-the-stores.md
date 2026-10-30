@@ -9,7 +9,7 @@ ADR-0018 let the web app query ClickHouse and S3 directly while there was one UI
 ## Decision
 
 - Trace, span, and payload reads move behind ingest: `/v1/traces` (list, summary, spans) and the payload fetch that `web/src/app/api/traces/.../route.ts` does today. The queries in `web/src/lib/traces.ts` move with them.
-- The web app calls only ingest. Its container gets `INGEST_URL` and nothing else: no ClickHouse, S3, or Postgres credentials and no `AGENTTRACE_API_KEY`.
+- The web app calls only ingest. Its container gets `INGEST_URL` and nothing else: no ClickHouse, S3, or Postgres credentials and no `TRAYCE_API_KEY`.
 - The home page's health check reads ingest's `/health`, which stays unauthenticated and reports only up or down per store.
 
 ## Consequences

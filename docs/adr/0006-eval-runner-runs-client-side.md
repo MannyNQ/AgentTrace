@@ -8,7 +8,7 @@ Running an experiment means executing the user's agent, with their code, tools, 
 
 ## Decision
 
-The `agenttrace` CLI is the eval runner. It imports the agent entry point named in `eval.yaml`, runs it over each item with the SDK tracing every sample, runs the scorers (including custom Python scorers), and uploads results. The server stores and compares results and scorer configs, and never executes user code.
+The `trayce` CLI is the eval runner. It imports the agent entry point named in `eval.yaml`, runs it over each item with the SDK tracing every sample, runs the scorers (including custom Python scorers), and uploads results. The server stores and compares results and scorer configs, and never executes user code.
 
 ## Consequences
 

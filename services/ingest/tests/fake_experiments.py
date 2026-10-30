@@ -7,10 +7,10 @@ from uuid import UUID
 
 from fake_datasets import FakeDatasets
 
-from agenttrace.eval.results import NewExperiment
-from agenttrace.pricing import PriceTable
-from agenttrace_ingest.datasets import Conflict, Item, NotFound
-from agenttrace_ingest.experiments import (
+from trayce.eval.results import NewExperiment
+from trayce.pricing import PriceTable
+from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.experiments import (
     Experiment,
     ExperimentInfo,
     SampleRow,
