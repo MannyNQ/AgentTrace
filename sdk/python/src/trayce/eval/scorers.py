@@ -15,7 +15,6 @@ a time (`thread_safe`), as they were before scoring moved onto threads.
 
 import importlib
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -141,12 +140,24 @@ class Contains(Scorer):
         return fail(f"output doesn't contain {_short(missing[0])}") if missing else PASS
 
 
+REGEX_TIMEOUT_S = 1.0
+
+
 class Regex(Scorer):
+    """Matched with the `regex` module rather than `re`, for its timeout: an item's
+    expected_output is compiled as the pattern, so anyone who can edit the dataset could
+    otherwise stall the run with one that backtracks catastrophically (#30)."""
+
     def __init__(self, cfg: c.Regex):
         super().__init__(cfg)
         try:
-            self.pattern = re.compile(cfg.pattern) if cfg.pattern is not None else None
-        except re.error as e:
+            import regex
+        except ImportError as e:
+            raise ScorerError("regex needs the regex module: pip install 'trayce[eval]'") from e
+        self.regex = regex
+        try:
+            self.pattern = regex.compile(cfg.pattern) if cfg.pattern is not None else None
+        except regex.error as e:
             raise ScorerError(f"scorer {cfg.name}: bad pattern: {e}") from e
 
     def applies(self, case: Case) -> bool:
@@ -156,12 +167,14 @@ class Regex(Scorer):
         pattern = self.pattern
         if pattern is None:
             try:
-                pattern = re.compile(case.expected_output)
-            except re.error as e:
+                pattern = self.regex.compile(case.expected_output)
+            except self.regex.error as e:
                 return fail(f"the item's expected_output isn't a valid regex: {e}")
-        if pattern.search(_text(case.output)):
-            return PASS
-        return fail(f"output doesn't match /{pattern.pattern}/")
+        try:
+            matched = pattern.search(_text(case.output), timeout=REGEX_TIMEOUT_S)
+        except TimeoutError:
+            return fail(f"/{pattern.pattern}/ took longer than {REGEX_TIMEOUT_S:g} s to match")
+        return PASS if matched else fail(f"output doesn't match /{pattern.pattern}/")
 
 
 class JsonSchema(Scorer):

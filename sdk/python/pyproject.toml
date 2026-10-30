@@ -22,8 +22,8 @@ Repository = "https://github.com/MannyNQ/Trayce"
 Issues = "https://github.com/MannyNQ/Trayce/issues"
 
 [project.optional-dependencies]
-# `trayce eval`: eval.yaml parsing and the JSON schema scorer.
-eval = ["pyyaml>=6.0", "jsonschema>=4.20"]
+# `trayce eval`: eval.yaml parsing, the JSON schema scorer, and the regex scorer's timeout.
+eval = ["pyyaml>=6.0", "jsonschema>=4.20", "regex>=2024.11.6"]
 # The OTel bridge: OpenTelemetry spans become spans in-process (ADR-0036).
 otel = ["opentelemetry-sdk>=1.30"]
 
