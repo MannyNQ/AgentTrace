@@ -1,0 +1,72 @@
+name: Release
+
+# Push a tag vX.Y.Z matching sdk/python/pyproject.toml's version. The images go up first, tagged
+# X.Y.Z, so the `trayce` package on PyPI never names images that don't exist (ADR-0043).
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: v
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml','rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME doesn't match sdk/python/pyproject.toml's version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - { name: ingest, context: ., file: services/Dockerfile, package: trayce-ingest }
+          - { name: worker, context: ., file: services/Dockerfile, package: trayce-worker }
+          - { name: web, context: web, file: web/Dockerfile, package: "" }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.package && format('PACKAGE={0}', matrix.package) || '' }}
+          # arm64 too: most people running `trayce up` on a laptop are on Apple silicon.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/mannynq/trayce-${{ matrix.name }}:${{ needs.version.outputs.version }}
+            ghcr.io/mannynq/trayce-${{ matrix.name }}:latest
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+  pypi:
+    needs: images
+    runs-on: ubuntu-latest
+    # PyPI trusted publishing: the pypi environment and this workflow are registered on PyPI's
+    # trayce project, so no token is stored here.
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - run: uv build --package trayce --out-dir dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3

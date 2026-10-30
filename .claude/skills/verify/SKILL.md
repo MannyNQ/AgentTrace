@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Launch and drive a real, isolated Trayce instance (docker compose stack, ingest API, worker, Next.js web UI, demo-agent CLI) to prove behavior end to end and capture evidence. Use after changing anything in services/, infra/, web/, sdk/, examples/demo-agent/, or docker-compose.yml, or whenever you need to show a feature works in the running app rather than in unit tests.
+description: Launch and drive a real, isolated Trayce instance (docker compose stack, ingest API, worker, Next.js web UI, demo-agent CLI) to prove behavior end to end and capture evidence. Use after changing anything in services/, web/, sdk/, examples/demo-agent/, or docker-compose.yml, or whenever you need to show a feature works in the running app rather than in unit tests.
 ---
 
 # Verify Trayce
@@ -55,7 +55,7 @@ What it does, in order (about 25 s warm, a few minutes on a first image build):
 1. Refuses if a run is active or any verify port is in use.
 2. Copies `.env.example` to `.env` if `.env` is missing.
 3. Creates `verify-artifacts/<run-id>/` and records the git SHA.
-4. Runs `docker compose -p trayce-verify up -d --build --wait`. Fresh volumes mean Postgres and ClickHouse run their init SQL. "Healthy" for ingest means its `/health` passed, which requires the default project row, the `spans` table, Redis, and the `payloads` bucket, not just open ports.
+4. Runs `docker compose -p trayce-verify up -d --build --wait`. Fresh volumes mean ingest applies the base schema migrations (`0000_base.sql`, ADR-0043) on startup. "Healthy" for ingest means its `/health` passed, which requires the default project row, the `spans` table, Redis, and the `payloads` bucket, not just open ports.
 4a. Claims the install (ADR-0034) with the setup token from ingest's logs, as owner `verify-owner@example.com` / `verify-owner-password`, and keeps that session in `verify-artifacts/.state/cookies.txt` for `traces`. Sign in with the same credentials in the browser pane. Start with `CLAIM=0 up` to test the setup page on an unclaimed install; `traces` then refuses to run.
 5. Builds the web app (`next build`) into `.next-verify`, restoring `web/tsconfig.json` afterwards because the build rewrites it.
 6. Starts `next start` on 127.0.0.1:13000 in its own process group, with only `INGEST_URL=http://127.0.0.1:18000` and `TRAYCE_PUBLIC_URL=http://127.0.0.1:13000`: no store credentials or API key (ADR-0031).

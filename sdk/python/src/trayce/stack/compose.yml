@@ -1,0 +1,133 @@
+name: trayce-local
+# The stack `trayce up` runs from published images (ADR-0043). It's the repo's docker-compose.yml
+# with images in place of builds, the web app added, and only ingest and the web app on host
+# ports. `trayce up` copies this file and seaweedfs-start.sh into TRAYCE_HOME (~/.trayce) and
+# writes the .env beside them; test_stack.py keeps the two compose files in step.
+
+x-service-env: &service-env
+  POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  CLICKHOUSE_HOST: clickhouse
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT: http://seaweedfs:8333
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  S3_BUCKET: ${S3_BUCKET}
+  TRAYCE_API_KEY: ${TRAYCE_API_KEY}
+  TRAYCE_SETUP_TOKEN: ${TRAYCE_SETUP_TOKEN:-}
+  TRAYCE_PUBLIC_URL: ${TRAYCE_PUBLIC_URL:-http://localhost:${TRAYCE_WEB_PORT:-3000}}
+  TRAYCE_TRUSTED_FORWARDERS: ${TRAYCE_TRUSTED_FORWARDERS:-}
+  TRACE_QUIET_PERIOD_S: ${TRACE_QUIET_PERIOD_S:-300}
+
+services:
+  postgres:
+    image: postgres:16.10-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: trayce
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes: [clickhouse-data:/var/lib/clickhouse]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping | grep -q Ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${TRAYCE_REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.42
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/etc/seaweedfs/start.sh"]
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+    volumes:
+      - seaweedfs-data:/data
+      - ./seaweedfs-start.sh:/etc/seaweedfs/start.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  ingest:
+    image: ${TRAYCE_IMAGE_PREFIX:-ghcr.io/mannynq/trayce}-ingest:${TRAYCE_VERSION}
+    command: ["uvicorn", "trayce_ingest.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    environment: *service-env
+    ports: ["${TRAYCE_INGEST_BIND:-127.0.0.1}:${TRAYCE_INGEST_PORT:-8000}:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      seaweedfs: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    image: ${TRAYCE_IMAGE_PREFIX:-ghcr.io/mannynq/trayce}-worker:${TRAYCE_VERSION}
+    command: ["trayce-worker"]
+    restart: unless-stopped
+    environment: *service-env
+    depends_on:
+      ingest: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-m", "trayce_worker.healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    image: ${TRAYCE_IMAGE_PREFIX:-ghcr.io/mannynq/trayce}-web:${TRAYCE_VERSION}
+    restart: unless-stopped
+    environment:
+      INGEST_URL: http://ingest:8000
+      # Defaults follow the ports in .env, so changing a port is one edit.
+      TRAYCE_ENDPOINT: ${TRAYCE_ENDPOINT:-http://localhost:${TRAYCE_INGEST_PORT:-8000}}
+      TRAYCE_PUBLIC_URL: ${TRAYCE_PUBLIC_URL:-http://localhost:${TRAYCE_WEB_PORT:-3000}}
+      TRAYCE_PROXY_HOPS: ${TRAYCE_PROXY_HOPS:-}
+    ports: ["127.0.0.1:${TRAYCE_WEB_PORT:-3000}:3000"]
+    depends_on:
+      ingest: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  clickhouse-data:
+  redis-data:
+  seaweedfs-data:
