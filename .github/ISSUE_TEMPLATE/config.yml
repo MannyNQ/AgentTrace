@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/MannyNQ/Trayce/discussions
+    about: Ask how to do something, or float an idea before it's a feature request.
+  - name: Security vulnerability
+    url: https://github.com/MannyNQ/Trayce/security/advisories/new
+    about: Report it privately. Don't open a public issue.

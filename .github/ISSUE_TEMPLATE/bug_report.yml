@@ -1,0 +1,50 @@
+name: Bug report
+description: Trayce did something wrong.
+labels: ["needs-triage", "bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Trayce did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of commands, `eval.yaml`, or agent code that shows it.
+      placeholder: |
+        1. trayce up
+        2. uv run demo-agent "Where is order 1042?"
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output and logs
+      description: CLI output, a browser console error, or `docker compose logs ingest worker`. Remove API keys and setup tokens first.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Trayce version
+      description: "`pip show trayce`, or the commit if you run from source."
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run it
+      options:
+        - trayce up
+        - From source (docker compose)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Docker or OrbStack version, Python version, and how your agent sends spans (SDK or OTLP).
