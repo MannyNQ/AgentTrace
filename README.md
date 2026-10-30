@@ -40,14 +40,45 @@ What Trayce adds is one loop, with the trajectory as the thing under test: **fai
 
 ## Run it
 
-Needs Docker (or OrbStack) and Python 3.12+.
+Needs Docker (or OrbStack) and Python 3.12+. Install the `trayce` command as a tool, since Ubuntu's, Debian's, and Homebrew's Python refuse a bare `pip install`:
 
 ```bash
-pip install trayce
+pipx install trayce      # or: uv tool install trayce
 trayce up
 ```
 
-`trayce up` pulls the images, starts the stack, and prints the web UI's address, the setup token for creating the owner account, and the settings to point an agent or OpenTelemetry exporter at it. Its secrets and compose file live in `~/.trayce`. `trayce down` stops it, and `trayce down --delete-data` also deletes its data. This works from the first published release on (ADR-0043); until then, run it from source as below.
+`trayce up` pulls the images, starts the stack, and prints the web UI's address, the setup token for creating the owner account, and the settings to point an agent or OpenTelemetry exporter at it. Open the setup address it prints and create the owner account with that token. Its secrets and compose file live in `~/.trayce`. `trayce down` stops it, and `trayce down --delete-data` also deletes its data.
+
+The stack publishes ports 8000 (ingest) and 3000 (web UI) on `127.0.0.1`. If either is taken, `trayce up` says which; set `TRAYCE_INGEST_PORT` or `TRAYCE_WEB_PORT` in `~/.trayce/.env` and run it again.
+
+### Send your first trace
+
+In your agent's environment, install the SDK and set the two `TRAYCE_` lines `trayce up` printed:
+
+```bash
+pip install trayce
+export TRAYCE_ENDPOINT=http://localhost:8000 TRAYCE_API_KEY=tr-...
+```
+
+```python
+from trayce import trace
+
+
+@trace(name="lookup_order", kind="tool")
+def lookup_order(order_id: str) -> dict:
+    return {"order_id": order_id, "status": "shipped"}
+
+
+@trace(name="support_agent", kind="agent")
+def run(question: str) -> str:
+    order = lookup_order("1042")
+    return f"Order {order['order_id']} has {order['status']}."
+
+
+run("Where is order 1042?")
+```
+
+The trace is at http://localhost:3000/p/default/traces. `instrument_anthropic()` records each Anthropic model call as an LLM span; an agent already instrumented with OpenTelemetry needs no SDK (see [OpenTelemetry](#opentelemetry)). For evals, install `trayce[eval]` and start from [`examples/demo-agent/eval.yaml`](examples/demo-agent/eval.yaml).
 
 ## Develop from source
 
@@ -76,7 +107,7 @@ uv run demo-agent "Where is order 1042?"
 
 Each run is traced into the local stack's default project; open http://localhost:3000/p/default/traces to see it. The SDK reads `TRAYCE_API_KEY` and `TRAYCE_ENDPOINT` (see `.env.example`). Click "Add to dataset" on a trace to turn it into a test case at http://localhost:3000/p/default/datasets.
 
-To trace your own agent, install the SDK: `pip install 'trayce[eval]'`, or `pip install './sdk/python[eval]'` from this repo before the first release.
+To trace your own agent, see [Send your first trace](#send-your-first-trace).
 
 Evals: add the demo agent's traces to a dataset named `support`, write each item's expected output or expected tool calls, publish it, then:
 

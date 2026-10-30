@@ -4,14 +4,15 @@ images are tagged with this package's version.
 
 Everything lives in TRAYCE_HOME (default ~/.trayce): the compose file and SeaweedFS start script,
 copied fresh on each `up` so an upgraded package runs its own stack, and a `.env` written once
-with random secrets, which later runs keep. Exit codes: 0 on success, 2 when Docker is missing,
-and Docker's own code when compose fails.
+with random secrets, which later runs keep. Exit codes: 0 on success, 2 when Docker is missing or
+a port the stack publishes is taken, and Docker's own code when compose fails.
 """
 
 import argparse
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 from importlib import metadata, resources
@@ -73,11 +74,43 @@ def version() -> str:
     return os.environ.get("TRAYCE_VERSION") or metadata.version("trayce")
 
 
-def compose(root: Path, *args: str) -> int:
+def compose_cmd(root: Path, *args: str) -> list[str]:
     cmd = ["docker", "compose", "-p", PROJECT, "-f", str(root / "compose.yml")]
-    cmd += ["--env-file", str(root / ".env"), *args]
+    return cmd + ["--env-file", str(root / ".env"), *args]
+
+
+def compose(root: Path, *args: str) -> int:
     env = {**os.environ, "TRAYCE_VERSION": version()}
-    return subprocess.run(cmd, env=env).returncode
+    return subprocess.run(compose_cmd(root, *args), env=env).returncode
+
+
+def port_free(host: str, port: int) -> bool:
+    with socket.socket() as s:
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def taken_ports(root: Path, env: dict[str, str]) -> list[str]:
+    """The published ports something else holds, as "port (SETTING)". Docker's own error for this
+    names neither the port's setting nor the file to change it in. A running stack of our own
+    holds its ports, so it skips the check and compose applies any change."""
+    ps = subprocess.run(compose_cmd(root, "ps", "-q"), capture_output=True)
+    if ps.returncode == 0 and ps.stdout.strip():
+        return []
+
+    def get(key: str, default: str) -> str:
+        # Compose takes these from the shell first, then .env, as it does for every variable.
+        return os.environ.get(key) or env.get(key) or default
+
+    ingest_host = get("TRAYCE_INGEST_BIND", "127.0.0.1")
+    published = [
+        ("TRAYCE_INGEST_PORT", ingest_host, get("TRAYCE_INGEST_PORT", "8000")),
+        ("TRAYCE_WEB_PORT", "127.0.0.1", get("TRAYCE_WEB_PORT", "3000")),
+    ]
+    return [f"{port} ({key})" for key, host, port in published if not port_free(host, int(port))]
 
 
 def docker_missing() -> str | None:
@@ -127,6 +160,13 @@ def run_up(args: argparse.Namespace) -> int:
         return 2
     root = home()
     env = prepare(root)
+    if taken := taken_ports(root, env):
+        print(
+            f"trayce up: in use by something else: {', '.join(taken)}.\n"
+            f"Set free ports in {root / '.env'} and run `trayce up` again.",
+            file=sys.stderr,
+        )
+        return 2
     print(f"Starting Trayce {version()} from {root} (the first run pulls the images)...")
     code = compose(root, "up", "-d", "--wait", "--wait-timeout", str(args.wait_timeout))
     if code != 0:

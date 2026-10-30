@@ -1,5 +1,6 @@
 """`trayce up` / `trayce down` without Docker, and the bundled stack against the repo's compose."""
 
+import socket
 import subprocess
 from pathlib import Path
 
@@ -44,6 +45,7 @@ def fake_docker(monkeypatch, tmp_path):
     monkeypatch.setenv("TRAYCE_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(server.shutil, "which", lambda name: "/usr/bin/docker")
     monkeypatch.setattr(server.subprocess, "run", run)
+    monkeypatch.setattr(server, "port_free", lambda host, port: True)
     return calls
 
 
@@ -93,6 +95,35 @@ def test_up_tags_images_with_the_package_version(fake_docker, monkeypatch):
     monkeypatch.setenv("TRAYCE_VERSION", "9.9.9")
     assert main("up") == 0
     assert seen["TRAYCE_VERSION"] == "9.9.9"
+
+
+def test_up_names_the_setting_for_a_port_in_use(fake_docker, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(server, "port_free", lambda host, port: port != 8000)
+    assert main("up") == 2
+    err = capsys.readouterr().err
+    assert "8000 (TRAYCE_INGEST_PORT)" in err and "3000" not in err
+    assert str(tmp_path / "home" / ".env") in err
+    assert not any("up" in cmd for cmd in fake_docker)
+
+
+def test_up_skips_the_port_check_when_its_own_stack_is_running(fake_docker, monkeypatch):
+    calls = fake_docker
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, b"abc123\n" if "ps" in cmd else b"", b"")
+
+    monkeypatch.setattr(server.subprocess, "run", run)
+    monkeypatch.setattr(server, "port_free", lambda host, port: False)
+    assert main("up") == 0
+    assert calls[-1][-5:] == ["up", "-d", "--wait", "--wait-timeout", "300"]
+
+
+def test_port_free_sees_a_listening_socket():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        assert not server.port_free("127.0.0.1", s.getsockname()[1])
 
 
 def test_down_keeps_data_unless_asked(fake_docker):

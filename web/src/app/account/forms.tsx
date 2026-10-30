@@ -90,7 +90,8 @@ export function SetupForm() {
             Setup token
             <input name="token" required autoComplete="off" className={`${field} font-mono`} />
             <span className="mt-1 block">
-              From <code className="font-mono">docker compose logs ingest</code>, or the{" "}
+              Printed by <code className="font-mono">trayce up</code>. From source, it&apos;s in{" "}
+              <code className="font-mono">docker compose logs ingest</code>, or the{" "}
               <code className="font-mono">TRAYCE_SETUP_TOKEN</code> you set.
             </span>
           </label>

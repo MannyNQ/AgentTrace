@@ -1,6 +1,6 @@
 [project]
 name = "trayce"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python SDK for Trayce, observability and evals for LLM agents"
 readme = "README.md"
 requires-python = ">=3.12"
