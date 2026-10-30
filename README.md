@@ -6,9 +6,37 @@ Open-source observability and evals for LLM agents. Sentry plus pytest for AI ag
 - **Turn failures into tests** with one click.
 - **Grade trajectories in CI**: which tools the agent called, in what order, so a prompt change can't quietly break things.
 
-> **Status: Phase 8 (Overview).** The Python SDK, or any OpenTelemetry exporter over OTLP, traces agent runs into the stack, and the web UI lists traces and shows each one's span tree. Any trace can be added to a dataset, and a published version can be run with `trayce eval`: it runs your agent over every item, grades outputs and tool-call trajectories, and uploads an experiment you can browse in the UI. Each experiment is compared with its baseline (the run at the merge-base, else the newest on the base branch), and `trayce eval --fail-on-regression` or the GitHub Action in [`action.yml`](action.yml) fails a pull request on a statistically real regression and posts the comparison as a comment. An `llm_judge` scorer grades outputs with an Anthropic model. `trayce replay` re-runs a failed trace with your current code and scores it against the dataset item made from it. People sign in to the web app; an owner invites members, creates projects, and makes API keys for each one. Agents instrumented with OpenTelemetry, such as Pydantic AI, the Vercel AI SDK, or OpenInference instrumentors, send traces to `/otlp/v1/traces`, and `trayce eval` and `trayce replay` capture their tool calls too. Each project opens on an overview of the last 24 hours, 7 days, or 30 days: volume, error rates, latency percentiles, spend by model, and tools, where every chart links to the traces behind it. See [`docs/architecture.md`](docs/architecture.md).
->
-> From Phase 2 on, ingest applies database migrations on startup, so an existing dev stack upgrades in place with `docker compose up -d --build`. A stack from before Phase 1 still needs `docker compose down -v` (this deletes its data).
+<!-- Demo video: replace this comment with the embed once it's recorded. -->
+
+## What it does
+
+- **Tracing.** The Python SDK, or any OpenTelemetry exporter over OTLP, sends your agent's runs to a stack on your own machines. The web UI lists traces and shows each one's span tree. Agents instrumented with Pydantic AI, the Vercel AI SDK, or OpenInference instrumentors send traces to `/otlp/v1/traces` without the SDK.
+- **Datasets.** "Add to dataset" turns any trace into a dataset item. Publishing the draft freezes it into a dataset version.
+- **Evals.** `trayce eval` runs your agent over every item of a dataset version, grades outputs and trajectories, and uploads an experiment you can browse in the UI. The `llm_judge` scorer currently uses Anthropic models only.
+- **The CI gate.** Each experiment is compared with its baseline: the experiment at the merge-base, else the newest on the base branch. `trayce eval --fail-on-regression`, or the GitHub Action in [`action.yml`](action.yml), fails a pull request on a statistically real regression and posts the comparison as a comment.
+- **Replay.** `trayce replay` re-runs a failed trace with your current code, scores it against the dataset item made from it, and shows where the runs first differ.
+- **Overview.** Each project opens on the last 24 hours, 7 days, or 30 days: volume, error rates, latency percentiles, spend by model, and tools. Every chart links to the traces behind it.
+- **Teams.** People sign in to the web app. An owner invites members, creates projects, and makes API keys for each one.
+
+See [`docs/architecture.md`](docs/architecture.md) for how the pieces fit.
+
+## Status: alpha
+
+Trayce is an alpha. Two things to know before you depend on it:
+
+- **Your data survives upgrades.** Ingest runs database migrations forward when it starts, so a newer release upgrades an existing stack in place.
+- **Interfaces may change before 1.0.** The SDK, the API, and the `eval.yaml` format can still change. When one does, [`CHANGELOG.md`](CHANGELOG.md) says so.
+
+## How it compares
+
+Several good tools cover parts of this. All four below trace LLM applications and run evals over datasets.
+
+- **[Langfuse](https://langfuse.com/docs)** is open source (MIT, apart from its `ee/` directories) and self-hosts with Docker. It is built on OpenTelemetry and adds prompt management, annotation queues, and dashboards.
+- **[Arize Phoenix](https://arize.com/docs/phoenix)** is built on OpenTelemetry and OpenInference, and self-hosts with no feature limits. It is source-available under the Elastic License 2.0. It adds prompt versioning and testing.
+- **[Braintrust](https://www.braintrust.dev/docs)** centers on evals and experiments, with human feedback that builds datasets. Its GitHub Action, `braintrustdata/eval-action`, runs evals on pull requests and posts the results as a comment. Self-hosting its data plane is on the Enterprise plan.
+- **[LangSmith](https://docs.langchain.com/langsmith/home)**, from LangChain, works with many frameworks, not only LangChain. Evals can be written as pytest or Vitest tests. Self-hosting is an add-on to its Enterprise plan.
+
+What Trayce adds is one loop, with the trajectory as the thing under test: **failure → test → gate**. A failed trace becomes a dataset item in one click. `trayce eval` grades which tools your agent called, in what order, and compares the result with the experiment at the merge-base. The pull request fails only when a scorer's pass rate drops more than its `max_drop` and the 95% paired item-level bootstrap interval of the change lies below zero ([ADR-0025](docs/adr/0025-paired-item-level-bootstrap-with-max-drop.md)). Scorers too noisy to detect that drop are flagged as underpowered. Then `trayce replay` re-runs the failed trace with your fix. It's MIT-licensed, and every feature runs on your own machines.
 
 ## Run it
 
@@ -122,6 +150,8 @@ cd web && pnpm lint && pnpm build                        # web
 - [`docs/adr/`](docs/adr/): architecture decisions
 - [`docs/architecture.md`](docs/architecture.md): architecture and open questions
 - [`docs/eng-log.md`](docs/eng-log.md): engineering log
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, checks, and how issues are labeled
+- [`SECURITY.md`](SECURITY.md): reporting a vulnerability
 
 ## License
 

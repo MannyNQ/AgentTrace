@@ -12,7 +12,7 @@ instrument_anthropic()  # each Anthropic model call becomes an LLM span
 def run(question: str) -> str: ...
 ```
 
-The SDK reads `TRAYCE_API_KEY` and `TRAYCE_ENDPOINT`. Extras: `trayce[eval]` for `trayce eval`, `trayce[otel]` for the OpenTelemetry bridge.
+The SDK reads `TRAYCE_API_KEY` and `TRAYCE_ENDPOINT`. Extras: `trayce[eval]` for `trayce eval`, `trayce[otel]` for the OpenTelemetry bridge. The `llm_judge` scorer currently uses Anthropic models only.
 
 To run a Trayce server on this machine (needs Docker):
 
