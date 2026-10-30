@@ -1,4 +1,4 @@
-# Shared image for the Python services. Build with --build-arg PACKAGE=agenttrace-ingest (or -worker).
+# Shared image for the Python services. Build with --build-arg PACKAGE=trayce-ingest (or -worker).
 FROM python:3.13-slim
 COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /bin/uv
 ARG PACKAGE
@@ -12,5 +12,5 @@ RUN mkdir -p examples/demo-agent/src/demo_agent && touch examples/demo-agent/src
     && uv sync --frozen --no-dev --package ${PACKAGE}
 ENV PATH="/app/.venv/bin:$PATH"
 # Nothing at runtime writes under /app, so the services run without root.
-RUN useradd --system --uid 10001 agenttrace
-USER agenttrace
+RUN useradd --system --uid 10001 trayce
+USER trayce

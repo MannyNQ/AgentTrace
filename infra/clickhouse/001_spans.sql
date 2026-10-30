@@ -1,5 +1,5 @@
 -- Spans: append-only, one row per span. Dedup: ADR-0014. Retention: ADR-0016.
-CREATE TABLE IF NOT EXISTS agenttrace.spans
+CREATE TABLE IF NOT EXISTS trayce.spans
 (
     project_id      UUID,                       -- ADR-0002: every row is project-scoped
     trace_id        FixedString(32),            -- ADR-0003: OTel-format IDs from the SDK

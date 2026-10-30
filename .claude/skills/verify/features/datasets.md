@@ -19,17 +19,17 @@ Datasets live behind `/v1/datasets` in the ingest API (ADR-0019); the web app ca
 - Home page → "Datasets →" → create a dataset → open it. "Rename or archive" sits under the title.
 - Any trace page → the picker under the header (an existing dataset, or "New dataset…" plus a name) → "Add to dataset".
 - Dataset page → an item's input (edit), "New item", "Publish vN", the versions list → a version page.
-- The API directly: `curl -H "Authorization: Bearer $AGENTTRACE_API_KEY" http://127.0.0.1:18000/v1/datasets`.
+- The API directly: `curl -H "Authorization: Bearer $TRAYCE_API_KEY" http://127.0.0.1:18000/v1/datasets`.
 
-## Driving it with agenttrace-verify
+## Driving it with trayce-verify
 
 Preconditions:
 
 - A healthy run. `ANTHROPIC_API_KEY` in `.env` for the demo agent journey.
-- The API key `curl` sends is the one `H` exports (`.env`'s, else `at-local-dev-key`). The web app has no key: it forwards the session.
+- The API key `curl` sends is the one `H` exports (`.env`'s, else `tr-local-dev-key`). The web app has no key: it forwards the session.
 
-- **Migrations.** `docker exec agenttrace-verify-postgres-1 psql -U agenttrace -d agenttrace -tAc "SELECT version, name FROM schema_migrations"` prints `1|0001_datasets.sql` and `2|0002_experiments.sql`.
-- **Integration tests.** `POSTGRES_DSN=postgresql://agenttrace:agenttrace@127.0.0.1:15432/agenttrace CLICKHOUSE_HOST=127.0.0.1 CLICKHOUSE_PORT=18123 S3_ENDPOINT=http://127.0.0.1:18333 REDIS_URL=redis://127.0.0.1:16379/15 uv run pytest services/ingest -m integration` passes. It covers from-trace with an S3-offloaded input, revisions, deletes, and concurrent publishes. It leaves `it-xxxxxxxx` datasets behind.
+- **Migrations.** `docker exec trayce-verify-postgres-1 psql -U trayce -d trayce -tAc "SELECT version, name FROM schema_migrations"` prints `1|0001_datasets.sql` and `2|0002_experiments.sql`.
+- **Integration tests.** `POSTGRES_DSN=postgresql://trayce:trayce@127.0.0.1:15432/trayce CLICKHOUSE_HOST=127.0.0.1 CLICKHOUSE_PORT=18123 S3_ENDPOINT=http://127.0.0.1:18333 REDIS_URL=redis://127.0.0.1:16379/15 uv run pytest services/ingest -m integration` passes. It covers from-trace with an S3-offloaded input, revisions, deletes, and concurrent publishes. It leaves `it-xxxxxxxx` datasets behind.
 - **Demo agent → dataset.** `H agent "I want a refund for order 1042, it arrived broken"`, then find the trace with `H ch <name> "SELECT trace_id FROM spans WHERE parent_span_id = '' AND name = 'support_agent' FORMAT TSV"`. On its trace page choose "New dataset…", name it `refund-failures`, and click "Add to dataset": "Added. Fill in what should have happened". Choose `refund-failures` and add again: "this trace is already in the draft" with "Open the item".
 - **Publish refused.** On the dataset page, "Publish v1" shows "1 new or changed items have no expected output or expected trajectory".
 - **Field errors.** On the item, set Expected trajectory to `[{"name": "lookup_order"}]` and save: `0.tool: Field required` under that field, text kept. Set it to `[{"tool": "lookup_order", "args": {"order_id": "1042"}}, {"tool": "escalate"}]` and save; "Publish v1" then succeeds and the item shows `unchanged`.
@@ -37,9 +37,9 @@ Preconditions:
 - **v2 and the diff.** Add a hand-written item ("New item"), publish v2, open `/datasets/<id>/versions/2`: "Versus v1: 1 added · 1 changed · 0 removed · 0 unchanged"; each row expands to its contents at that version. `GET /v1/datasets/<id>/versions/1` still returns the old revision.
 - **Archive.** "Rename or archive" → "Archive dataset": it leaves `/datasets` and the trace page picker; "Show archived" (`/datasets?archived=1`) lists it marked `archived`; its page offers "Unarchive"; `POST .../items` answers 422 "archived". Creating a dataset with the archived one's name says "already exists" and links to it ("Open that dataset").
 - **New dataset from an uncopyable trace.** On the `verify.oversized` trace (SDK-truncated input), choose "New dataset…", name it, and add: "the trace's input can't be copied…" or "the SDK cut…", and no dataset of that name appears, even under "Show archived".
-- **JSON jsonb can't hold.** `curl -H "Authorization: Bearer $AGENTTRACE_API_KEY" -H 'Content-Type: application/json' -d '{"input": NaN}' http://127.0.0.1:18000/v1/datasets/<id>/items` answers 422 with `fields.input` naming NaN.
+- **JSON jsonb can't hold.** `curl -H "Authorization: Bearer $TRAYCE_API_KEY" -H 'Content-Type: application/json' -d '{"input": NaN}' http://127.0.0.1:18000/v1/datasets/<id>/items` answers 422 with `fields.input` naming NaN.
 - **Pinned on add.** Before adding a trace, `H ch pin-before "SELECT toDateTime(start_time) + toIntervalDay(retention_days) FROM spans WHERE trace_id = '<trace_id>'"` shows 30 days out. After "Add to dataset", the same query (and the same on `traces`) shows `2106-01-01 …`, `system.mutations` has two `UPDATE retention_days = …` rows with `is_done = 1`, and `SELECT pinned_at IS NOT NULL FROM dataset_items WHERE source_trace_id = '<trace_id>'` is `t`.
-- **Pin backfill on startup.** Stand in for a Phase 2 item: `UPDATE dataset_items SET pinned_at = NULL WHERE source_trace_id = '<trace_id>'` in Postgres, and `ALTER TABLE spans UPDATE retention_days = 30 WHERE trace_id = '<trace_id>' SETTINGS mutations_sync = 1` (and the same on `traces`). `docker restart agenttrace-verify-ingest-1`, wait for `/health`: the expiry is back to 2106 and `pinned_at` is set.
+- **Pin backfill on startup.** Stand in for a Phase 2 item: `UPDATE dataset_items SET pinned_at = NULL WHERE source_trace_id = '<trace_id>'` in Postgres, and `ALTER TABLE spans UPDATE retention_days = 30 WHERE trace_id = '<trace_id>' SETTINGS mutations_sync = 1` (and the same on `traces`). `docker restart trayce-verify-ingest-1`, wait for `/health`: the expiry is back to 2106 and `pinned_at` is set.
 - **ClickHouse down.** `H store-stop clickhouse`, then open a dataset page: it renders, with source traces shown as plain links instead of "source trace expired". `H store-start clickhouse` and `H doctor` afterwards.
 - **Source expired.** `H ch <name> "ALTER TABLE traces DELETE WHERE trace_id = '<trace_id>' SETTINGS mutations_sync = 1"` stands in for retention: the dataset page shows "source trace expired" for that item, and the item page says the item keeps its copy of the input.
 

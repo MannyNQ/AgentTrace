@@ -10,11 +10,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.trace import Status, StatusCode
 from test_eval_runner import SUPPORT, FakeApi
 
-from agenttrace import SpanKind, SpanStatus, span, tracing
-from agenttrace.eval import config, scorers
-from agenttrace.eval.runner import Git, Runner
-from agenttrace.otel import bridge
-from agenttrace.tracing import untraced
+from trayce import SpanKind, SpanStatus, span, tracing
+from trayce.eval import config, scorers
+from trayce.eval.runner import Git, Runner
+from trayce.otel import bridge
+from trayce.tracing import untraced
 
 TOOL = {
     "gen_ai.operation.name": "execute_tool",
@@ -42,7 +42,7 @@ def tracer():
     return provider.get_tracer("test")
 
 
-def test_an_otel_span_inside_an_agenttrace_span_joins_its_trace(collected, tracer):
+def test_an_otel_span_inside_an_trayce_span_joins_its_trace(collected, tracer):
     with (
         span("agent", "agent") as root,
         tracer.start_as_current_span("execute_tool", attributes=TOOL),
@@ -52,10 +52,10 @@ def test_an_otel_span_inside_an_agenttrace_span_joins_its_trace(collected, trace
     assert tool.kind == SpanKind.TOOL
     assert tool.trace_id == root.trace_id and tool.parent_span_id == root.span_id
     assert tool.input == {"order_id": "1042"}
-    assert tool.attributes["agenttrace.convention"] == "gen_ai"
+    assert tool.attributes["trayce.convention"] == "gen_ai"
 
 
-def test_an_agenttrace_span_inside_an_otel_span_is_its_child(collected, tracer):
+def test_an_trayce_span_inside_an_otel_span_is_its_child(collected, tracer):
     with (
         tracer.start_as_current_span(
             "invoke_agent", attributes={"gen_ai.operation.name": "invoke_agent"}
@@ -95,7 +95,7 @@ def test_untraced_drops_otel_spans_too(collected, tracer):
     assert collected.spans == []
 
 
-def test_an_otel_llm_span_under_an_agenttrace_llm_span_is_the_same_call(collected, tracer):
+def test_an_otel_llm_span_under_an_trayce_llm_span_is_the_same_call(collected, tracer):
     """The Anthropic SDK records its own GenAI span inside `instrument_anthropic()`'s; keeping
     both would count the call, and its cost, twice."""
     with span("anthropic.messages.create", "llm") as llm:
@@ -105,7 +105,7 @@ def test_an_otel_llm_span_under_an_agenttrace_llm_span_is_the_same_call(collecte
     assert [s.name for s in collected.spans] == ["anthropic.messages.create"]
 
 
-def test_other_otel_spans_under_an_agenttrace_llm_span_are_kept(collected, tracer):
+def test_other_otel_spans_under_an_trayce_llm_span_are_kept(collected, tracer):
     with (
         span("anthropic.messages.create", "llm"),
         tracer.start_as_current_span("POST https://api.anthropic.com"),
@@ -184,8 +184,8 @@ def test_the_exporters_own_requests_never_become_spans(monkeypatch, http_server)
     an OTel span the bridge exports with the next POST, forever."""
     from opentelemetry.instrumentation.urllib import URLLibInstrumentor
 
-    from agenttrace.eval.client import Client
-    from agenttrace.exporter import Config, Exporter
+    from trayce.eval.client import Client
+    from trayce.exporter import Config, Exporter
 
     posts: list[list[str]] = []
 

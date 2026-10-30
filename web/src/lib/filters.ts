@@ -146,7 +146,7 @@ export function without(f: Filter, key: keyof Filter): Filter {
 }
 
 /** Set by the viewer's browser (overview/zone.tsx) so the overview buckets their hours and days. */
-export const ZONE_COOKIE = "agenttrace-tz";
+export const ZONE_COOKIE = "trayce-tz";
 
 /** A valid IANA zone name, else UTC. */
 export function zoneOr(tz: string | undefined, fallback = "UTC"): string {

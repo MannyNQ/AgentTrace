@@ -1,6 +1,6 @@
 /**
  * Whether a span can be a fork point (ADR-0040), for the trace page's "Fork from here". The CLI
- * decides for real (sdk `agenttrace.eval.fork`); this mirrors its rule so the page can say why
+ * decides for real (sdk `trayce.eval.fork`); this mirrors its rule so the page can say why
  * before anyone runs the command. Both are checked against sdk/python/tests/fixtures/why_not.json.
  */
 
@@ -60,9 +60,9 @@ export function steps(spans: ForkSpan[]): Step[] {
       facts: {
         kind: s.kind as "llm" | "tool",
         status: s.status,
-        interceptor: s.attributes["agenttrace.interceptor"] ?? null,
-        truncated: (s.attributes["agenttrace.truncated"] ?? "").split(",").filter((w) => w === "input" || w === "output"),
-        outputRecorded: s.attributes["agenttrace.output_recorded"] ?? null,
+        interceptor: s.attributes["trayce.interceptor"] ?? null,
+        truncated: (s.attributes["trayce.truncated"] ?? "").split(",").filter((w) => w === "input" || w === "output"),
+        outputRecorded: s.attributes["trayce.output_recorded"] ?? null,
         // A preview is the first 1 KB, so an object is told by its opening brace.
         hasResponse: s.outputPreview.trimStart().startsWith("{"),
       },
@@ -73,7 +73,7 @@ const label = (s: Step) => `step ${s.index} (${s.kind} ${s.name}, span ${s.spanI
 
 export type ForkCheck = { ok: true; step: Step } | { ok: false; reason: string };
 
-/** Whether `spanId` can be a fork point, as `agenttrace replay --from` would decide. */
+/** Whether `spanId` can be a fork point, as `trayce replay --from` would decide. */
 export function forkCheck(spans: ForkSpan[], spanId: string): ForkCheck {
   const all = steps(spans);
   const fork = all.find((s) => s.spanId === spanId);

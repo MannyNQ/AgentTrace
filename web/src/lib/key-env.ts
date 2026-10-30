@@ -5,7 +5,7 @@
  */
 export function keyEnvLines(key: string, scope: "ingest" | "full", endpoint: string): string {
   const base = endpoint.replace(/\/+$/, "");
-  const lines = ["# The agenttrace SDK and CLI", `AGENTTRACE_API_KEY=${key}`, `AGENTTRACE_ENDPOINT=${base}`];
+  const lines = ["# The trayce SDK and CLI", `TRAYCE_API_KEY=${key}`, `TRAYCE_ENDPOINT=${base}`];
   if (scope === "ingest") {
     lines.push(
       "",

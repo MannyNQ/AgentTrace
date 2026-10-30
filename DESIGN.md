@@ -1,5 +1,5 @@
 ---
-name: AgentTrace
+name: Trayce
 description: Open-source tracing and evals for LLM agents. The landing page's visual world, "Signal Box".
 colors:
   panel: "#20272b"
@@ -161,7 +161,7 @@ components:
     padding: "0 18px"
 ---
 
-# Design System: AgentTrace
+# Design System: Trayce
 
 Scope: this documents the public landing page in `site/` (`index.html`, `styles.css`, `main.js`). The self-hosted product UI in `web/` is a separate surface this document doesn't cover.
 

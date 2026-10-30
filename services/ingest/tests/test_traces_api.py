@@ -10,8 +10,8 @@ from fake_datasets import FakeDatasets, FakePins
 from fake_traces import T0, FakeTraces, span_row, summary_row
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 OTHER = UUID("00000000-0000-0000-0000-0000000000bb")
@@ -199,7 +199,7 @@ def test_clickhouse_datetimes_are_utc_whatever_the_local_zone():
     and aware ones elsewhere; both must come out aware, or status math fails."""
     from datetime import timezone
 
-    from agenttrace_ingest.trace_store import _span, _summary, utc
+    from trayce_ingest.trace_store import _span, _summary, utc
 
     naive = datetime(2026, 10, 1, 12, 0)
     paris = datetime(2026, 10, 1, 14, 0, tzinfo=timezone(timedelta(hours=2)))
@@ -230,7 +230,7 @@ class Failing:
 
 
 def outage_api(error: Exception) -> TestClient:
-    from agenttrace_ingest.trace_store import ClickHouseTraces
+    from trayce_ingest.trace_store import ClickHouseTraces
 
     store = ClickHouseTraces(Settings())
     store.__dict__["_clickhouse"] = Failing(error)  # in place of the lazily built client
@@ -271,8 +271,8 @@ def test_a_missing_migrated_column_says_the_migration_is_pending():
 def test_an_object_storage_outage_is_unavailable():
     from botocore.exceptions import EndpointConnectionError
 
-    from agenttrace_ingest.trace_store import ClickHouseTraces
-    from agenttrace_ingest.traces import Unavailable
+    from trayce_ingest.trace_store import ClickHouseTraces
+    from trayce_ingest.traces import Unavailable
 
     store = ClickHouseTraces(Settings())
     store.__dict__["_s3"] = Failing(EndpointConnectionError(endpoint_url="http://seaweedfs:8333"))
@@ -294,7 +294,7 @@ def ids(page: dict) -> set[str]:
 
 
 def test_only_production_traffic_is_listed_by_default(api: Api):
-    from agenttrace.eval.results import EVAL_TAG
+    from trayce.eval.results import EVAL_TAG
 
     api.store.add(PROJECT, summary_row(A))
     api.store.add(PROJECT, summary_row(B, tags=[EVAL_TAG]))
@@ -355,8 +355,8 @@ def test_a_malformed_filter_is_refused(api: Api):
 
 def test_steps_are_the_llm_and_tool_spans_with_full_payloads(api: Api):
     api.store.objects["s3://payloads/x/in"] = '{"model": "m", "messages": []}'
-    llm = {"agenttrace.interceptor": "anthropic"}
-    tool = {"agenttrace.interceptor": "call_tool", "agenttrace.output_recorded": "json"}
+    llm = {"trayce.interceptor": "anthropic"}
+    tool = {"trayce.interceptor": "call_tool", "trayce.output_recorded": "json"}
     api.store.add(
         PROJECT,
         summary_row(A, span_count=5),
@@ -392,7 +392,7 @@ def test_steps_are_the_llm_and_tool_spans_with_full_payloads(api: Api):
                 status="error",
                 error_type="ToolError",
                 input_preview='{"order_id": "0"}',
-                attributes={**tool, "agenttrace.error_message": "No order 0"},
+                attributes={**tool, "trayce.error_message": "No order 0"},
             ),
             span_row("5" * 16, T0 + timedelta(milliseconds=4), parent_span_id=ROOT, kind="custom"),
         ],
@@ -427,20 +427,20 @@ def test_steps_are_the_llm_and_tool_spans_with_full_payloads(api: Api):
     ],
 )
 def test_a_step_output_is_decoded_as_the_sdk_recorded_it(api: Api, preview, recorded, output):
-    attributes = {"agenttrace.output_recorded": recorded}
+    attributes = {"trayce.output_recorded": recorded}
     spans = [span_row(TOOL, kind="tool", output_preview=preview, attributes=attributes)]
     api.store.add(PROJECT, summary_row(A), spans)
     assert api.get(f"/{A}/steps")["steps"][0]["output"] == output
 
 
 def test_steps_say_which_payloads_the_sdk_cut(api: Api):
-    cut = {"agenttrace.truncated": "input,output"}
+    cut = {"trayce.truncated": "input,output"}
     api.store.add(PROJECT, summary_row(A), [span_row(TOOL, kind="llm", attributes=cut)])
     assert api.get(f"/{A}/steps")["steps"][0]["truncated"] == ["input", "output"]
 
 
 def test_steps_are_project_scoped_and_bounded(api: Api, monkeypatch):
-    from agenttrace_ingest import traces
+    from trayce_ingest import traces
 
     api.store.add(PROJECT, summary_row(A), [span_row(f"{i:016x}", kind="tool") for i in range(3)])
     api.get(f"/{A}/steps", key="other", status=404)
@@ -450,7 +450,7 @@ def test_steps_are_project_scoped_and_bounded(api: Api, monkeypatch):
 
 
 def test_steps_refuse_more_payload_than_a_fork_plays_back(api: Api, monkeypatch):
-    from agenttrace_ingest import traces
+    from trayce_ingest import traces
 
     api.store.objects["s3://payloads/big"] = "x" * 100
     spans = [span_row(TOOL, kind="tool", input_uri="s3://payloads/big", input_preview="x")]

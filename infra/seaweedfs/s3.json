@@ -1,8 +1,8 @@
 {
   "identities": [
     {
-      "name": "agenttrace",
-      "credentials": [{ "accessKey": "agenttrace", "secretKey": "agenttrace-secret" }],
+      "name": "trayce",
+      "credentials": [{ "accessKey": "trayce", "secretKey": "trayce-secret" }],
       "actions": ["Admin", "Read", "Write", "List", "Tagging"]
     }
   ]

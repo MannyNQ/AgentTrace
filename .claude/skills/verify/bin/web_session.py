@@ -1,4 +1,4 @@
-"""The owner's web session from the cookie jar `agenttrace-verify up` writes, as a Cookie header."""
+"""The owner's web session from the cookie jar `trayce-verify up` writes, as a Cookie header."""
 
 
 def cookie_header(jar_path: str) -> str:

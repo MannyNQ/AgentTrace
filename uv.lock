@@ -8,119 +8,12 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "agenttrace",
-    "agenttrace-ingest",
-    "agenttrace-worker",
-    "agenttrace-workspace",
     "demo-agent",
     "demo-agent-otel",
-]
-
-[[package]]
-name = "agenttrace"
-version = "0.0.1"
-source = { editable = "sdk/python" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-eval = [
-    { name = "jsonschema" },
-    { name = "pyyaml" },
-]
-otel = [
-    { name = "opentelemetry-sdk" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "jsonschema", marker = "extra == 'eval'", specifier = ">=4.20" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "pyyaml", marker = "extra == 'eval'", specifier = ">=6.0" },
-]
-provides-extras = ["eval", "otel"]
-
-[[package]]
-name = "agenttrace-ingest"
-version = "0.0.1"
-source = { editable = "services/ingest" }
-dependencies = [
-    { name = "agenttrace" },
-    { name = "argon2-cffi" },
-    { name = "boto3" },
-    { name = "clickhouse-connect" },
-    { name = "fastapi" },
-    { name = "opentelemetry-proto" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic-settings" },
-    { name = "redis" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agenttrace", editable = "sdk/python" },
-    { name = "argon2-cffi", specifier = ">=23.1" },
-    { name = "boto3", specifier = ">=1.35" },
-    { name = "clickhouse-connect", specifier = ">=0.8" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "opentelemetry-proto", specifier = ">=1.30" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pydantic-settings", specifier = ">=2.4" },
-    { name = "redis", specifier = ">=5.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
-]
-
-[[package]]
-name = "agenttrace-worker"
-version = "0.0.1"
-source = { editable = "services/worker" }
-dependencies = [
-    { name = "agenttrace" },
-    { name = "boto3" },
-    { name = "clickhouse-connect" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic-settings" },
-    { name = "redis" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agenttrace", editable = "sdk/python" },
-    { name = "boto3", specifier = ">=1.35" },
-    { name = "clickhouse-connect", specifier = ">=0.8" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "pydantic-settings", specifier = ">=2.4" },
-    { name = "redis", specifier = ">=5.0" },
-]
-
-[[package]]
-name = "agenttrace-workspace"
-version = "0.0.0"
-source = { virtual = "." }
-
-[package.dev-dependencies]
-dev = [
-    { name = "httpx" },
-    { name = "opentelemetry-instrumentation-urllib" },
-    { name = "opentelemetry-sdk" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "opentelemetry-instrumentation-urllib", specifier = ">=0.51b0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.30" },
-    { name = "pyright", specifier = ">=1.1.380" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.6" },
+    "trayce",
+    "trayce-ingest",
+    "trayce-worker",
+    "trayce-workspace",
 ]
 
 [[package]]
@@ -635,16 +528,16 @@ name = "demo-agent"
 version = "0.0.1"
 source = { editable = "examples/demo-agent" }
 dependencies = [
-    { name = "agenttrace", extra = ["eval"] },
     { name = "anthropic" },
     { name = "python-dotenv" },
+    { name = "trayce", extra = ["eval"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "agenttrace", extras = ["eval"], editable = "sdk/python" },
     { name = "anthropic", specifier = ">=1.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "trayce", extras = ["eval"], editable = "sdk/python" },
 ]
 
 [[package]]
@@ -652,20 +545,20 @@ name = "demo-agent-otel"
 version = "0.0.1"
 source = { editable = "examples/demo-agent-otel" }
 dependencies = [
-    { name = "agenttrace", extra = ["eval", "otel"] },
     { name = "demo-agent" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
     { name = "pydantic-ai-slim" },
+    { name = "trayce", extra = ["eval", "otel"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "agenttrace", extras = ["eval", "otel"], editable = "sdk/python" },
     { name = "demo-agent", editable = "examples/demo-agent" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.30" },
     { name = "opentelemetry-sdk", specifier = ">=1.30" },
     { name = "pydantic-ai-slim", specifier = ">=2.61" },
+    { name = "trayce", extras = ["eval", "otel"], editable = "sdk/python" },
 ]
 
 [[package]]
@@ -1846,6 +1739,113 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/48/bb/3d8757f21e9a53d9035c9eb039a777047139a16bfdbedfc7a58241c3d914/starlette-1.10.0.tar.gz", hash = "sha256:b8399098d4c1e3522734f7235dc79b1fc967f96cf139c81e0fa30479e0685f9b", size = 2734356, upload-time = "2026-10-24T15:04:12.342Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl", hash = "sha256:478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4", size = 80571, upload-time = "2026-10-24T15:04:10.371Z" },
+]
+
+[[package]]
+name = "trayce"
+version = "0.0.1"
+source = { editable = "sdk/python" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+eval = [
+    { name = "jsonschema" },
+    { name = "pyyaml" },
+]
+otel = [
+    { name = "opentelemetry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", marker = "extra == 'eval'", specifier = ">=4.20" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyyaml", marker = "extra == 'eval'", specifier = ">=6.0" },
+]
+provides-extras = ["eval", "otel"]
+
+[[package]]
+name = "trayce-ingest"
+version = "0.0.1"
+source = { editable = "services/ingest" }
+dependencies = [
+    { name = "argon2-cffi" },
+    { name = "boto3" },
+    { name = "clickhouse-connect" },
+    { name = "fastapi" },
+    { name = "opentelemetry-proto" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic-settings" },
+    { name = "redis" },
+    { name = "trayce" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "argon2-cffi", specifier = ">=23.1" },
+    { name = "boto3", specifier = ">=1.35" },
+    { name = "clickhouse-connect", specifier = ">=0.8" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "opentelemetry-proto", specifier = ">=1.30" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pydantic-settings", specifier = ">=2.4" },
+    { name = "redis", specifier = ">=5.0" },
+    { name = "trayce", editable = "sdk/python" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[[package]]
+name = "trayce-worker"
+version = "0.0.1"
+source = { editable = "services/worker" }
+dependencies = [
+    { name = "boto3" },
+    { name = "clickhouse-connect" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic-settings" },
+    { name = "redis" },
+    { name = "trayce" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.35" },
+    { name = "clickhouse-connect", specifier = ">=0.8" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "pydantic-settings", specifier = ">=2.4" },
+    { name = "redis", specifier = ">=5.0" },
+    { name = "trayce", editable = "sdk/python" },
+]
+
+[[package]]
+name = "trayce-workspace"
+version = "0.0.0"
+source = { virtual = "." }
+
+[package.dev-dependencies]
+dev = [
+    { name = "httpx" },
+    { name = "opentelemetry-instrumentation-urllib" },
+    { name = "opentelemetry-sdk" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "opentelemetry-instrumentation-urllib", specifier = ">=0.51b0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.30" },
+    { name = "pyright", specifier = ">=1.1.380" },
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.6" },
 ]
 
 [[package]]

@@ -7,7 +7,7 @@ related_targets: []
 
 # Landing page (site/)
 
-Scope: the public landing page for AgentTrace, a standalone static site in `site/`, separate from the self-hosted app. Mode: Persuade. Redesign: the first build ("Route Diagram") was judged too basic by the user; it is evidence, not authority. The user delegated the direction choice ("let it do its thing").
+Scope: the public landing page for Trayce, a standalone static site in `site/`, separate from the self-hosted app. Mode: Persuade. Redesign: the first build ("Route Diagram") was judged too basic by the user; it is evidence, not authority. The user delegated the direction choice ("let it do its thing").
 
 Audience and job: senior engineers who ship LLM agents, between incidents, evaluating tools. They should leave believing a prompt change can't silently break their agent's path, and run the stack locally.
 
@@ -17,11 +17,11 @@ Proof: real captures in `site/proof/` and `site/img/` (2026-10-27): the 1042 tra
 
 Constraints: brand toolkit voice, claims, and lexicon binding; visual direction open; WCAG 2.2 AA; no eyebrow labels.
 
-Unresolved: replay output not captured; domain and PyPI name undecided.
+Unresolved: replay output not captured; domain undecided; PyPI name settled as `trayce` but not yet published.
 
 ## Direction contract
 
-THESIS: AgentTrace is the signal box on your agent's line: every run is a route set across an illuminated track diagram, a prompt change throws the points, and the gate is the signal that holds the merge. Refuses the dark hero with glow, the screenshot-over-gradient, and three feature cards.
+THESIS: Trayce is the signal box on your agent's line: every run is a route set across an illuminated track diagram, a prompt change throws the points, and the gate is the signal that holds the merge. Refuses the dark hero with glow, the screenshot-over-gradient, and three feature cards.
 
 OWN-WORLD: An NX interlocking panel: drenched slate-enamel ground, pale unlit track lines, warm-white route lamps, red track-occupied and danger lamps, green clear aspects, yellow caution. Engraved condensed caps on plates (Barlow Condensed), Barlow for prose, JetBrains Mono in train-describer berths and the occurrence book. A lever frame in the real lever colors (red signal, yellow distant, black points, blue lock, white spare). Paper sections are the box's occurrence book: grey-green ledger ruled in blue and red.
 

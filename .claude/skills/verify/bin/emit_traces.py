@@ -1,16 +1,16 @@
-"""Emit synthetic traces through the real AgentTrace SDK, exporter, and ingest API.
+"""Emit synthetic traces through the real Trayce SDK, exporter, and ingest API.
 
 Each scenario covers a case the demo agent won't reliably hit. Prints one JSON line per scenario
 with its trace_id, so the caller can look each trace up in the UI and ClickHouse.
-Reads AGENTTRACE_ENDPOINT and AGENTTRACE_API_KEY from the environment (set by agenttrace-verify).
+Reads TRAYCE_ENDPOINT and TRAYCE_API_KEY from the environment (set by trayce-verify).
 """
 
 import json
 from datetime import UTC, datetime, timedelta
 
-import agenttrace
-from agenttrace import Span, SpanKind, new_span_id, new_trace_id, span
-from agenttrace.exporter import get_exporter
+import trayce
+from trayce import Span, SpanKind, new_span_id, new_trace_id, span
+from trayce.exporter import get_exporter
 
 results: dict[str, str] = {}
 
@@ -79,11 +79,11 @@ with span("verify.burst", "agent") as root:
             pass
 scenario("burst", root.trace_id)
 
-agenttrace.flush()
+trayce.flush()
 
 # 8. The same span sent three times (in one batch and in a later batch) is stored once (ADR-0014).
 exporter = get_exporter()
-assert exporter is not None, "AGENTTRACE_API_KEY must be set"
+assert exporter is not None, "TRAYCE_API_KEY must be set"
 now = datetime.now(UTC)
 dup = Span(
     trace_id=new_trace_id(),

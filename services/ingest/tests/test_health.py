@@ -1,8 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
 
 
 def ok(_s):

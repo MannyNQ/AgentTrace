@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 from test_experiments_api import Api
 
-from agenttrace_ingest.comparisons import bootstrap, compare_scorer
+from trayce_ingest.comparisons import bootstrap, compare_scorer
 
 
 def items(*counts: tuple[int, int]) -> dict[UUID, tuple[int, int]]:

@@ -5,8 +5,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from agenttrace import tracing
-from agenttrace.spans import Span
+from trayce import tracing
+from trayce.spans import Span
 
 
 class Collector:

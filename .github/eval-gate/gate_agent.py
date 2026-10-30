@@ -6,7 +6,7 @@ regresses both scorers."""
 import os
 import re
 
-from agenttrace import span
+from trayce import span
 
 ANSWERS = {
     "1042": (["lookup_order"], "Order 1042 shipped with UPS."),

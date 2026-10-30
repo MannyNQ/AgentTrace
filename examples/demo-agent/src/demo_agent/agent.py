@@ -11,8 +11,8 @@ from datetime import date
 
 import anthropic
 
-from agenttrace import trace
 from demo_agent.tools import TOOL_DEFINITIONS, run_tool
+from trayce import trace
 
 MODEL = os.environ.get("DEMO_AGENT_MODEL", "claude-opus-5-5")
 MAX_TURNS = 8

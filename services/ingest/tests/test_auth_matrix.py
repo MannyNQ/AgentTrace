@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from test_auth_api import OTHER, PROJECT, Api
 
-from agenttrace_ingest.auth import hash_token
+from trayce_ingest.auth import hash_token
 
 # The project slugs FakeAuth gives PROJECT and OTHER; "foreign" is another org's project.
 OWN, SIBLING, FOREIGN, MISSING = "p-aa", "p-bb", "foreign", "no-such-project"

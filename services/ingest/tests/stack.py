@@ -6,13 +6,13 @@ from uuid import UUID
 
 import psycopg
 
-from agenttrace import Span, new_span_id, new_trace_id
-from agenttrace.pricing import PriceTable
-from agenttrace_ingest.auth import DEFAULT_PROJECT_ID, hash_token
-from agenttrace_ingest.settings import Settings
-from agenttrace_worker.pipeline import to_row
-from agenttrace_worker.settings import Settings as WorkerSettings
-from agenttrace_worker.stores import ClickHouse, Payloads
+from trayce import Span, new_span_id, new_trace_id
+from trayce.pricing import PriceTable
+from trayce_ingest.auth import DEFAULT_PROJECT_ID, hash_token
+from trayce_ingest.settings import Settings
+from trayce_worker.pipeline import to_row
+from trayce_worker.settings import Settings as WorkerSettings
+from trayce_worker.stores import ClickHouse, Payloads
 
 
 def emit_root(

@@ -3,9 +3,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from agenttrace import SpanKind, SpanStatus
-from agenttrace.otel import OtelEvent, OtelSpan, Unstorable, translate
-from agenttrace.otel.mapping import MAX_RESOURCE_BYTES
+from trayce import SpanKind, SpanStatus
+from trayce.otel import OtelEvent, OtelSpan, Unstorable, translate
+from trayce.otel.mapping import MAX_RESOURCE_BYTES
 
 TRACE = "0af7651916cd43dd8448eb211c80319c"
 ROOT = "b7ad6b7169203331"
@@ -90,7 +90,7 @@ def test_a_gen_ai_chat_span_becomes_an_llm_span():
         "messages": json.loads(GEN_AI_CHAT["gen_ai.input.messages"]),
     }
     assert s.output == json.loads(GEN_AI_CHAT["gen_ai.output.messages"])
-    assert s.attributes["agenttrace.convention"] == "gen_ai"
+    assert s.attributes["trayce.convention"] == "gen_ai"
     assert s.attributes["gen_ai.request.temperature"] == "0.2"
 
 
@@ -190,7 +190,7 @@ def test_only_llm_spans_carry_llm_fields():
 def test_gen_ai_operations_map_to_kinds(operation, kind):
     s = translate(otel(attributes={"gen_ai.operation.name": operation}))
     assert s.kind == kind
-    assert s.attributes["agenttrace.convention"] == "gen_ai"
+    assert s.attributes["trayce.convention"] == "gen_ai"
 
 
 @pytest.mark.parametrize(
@@ -214,14 +214,14 @@ def test_gen_ai_operations_map_to_kinds(operation, kind):
 def test_openinference_kinds_map_to_kinds(oi_kind, kind):
     s = translate(otel(attributes={"openinference.span.kind": oi_kind}))
     assert s.kind == kind
-    assert s.attributes["agenttrace.convention"] == "openinference"
+    assert s.attributes["trayce.convention"] == "openinference"
 
 
 def test_openinference_wins_over_gen_ai_on_the_same_span():
     attrs = {"openinference.span.kind": "CHAIN", "gen_ai.operation.name": "chat"}
     s = translate(otel(attributes=attrs))
     assert s.kind == SpanKind.CUSTOM
-    assert s.attributes["agenttrace.convention"] == "openinference"
+    assert s.attributes["trayce.convention"] == "openinference"
 
 
 def test_an_openinference_llm_span():
@@ -249,7 +249,7 @@ def test_a_span_without_a_convention_is_custom_with_its_attributes():
         "http.request.method": "POST",
         "http.response.status_code": "200",
         "url.path": "/ask",
-        "agenttrace.convention": "none",
+        "trayce.convention": "none",
     }
 
 

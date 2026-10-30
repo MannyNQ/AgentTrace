@@ -3,7 +3,7 @@ with a broken prompt, fork it with a fixed one at the LLM step that chose the wr
 that the step changed, that the played-back tool never ran (a whole replay with the same tool log
 is the control), and that the changed prompt was noted.
 
-    AGENTTRACE_API_KEY=... AGENTTRACE_ENDPOINT=http://127.0.0.1:18000 \\
+    TRAYCE_API_KEY=... TRAYCE_ENDPOINT=http://127.0.0.1:18000 \\
         uv run python .claude/skills/verify/bin/fork_demo.py verify-artifacts/<run-id>
 
 Needs ANTHROPIC_API_KEY (in .env); about eight model calls. Writes fork-*.{out,json} to the run dir
@@ -26,8 +26,8 @@ ATTEMPTS = 3  # the broken prompt usually, not always, takes the two turns the r
 
 def api(path: str):
     req = urllib.request.Request(
-        os.environ["AGENTTRACE_ENDPOINT"] + path,
-        headers={"Authorization": f"Bearer {os.environ['AGENTTRACE_API_KEY']}"},
+        os.environ["TRAYCE_ENDPOINT"] + path,
+        headers={"Authorization": f"Bearer {os.environ['TRAYCE_API_KEY']}"},
     )
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
@@ -84,7 +84,7 @@ def main() -> int:
     log.unlink(missing_ok=True)
     trace, fork = record(out)
     env = {**os.environ, "FORK_PROMPT": "fixed", "FORK_TOOL_LOG": str(log), "PYTHONPATH": str(BIN)}
-    cmd = ["agenttrace", "replay", trace, "--entry", "fork_entry:entry"]
+    cmd = ["trayce", "replay", trace, "--entry", "fork_entry:entry"]
     cmd += ["--from", fork["span_id"], "--samples", "2"]
     done = subprocess.run(cmd, env=env, capture_output=True, text=True)
     (out / "fork-replay.out").write_text(
@@ -109,7 +109,7 @@ def main() -> int:
     # not that the log is broken.
     control = out / "fork-control-tool-log.txt"
     control.unlink(missing_ok=True)
-    whole = ["agenttrace", "replay", trace, "--entry", "fork_entry:entry", "--samples", "1"]
+    whole = ["trayce", "replay", trace, "--entry", "fork_entry:entry", "--samples", "1"]
     ctl = subprocess.run(whole, env={**env, "FORK_TOOL_LOG": str(control)}, capture_output=True)
     (out / "fork-control.out").write_bytes(ctl.stderr + ctl.stdout)
     logged = control.read_text().split() if control.exists() else []

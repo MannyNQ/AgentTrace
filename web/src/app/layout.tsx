@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AgentTrace",
+  title: "Trayce",
   description: "Observability and evals for LLM agents",
 };
 

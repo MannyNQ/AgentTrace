@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "The demo agent's tools on Pydantic AI, traced only with OpenTelemetry: the OTLP and OTel-bridge fixture"
 requires-python = ">=3.12"
 dependencies = [
-  "agenttrace[eval,otel]",
+  "trayce[eval,otel]",
   "demo-agent",
   "pydantic-ai-slim>=2.61",
   "opentelemetry-sdk>=1.30",

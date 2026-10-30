@@ -1,5 +1,5 @@
 # The OpenTelemetry demo agent's evals, over the same `support` dataset as the demo agent's.
-# From the repo root, with the stack running:  uv run agenttrace eval -c examples/demo-agent-otel/eval.yaml
+# From the repo root, with the stack running:  uv run trayce eval -c examples/demo-agent-otel/eval.yaml
 entry: demo_agent_otel.evals:eval_entry
 dataset: support
 version: latest

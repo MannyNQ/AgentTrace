@@ -17,7 +17,7 @@ export default function ExperimentsPage(props: Props) {
       <Crumbs trail={[["Experiments"]]} />
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">Experiments</h1>
       <p className="mt-1 text-sm text-muted">
-        Eval runs uploaded by <code className="font-mono">agenttrace eval</code>: one version of your
+        Eval runs uploaded by <code className="font-mono">trayce eval</code>: one version of your
         agent over one dataset version, newest first.
       </p>
       <Suspense fallback={<p className="mt-6 text-sm text-muted">Loading experiments…</p>}>
@@ -78,7 +78,7 @@ async function ExperimentList({ searchParams }: Pick<Props, "searchParams">) {
       {experiments.length === 0 ? (
         <p className="mt-4 text-sm text-muted">
           {dataset ? "No experiments on this dataset yet." : "No experiments yet."} Run{" "}
-          <code className="font-mono">agenttrace eval</code> with an eval.yaml to create one.
+          <code className="font-mono">trayce eval</code> with an eval.yaml to create one.
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto rounded-md border border-line">

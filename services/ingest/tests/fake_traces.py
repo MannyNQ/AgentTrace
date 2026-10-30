@@ -1,13 +1,13 @@
 """In-memory trace storage with the same contract as `trace_store.ClickHouseTraces`. The rules
-under test are in `agenttrace_ingest.traces`."""
+under test are in `trayce_ingest.traces`."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from agenttrace_ingest.trace_filter import TraceFilter, matches
-from agenttrace_ingest.traces import Cursor, SpanRow, SummaryRow, summarize
+from trayce_ingest.trace_filter import TraceFilter, matches
+from trayce_ingest.traces import Cursor, SpanRow, SummaryRow, summarize
 
 T0 = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 

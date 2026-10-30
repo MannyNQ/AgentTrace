@@ -92,7 +92,7 @@ export function ForkCommand({ traceId, spanId, refused }: { traceId: string; spa
             later tool calls from the recording too.
           </p>
           <pre className="mt-2 select-all overflow-x-auto rounded bg-line/40 p-2 font-mono text-xs">
-            agenttrace replay {traceId} --from {spanId}
+            trayce replay {traceId} --from {spanId}
           </pre>
         </>
       )}
@@ -107,11 +107,11 @@ export function ReplayCommand({ traceId }: { traceId: string }) {
       <summary className="cursor-pointer select-none font-medium">Replay</summary>
       <p className="mt-2 text-xs text-muted">
         Run this where your agent&apos;s code and <span className="font-mono">eval.yaml</span> live, with{" "}
-        <span className="font-mono">AGENTTRACE_API_KEY</span> set. It re-runs the trace&apos;s input with your
+        <span className="font-mono">TRAYCE_API_KEY</span> set. It re-runs the trace&apos;s input with your
         current code and, if the trace is in your dataset&apos;s draft with an expectation, scores each run.
       </p>
       <pre className="mt-2 select-all overflow-x-auto rounded bg-line/40 p-2 font-mono text-xs">
-        agenttrace replay {traceId}
+        trayce replay {traceId}
       </pre>
     </details>
   );

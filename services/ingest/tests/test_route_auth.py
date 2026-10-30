@@ -11,9 +11,9 @@ from fake_datasets import FakeDatasets, FakePins
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.auth import NO_CREDENTIALS, PUBLIC_ROUTES
-from agenttrace_ingest.settings import Settings
+from trayce_ingest.app import create_app
+from trayce_ingest.auth import NO_CREDENTIALS, PUBLIC_ROUTES
+from trayce_ingest.settings import Settings
 
 # Fits every path parameter: a UUID, a trace ID, a version number, and a token.
 ANY_ID = "0" * 32

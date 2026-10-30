@@ -1,6 +1,6 @@
 -- Source columns are renamed (s_*) in the subquery so that output aliases, which must match the
 -- traces columns, don't shadow them: ClickHouse resolves a name to an alias before a column.
-CREATE MATERIALIZED VIEW IF NOT EXISTS agenttrace.traces_mv TO agenttrace.traces AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS trayce.traces_mv TO trayce.traces AS
 SELECT
     s_project_id AS project_id,
     s_trace_id AS trace_id,
@@ -42,6 +42,6 @@ FROM
         user_id AS s_user_id,
         tags AS s_tags,
         retention_days AS s_retention_days
-    FROM agenttrace.spans
+    FROM trayce.spans
 )
 GROUP BY s_project_id, s_trace_id;

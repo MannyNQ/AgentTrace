@@ -5,10 +5,10 @@ import redis
 from fake_auth import FakeAuth
 from fastapi.testclient import TestClient
 
-from agenttrace import new_span_id, new_trace_id
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.spans import RedisQueue
+from trayce import new_span_id, new_trace_id
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
+from trayce_ingest.spans import RedisQueue
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")
 

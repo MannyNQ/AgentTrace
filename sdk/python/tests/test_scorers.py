@@ -1,8 +1,8 @@
 import pytest
 
-from agenttrace.eval import config, scorers
-from agenttrace.eval.results import ToolCall
-from agenttrace.eval.scorers import Case
+from trayce.eval import config, scorers
+from trayce.eval.results import ToolCall
+from trayce.eval.scorers import Case
 
 
 def build(**scorer):

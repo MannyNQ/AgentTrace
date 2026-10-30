@@ -1,5 +1,5 @@
 """In-memory dataset storage with the same contract as `dataset_store.PostgresDatasets`. Like
-the real store, it only keeps rows; the rules under test are in `agenttrace_ingest.datasets`."""
+the real store, it only keeps rows; the rules under test are in `trayce_ingest.datasets`."""
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from agenttrace.eval.results import SpanRef
-from agenttrace_ingest.datasets import (
+from trayce.eval.results import SpanRef
+from trayce_ingest.datasets import (
     Conflict,
     Contents,
     Dataset,
@@ -18,7 +18,7 @@ from agenttrace_ingest.datasets import (
     Refused,
     VersionInfo,
 )
-from agenttrace_ingest.trace_inputs import RootInput, origin_of
+from trayce_ingest.trace_inputs import RootInput, origin_of
 
 
 @dataclass

@@ -1,10 +1,10 @@
 import pytest
 
-from agenttrace import cli
+from trayce import cli
 
 
 def run(monkeypatch, tmp_path, yaml_text: str | None, env: dict[str, str]) -> int:
-    for k in ("AGENTTRACE_API_KEY", "AGENTTRACE_ENDPOINT"):
+    for k in ("TRAYCE_API_KEY", "TRAYCE_ENDPOINT"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -22,19 +22,19 @@ GOOD = "entry: pkg.mod:fn\ndataset: support\nscorers: [{name: a, type: contains}
 def test_problems_before_the_run_exit_2_and_record_nothing(monkeypatch, tmp_path, capsys):
     assert run(monkeypatch, tmp_path, None, {}) == 2
     assert "can't read" in capsys.readouterr().err
-    assert run(monkeypatch, tmp_path, "entry: x\n", {"AGENTTRACE_API_KEY": "k"}) == 2
+    assert run(monkeypatch, tmp_path, "entry: x\n", {"TRAYCE_API_KEY": "k"}) == 2
     assert (
         "eval.yaml is invalid" in capsys.readouterr().err or "is invalid" in capsys.readouterr().err
     )
     assert run(monkeypatch, tmp_path, GOOD, {}) == 2
-    assert "AGENTTRACE_API_KEY" in capsys.readouterr().err
-    monkeypatch.setenv("AGENTTRACE_API_KEY", "k")
+    assert "TRAYCE_API_KEY" in capsys.readouterr().err
+    monkeypatch.setenv("TRAYCE_API_KEY", "k")
     with pytest.raises(SystemExit) as e:
         cli.main(["eval", "-c", str(tmp_path / "eval.yaml"), "--dataset-version", "0"])
     assert e.value.code == 2 and "--dataset-version" in capsys.readouterr().err
     # Nothing listening: the dataset lookup fails before any experiment is created.
-    env = {"AGENTTRACE_API_KEY": "k", "AGENTTRACE_ENDPOINT": "http://127.0.0.1:9"}
-    monkeypatch.setattr("agenttrace.eval.client.time.sleep", lambda s: None)
+    env = {"TRAYCE_API_KEY": "k", "TRAYCE_ENDPOINT": "http://127.0.0.1:9"}
+    monkeypatch.setattr("trayce.eval.client.time.sleep", lambda s: None)
     assert run(monkeypatch, tmp_path, GOOD, env) == 2
     assert "couldn't reach" in capsys.readouterr().err
 

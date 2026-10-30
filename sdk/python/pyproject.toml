@@ -1,19 +1,34 @@
 [project]
-name = "agenttrace"
+name = "trayce"
 version = "0.0.1"
-description = "Python SDK for AgentTrace, observability and evals for LLM agents"
+description = "Python SDK for Trayce, observability and evals for LLM agents"
+readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
+keywords = ["llm", "agents", "observability", "tracing", "evals", "opentelemetry"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Testing",
+  "Topic :: System :: Monitoring",
+]
 dependencies = ["pydantic>=2.7"]
 
+[project.urls]
+Homepage = "https://github.com/MannyNQ/Trayce"
+Repository = "https://github.com/MannyNQ/Trayce"
+Issues = "https://github.com/MannyNQ/Trayce/issues"
+
 [project.optional-dependencies]
-# `agenttrace eval`: eval.yaml parsing and the JSON schema scorer.
+# `trayce eval`: eval.yaml parsing and the JSON schema scorer.
 eval = ["pyyaml>=6.0", "jsonschema>=4.20"]
 # The OTel bridge: OpenTelemetry spans become spans in-process (ADR-0036).
 otel = ["opentelemetry-sdk>=1.30"]
 
 [project.scripts]
-agenttrace = "agenttrace.cli:main"
+trayce = "trayce.cli:main"
 
 [build-system]
 requires = ["hatchling"]

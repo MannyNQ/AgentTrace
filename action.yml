@@ -1,9 +1,9 @@
-# The AgentTrace CI gate (architecture.md, Phase 4). Runs `agenttrace eval`, compares the experiment
+# The Trayce CI gate (architecture.md, Phase 4). Runs `trayce eval`, compares the experiment
 # with its baseline (ADR-0007, ADR-0026), and on a pull request fails the check on a regression
 # (ADR-0025) and posts the comparison as one sticky comment per eval.yaml. On pushes it runs
 # without gating, which records the base branch's baselines.
-name: AgentTrace eval
-description: Run AgentTrace evals and fail the pull request on a statistically real regression.
+name: Trayce eval
+description: Run Trayce evals and fail the pull request on a statistically real regression.
 branding:
   icon: check-circle
   color: green
@@ -13,24 +13,24 @@ inputs:
     description: Path to eval.yaml.
     default: eval.yaml
   api-url:
-    description: The AgentTrace ingest API, e.g. https://agenttrace.example.com:8000.
+    description: The Trayce ingest API, e.g. https://trayce.example.com:8000.
     required: true
   api-key:
-    description: The project's AgentTrace API key. Pass it from a secret.
+    description: The project's Trayce API key. Pass it from a secret.
     required: true
   web-url:
-    description: The AgentTrace web UI, for links in the comment.
+    description: The Trayce web UI, for links in the comment.
     default: ""
   github-token:
     description: "Token that can comment on pull requests (needs `pull-requests: write`)."
     default: ${{ github.token }}
   run-prefix:
     description: >-
-      Prefix for the `agenttrace` command, e.g. `uv run` when your agent's dependencies live in
-      a uv project. Empty runs `agenttrace` from PATH.
+      Prefix for the `trayce` command, e.g. `uv run` when your agent's dependencies live in
+      a uv project. Empty runs `trayce` from PATH.
     default: ""
   install:
-    description: Install `agenttrace[eval]` from this action's copy of the SDK with pip first.
+    description: Install `trayce[eval]` from this action's copy of the SDK with pip first.
     default: "true"
 
 outputs:
@@ -51,7 +51,7 @@ runs:
         # Secrets aren't given to pull_request runs from forks; never use pull_request_target to
         # get them, since that runs untrusted code with secrets.
         if [ -z "$API_KEY" ] || { [ -n "$HEAD_REPO" ] && [ "$HEAD_REPO" != "$REPO" ]; }; then
-          echo "AgentTrace eval skipped: secrets aren't available (a pull request from a fork?)." \
+          echo "Trayce eval skipped: secrets aren't available (a pull request from a fork?)." \
             | tee -a "$GITHUB_STEP_SUMMARY"
           echo "skip=true" >> "$GITHUB_OUTPUT"
         fi
@@ -75,17 +75,17 @@ runs:
       if: steps.skip.outputs.skip != 'true'
       shell: bash
       env:
-        AGENTTRACE_ENDPOINT: ${{ inputs.api-url }}
-        AGENTTRACE_API_KEY: ${{ inputs.api-key }}
-        AGENTTRACE_WEB_URL: ${{ inputs.web-url }}
+        TRAYCE_ENDPOINT: ${{ inputs.api-url }}
+        TRAYCE_API_KEY: ${{ inputs.api-key }}
+        TRAYCE_WEB_URL: ${{ inputs.web-url }}
         CONFIG: ${{ inputs.config }}
         PREFIX: ${{ inputs.run-prefix }}
         GATE: ${{ github.event_name == 'pull_request' && '--fail-on-regression' || '' }}
-        REPORT: ${{ runner.temp }}/agenttrace-report.md
+        REPORT: ${{ runner.temp }}/trayce-report.md
       run: |
         rm -f "$REPORT"
         set +e
-        $PREFIX agenttrace eval -c "$CONFIG" --report-md "$REPORT" $GATE
+        $PREFIX trayce eval -c "$CONFIG" --report-md "$REPORT" $GATE
         code=$?
         set -e
         echo "exit-code=$code" >> "$GITHUB_OUTPUT"
@@ -100,14 +100,14 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         CONFIG: ${{ inputs.config }}
         PR: ${{ github.event.pull_request.number }}
-        REPORT: ${{ runner.temp }}/agenttrace-report.md
+        REPORT: ${{ runner.temp }}/trayce-report.md
       run: |
         [ -f "$REPORT" ] || exit 0
         # One comment per eval.yaml, updated on every push, found by its hidden marker and by
         # its author: anyone can post a comment starting with the marker, and editing theirs
         # would fail or overwrite it. The default token is the Actions bot, which can't look
         # itself up; a personal token can.
-        marker="<!-- agenttrace:$CONFIG -->"
+        marker="<!-- trayce:$CONFIG -->"
         { echo "$marker"; cat "$REPORT"; } > "$REPORT.comment"
         me=$(gh api user --jq .login 2>/dev/null) || me="github-actions[bot]"
         id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
@@ -128,6 +128,6 @@ runs:
       run: |
         case "$CODE" in
           0) ;;
-          3) echo "::error::AgentTrace eval: a scorer regressed against the baseline"; exit 3 ;;
-          *) echo "::error::AgentTrace eval exited $CODE"; exit "$CODE" ;;
+          3) echo "::error::Trayce eval: a scorer regressed against the baseline"; exit 3 ;;
+          *) echo "::error::Trayce eval exited $CODE"; exit "$CODE" ;;
         esac

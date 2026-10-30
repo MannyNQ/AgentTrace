@@ -1,4 +1,4 @@
-"""`agenttrace replay` against a scripted agent and stubbed API calls (ADR-0028, ADR-0030)."""
+"""`trayce replay` against a scripted agent and stubbed API calls (ADR-0028, ADR-0030)."""
 
 import sys
 from collections import defaultdict
@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from agenttrace import cli
-from agenttrace.eval.client import ApiError, Client, VersionItem
-from agenttrace.eval.replay import (
+from trayce import cli
+from trayce.eval.client import ApiError, Client, VersionItem
+from trayce.eval.replay import (
     REPLAY_OF_ATTRIBUTE,
     REPLAY_ORIGIN_ATTRIBUTE,
     REPLAY_SPAN,
@@ -20,7 +20,7 @@ REPLAY_RUN = "b" * 32  # an earlier replay run of FAILED
 ROOT = FAILED[:16]
 INPUT = {"question": "my keyboard broke, refund it"}
 AGENT = """
-from agenttrace import span
+from trayce import span
 
 BROKEN = {broken}
 
@@ -37,7 +37,7 @@ EVAL_YAML = (
 
 
 class FakeApi:
-    """The calls `agenttrace replay` makes, answered like ingest would."""
+    """The calls `trayce replay` makes, answered like ingest would."""
 
     def __init__(self, monkeypatch):
         self.item: VersionItem | None = VersionItem(
@@ -118,7 +118,7 @@ class FakeApi:
 
 @pytest.fixture
 def api(monkeypatch, tmp_path, collected):
-    monkeypatch.setenv("AGENTTRACE_API_KEY", "k")
+    monkeypatch.setenv("TRAYCE_API_KEY", "k")
     monkeypatch.setattr(sys, "path", list(sys.path))
     monkeypatch.chdir(tmp_path)
     sys.modules.pop("replay_agent", None)
@@ -234,7 +234,7 @@ import os
 from pathlib import Path
 
 import anthropic
-from agenttrace import RecordedToolError, call_tool, instrument_anthropic
+from trayce import RecordedToolError, call_tool, instrument_anthropic
 
 instrument_anthropic()
 SYSTEM = {system!r}
@@ -336,7 +336,7 @@ def test_a_fork_plays_the_prefix_back_and_runs_live_from_the_fork_point(
     root = next(s for s in collected.spans if s.name == REPLAY_SPAN)
     assert root.attributes[REPLAY_OF_ATTRIBUTE] == f"{FAILED}:{LLM_2}"
     assert root.attributes[REPLAY_ORIGIN_ATTRIBUTE] == f"{FAILED}:{ROOT}"
-    stubbed = [s for s in collected.spans if s.attributes.get("agenttrace.stubbed") == "true"]
+    stubbed = [s for s in collected.spans if s.attributes.get("trayce.stubbed") == "true"]
     assert [s.name for s in stubbed] == ["anthropic.messages.create", "lookup"]
     assert (stubbed[0].input_tokens, stubbed[0].output_tokens) == (0, 0)  # nothing was billed
     assert stubbed[1].output == {"order": "42", "status": "recorded"}
@@ -392,7 +392,7 @@ def test_a_recorded_tool_error_is_raised_again(fork_api, tmp_path, collected):
     }  # fmt: skip
     assert replay(FAILED, "--from", LLM_2, "--samples", "1") == 0
     tool = next(s for s in collected.spans if s.name == "lookup")
-    assert (tool.error_type, tool.attributes["agenttrace.error_message"]) == (
+    assert (tool.error_type, tool.attributes["trayce.error_message"]) == (
         "ToolError",
         "no order 42",
     )

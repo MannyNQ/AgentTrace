@@ -9,9 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from stack import emit_root, register_key
 
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import clickhouse_client
+from trayce_ingest.app import create_app
+from trayce_ingest.settings import Settings
+from trayce_ingest.stores import clickhouse_client
 
 pytestmark = pytest.mark.integration
 

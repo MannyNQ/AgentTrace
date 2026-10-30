@@ -176,8 +176,8 @@ async function Replays({
   rootAttributes: Record<string, string>;
 }) {
   const at = await projectLinks();
-  const forkedAt = parseRef(rootAttributes["agenttrace.replay_of"]);
-  const origin = parseRef(rootAttributes["agenttrace.replay_origin"]);
+  const forkedAt = parseRef(rootAttributes["trayce.replay_of"]);
+  const origin = parseRef(rootAttributes["trayce.replay_origin"]);
   const lineage = !replayOf ? null : origin && forkedAt ? (
     <p className="mt-4 text-sm" data-fork-of={`${forkedAt.traceId}:${forkedAt.spanId}`}>
       A fork of{" "}
@@ -287,7 +287,7 @@ function SpanDetail({
     <section className="min-w-0 rounded-md border border-line p-4" aria-label="Span detail">
       <h2 className="font-medium">{span.name}</h2>
       <p className="font-mono text-xs text-muted">{span.spanId}</p>
-      {span.attributes["agenttrace.stubbed"] === "true" && (
+      {span.attributes["trayce.stubbed"] === "true" && (
         <p className="mt-1 text-xs text-muted" data-stubbed>
           Answered from the recording, not run.
         </p>

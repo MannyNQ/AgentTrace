@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agenttrace.eval.fork import Step, why_not
+from trayce.eval.fork import Step, why_not
 
 CASES = json.loads((Path(__file__).parent / "fixtures" / "why_not.json").read_text())
 

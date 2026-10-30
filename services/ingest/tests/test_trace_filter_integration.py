@@ -9,13 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 from stack import emit_spans, register_key
 
-from agenttrace import Span, new_span_id, new_trace_id
-from agenttrace.eval.results import EVAL_TAG
-from agenttrace.spans import TraceMetadata
-from agenttrace_ingest.app import create_app
-from agenttrace_ingest.migrate import migrate_clickhouse
-from agenttrace_ingest.settings import Settings
-from agenttrace_ingest.stores import clickhouse_client
+from trayce import Span, new_span_id, new_trace_id
+from trayce.eval.results import EVAL_TAG
+from trayce.spans import TraceMetadata
+from trayce_ingest.app import create_app
+from trayce_ingest.migrate import migrate_clickhouse
+from trayce_ingest.settings import Settings
+from trayce_ingest.stores import clickhouse_client
 
 pytestmark = pytest.mark.integration
 
@@ -81,7 +81,7 @@ def test_the_filter_sql_selects_what_the_filter_means(api: TestClient):
         "error": trace(now, tags=[run], error=True, children=[{**refund, "status": "error"}]),
         "running": trace(now, tags=[run], ended=False),
         "eval": trace(now, tags=[run, EVAL_TAG]),
-        "replay": trace(now, tags=[run], attributes={"agenttrace.replay_of": f"{'a' * 32}:{'1' * 16}"}),  # noqa: E501
+        "replay": trace(now, tags=[run], attributes={"trayce.replay_of": f"{'a' * 32}:{'1' * 16}"}),  # noqa: E501
         "old": trace(now - timedelta(hours=2), tags=[run]),
     }  # fmt: skip
     emit_spans([s for _, spans in made.values() for s in spans])

@@ -8,7 +8,7 @@ type Props = PageProps<"/invite/[token]">;
 
 export default function InvitePage(props: Props) {
   return (
-    <AuthPage title="Join AgentTrace">
+    <AuthPage title="Join Trayce">
       <Suspense fallback={<p className="mt-6 text-sm text-muted">Loading…</p>}>
         <Invite params={props.params} />
       </Suspense>

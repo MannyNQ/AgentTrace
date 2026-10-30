@@ -1,5 +1,5 @@
 """Create and publish the demo agent's `support` dataset in the verify instance, for
-`agenttrace eval -c examples/demo-agent/eval.yaml`. Stdlib only. One item fails on purpose: its
+`trayce eval -c examples/demo-agent/eval.yaml`. Stdlib only. One item fails on purpose: its
 expected trajectory escalates a plain status question, which the agent shouldn't do.
 
 Usage: python3 -I seed_support_dataset.py <ingest url> <api key>

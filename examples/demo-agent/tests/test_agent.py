@@ -65,7 +65,7 @@ def test_refusal_raises():
 
 
 def test_run_is_traced_as_an_agent_span_with_tool_spans(monkeypatch):
-    from agenttrace import tracing
+    from trayce import tracing
 
     spans = []
     monkeypatch.setattr(tracing, "get_exporter", lambda: NS(export=spans.append))
@@ -86,4 +86,4 @@ def test_run_is_traced_as_an_agent_span_with_tool_spans(monkeypatch):
     assert tool.parent_span_id == agent.span_id
     assert tool.input == {"order_id": "0"} and tool.status == "error"
     assert tool.error_type == "ToolError"
-    assert tool.attributes["agenttrace.error_message"] == "No order with id '0'."
+    assert tool.attributes["trayce.error_message"] == "No order with id '0'."

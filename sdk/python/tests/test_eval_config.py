@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agenttrace.eval import config
+from trayce.eval import config
 
 BASE = {"entry": "pkg.mod:fn", "dataset": "support", "scorers": [{"name": "a", "type": "contains"}]}
 

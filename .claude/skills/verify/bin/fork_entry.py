@@ -1,4 +1,4 @@
-"""The demo agent as `agenttrace replay`'s entry for the fork recipe (features/fork.md).
+"""The demo agent as `trayce replay`'s entry for the fork recipe (features/fork.md).
 
 FORK_PROMPT=broken swaps in a system prompt that skips the refund policy, to record the failure;
 FORK_PROMPT=fixed adds an explicit check, as a fix would. FORK_TOOL_LOG names a file each tool
@@ -47,8 +47,8 @@ entry = eval_entry
 if __name__ == "__main__":  # record one production run of the question; print its trace ID
     import sys
 
-    from agenttrace import add_span_processor
-    from agenttrace.exporter import flush
+    from trayce import add_span_processor
+    from trayce.exporter import flush
 
     roots = []
     add_span_processor(lambda s: roots.append(s.trace_id) if s.is_root else None)

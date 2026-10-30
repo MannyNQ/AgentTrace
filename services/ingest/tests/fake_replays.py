@@ -7,10 +7,10 @@ from uuid import UUID
 
 from fake_datasets import FakeDatasets
 
-from agenttrace.eval.results import NewReplay
-from agenttrace_ingest.datasets import Conflict, Item, NotFound
-from agenttrace_ingest.experiments import Status
-from agenttrace_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
+from trayce.eval.results import NewReplay
+from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.experiments import Status
+from trayce_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
 
 
 @dataclass
