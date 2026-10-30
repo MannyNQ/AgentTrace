@@ -192,7 +192,7 @@ Hard rules. Any page, post, or README edit that breaks one is wrong, however goo
 - Benchmarks, throughput, scale, or latency numbers we haven't measured and published with a method.
 - Compliance (SOC 2, HIPAA, GDPR) or "enterprise-ready."
 - SDKs in languages other than Python.
-- A `pip install trayce` line. The distribution will be `trayce`, but it isn't published yet. Until it is, the install path is cloning the repo.
+- A bare `pip install trayce` as the way to run the server. Ubuntu's, Debian's, and Homebrew's Python refuse it; write `pipx install trayce` (or `uv tool install trayce`) then `trayce up`. `pip install trayce` is right only for adding the SDK to an agent's environment.
 - Anything about a competitor.
 
 ---
@@ -329,7 +329,7 @@ No logo strip, testimonial carousel, pricing table, or "trusted by" section, not
 
 Record these as undecided everywhere; don't fill them in.
 
-- **Package name on PyPI.** Settled: the distribution, import, and CLI are all `trayce`. It isn't published yet, so no `pip install` line appears anywhere until it is.
+- **Package name on PyPI.** Settled: the distribution, import, and CLI are all `trayce`. Published on PyPI from 0.1.0 (2026-10-30).
 - **Hosted offering and pricing.** Not decided.
 - **Public docs site.** The README and `docs/` are the docs today; CTAs link there.
 - **Logo files.** The mark is a direction (section 8); no final asset exists.

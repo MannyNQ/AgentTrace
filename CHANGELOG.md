@@ -2,6 +2,14 @@
 
 Each `## X.Y.Z` section is the body of that version's GitHub Release (`.github/workflows/release.yml`).
 
+## 0.1.1
+
+Fixes from installing 0.1.0 on a clean Mac and Ubuntu 24.04.
+
+- `trayce up` checks the ports the stack publishes before starting. When one is taken it names the port, its setting (`TRAYCE_INGEST_PORT` or `TRAYCE_WEB_PORT`), and the `.env` to change, instead of Docker's "port is already allocated". A running Trayce stack of its own is left to compose.
+- The README installs the `trayce` command with `pipx` or `uv tool`, since Ubuntu's, Debian's, and Homebrew's Python refuse a bare `pip install`, and adds a first-trace example for the SDK.
+- The setup page says the token is printed by `trayce up`.
+
 ## 0.1.0
 
 The first release. Alpha: the data model and APIs may change between 0.x releases.
