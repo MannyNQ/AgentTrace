@@ -12,13 +12,14 @@ from pydantic import BaseModel, Field
 from trayce_ingest import auth as au
 from trayce_ingest import locate as lc
 from trayce_ingest import projects as pr
-from trayce_ingest.dataset_api import Body
+from trayce_ingest.http import Body
+from trayce_ingest.validation import Text
 
 PREFIX = "/v1/projects"
 CURRENT = "/v1/project"
 LOCATE = "/v1/locate"
 
-Name = Annotated[str, Field(max_length=100)]
+ProjectName = Annotated[Text, Field(max_length=100)]
 
 
 class ProjectList(BaseModel):
@@ -26,29 +27,29 @@ class ProjectList(BaseModel):
 
 
 class NewProject(Body):
-    name: Name
+    name: ProjectName
 
 
 class ProjectPatch(Body):
-    name: Name | None = None
+    name: ProjectName | None = None
     retention_days: int | None = None
 
 
 def router(a: au.Auth, locations: lc.Store) -> APIRouter:
     r = APIRouter()
     signed_in = Depends(au.SignedIn(a))
-    owner = Depends(au.SignedIn(a, owner=True))
+    owner = Depends(au.SignedInOwner(a))
     project = Depends(au.ProjectAccess(a))
     owner_project = Depends(au.OwnerProject(a))
 
     @r.get(PREFIX)
-    def list_projects(session: Annotated[tuple[au.User, str], signed_in]) -> ProjectList:
+    def list_projects(session: Annotated[au.Session, signed_in]) -> ProjectList:
         """Every project in the user's org; every member sees all of them."""
-        return ProjectList(projects=pr.list_projects(a.store, session[0]))
+        return ProjectList(projects=pr.list_projects(a.store, session.user))
 
     @r.post(PREFIX, status_code=201)
-    def create(session: Annotated[tuple[au.User, str], owner], body: NewProject) -> au.Project:
-        return pr.create(a.store, session[0], body.name)
+    def create(by: Annotated[au.Owner, owner], body: NewProject) -> au.Project:
+        return pr.create(a.store, by, body.name)
 
     @r.get(CURRENT)
     def current(project_id: Annotated[UUID, project]) -> au.Project:
@@ -56,16 +57,14 @@ def router(a: au.Auth, locations: lc.Store) -> APIRouter:
         return pr.get(a.store, project_id)
 
     @r.patch(CURRENT)
-    def update(
-        caller: Annotated[tuple[au.User, UUID], owner_project], body: ProjectPatch
-    ) -> au.Project:
-        return pr.update(a.store, caller[1], body.name, body.retention_days)
+    def update(by: Annotated[au.ProjectOwner, owner_project], body: ProjectPatch) -> au.Project:
+        return pr.update(a.store, by, body.name, body.retention_days)
 
     @r.get(LOCATE + "/{kind}/{entity_id}")
     def locate(
-        session: Annotated[tuple[au.User, str], signed_in], kind: lc.Kind, entity_id: str
+        session: Annotated[au.Session, signed_in], kind: lc.Kind, entity_id: str
     ) -> lc.Located:
         """The slug of the project in the user's org that holds this entity."""
-        return lc.locate(a.store, locations, session[0], kind, entity_id)
+        return lc.locate(a.store, locations, session.user, kind, entity_id)
 
     return r

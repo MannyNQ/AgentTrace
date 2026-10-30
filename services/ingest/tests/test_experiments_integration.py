@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from stack import emit_root, register_key
 
 from trayce_ingest.app import create_app
+from trayce_ingest.auth import DEFAULT_PROJECT_ID
+from trayce_ingest.experiment_store import PostgresExperiments
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client
 
@@ -100,6 +102,16 @@ def test_an_experiment_runs_start_to_finish_in_postgres(api: TestClient):
     assert [e["id"] for e in listed] == [exp]
     late = api.post(f"/v1/experiments/{exp}/samples", json=batch)
     assert late.status_code == 409
+
+    # The store scopes every read by project, so another project's ids read nothing (#32).
+    store, other = PostgresExperiments(Settings()), uuid.uuid4()
+    exp_id, item_id = uuid.UUID(exp), uuid.UUID(items[0])
+    assert len(store.sample_rows(DEFAULT_PROJECT_ID, exp_id)) == 2
+    assert store.sample_rows(other, exp_id) == []
+    assert store.score_rows(other, exp_id) == []
+    assert store.samples(other, exp_id, item_id) == []
+    assert store.item(DEFAULT_PROJECT_ID, item_id, 1) is not None
+    assert store.item(other, item_id, 1) is None
 
 
 def test_a_pull_request_run_is_compared_with_its_merge_base_run_in_postgres(api: TestClient):

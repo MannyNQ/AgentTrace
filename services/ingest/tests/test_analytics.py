@@ -246,7 +246,7 @@ def test_a_zone_clickhouse_lacks_is_the_caller_s_fault(message: str, error: str)
     from trayce_ingest.analytics_store import ClickHouseAnalytics
 
     store = ClickHouseAnalytics(Settings())
-    store.__dict__["_clickhouse"] = FailingClickHouse(DatabaseError(message))
+    store._reads.__dict__["client"] = FailingClickHouse(DatabaseError(message))
     f = TraceFilter(since=NOW - timedelta(days=1), until=NOW)
     with pytest.raises(Exception) as raised:
         store.trace_series(PROJECT, f, NOW, "hour", "Asia/Nowhere")

@@ -10,7 +10,9 @@ from stack import emit_root, emit_spans, register_key
 
 from trayce import Span
 from trayce_ingest.app import create_app
+from trayce_ingest.auth import DEFAULT_PROJECT_ID
 from trayce_ingest.migrate import migrate_clickhouse
+from trayce_ingest.replay_store import PostgresReplays
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client
 from trayce_ingest.trace_inputs import (
@@ -131,6 +133,9 @@ def test_a_scored_replay_runs_start_to_finish_in_postgres(api: TestClient):
 
     listed = api.get(f"/v1/replays?trace_id={trace}").json()["replays"]
     assert [x["id"] for x in listed] == [replay]
+    store = PostgresReplays(Settings())
+    assert len(store.runs(DEFAULT_PROJECT_ID, uuid.UUID(replay))) > 0
+    assert store.runs(uuid.uuid4(), uuid.UUID(replay)) == []  # another project's id (#32)
     assert api.post(f"/v1/replays/{replay}/runs", json=batch).status_code == 409
 
 

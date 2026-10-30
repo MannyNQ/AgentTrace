@@ -42,6 +42,19 @@ def test_regex_from_config_or_from_the_item():
     assert per_item.grade(Case(input="q", expected_output="^\\d+$", output="42")).score == 1
     bad = per_item.grade(Case(input="q", expected_output="(", output="x"))
     assert "isn't a valid regex" in (bad.reason or "")
+
+
+def test_a_catastrophic_regex_fails_the_sample_instead_of_hanging_the_run():
+    """A dataset item's expected_output is compiled as the pattern, so anyone who can edit the
+    dataset could otherwise stall `trayce eval` in CI with a backtracking bomb (#30)."""
+    import time
+
+    per_item = build(type="regex")
+    started = time.monotonic()
+    # Exponential under backtracking; `regex` defuses the classic `(a+)+` but not this one.
+    r = per_item.grade(Case(input="q", expected_output=r"^(a|aa)+$", output="a" * 60 + "!"))
+    assert time.monotonic() - started < scorers.REGEX_TIMEOUT_S + 2
+    assert r.score == 0 and "took longer than" in (r.reason or "")
     with pytest.raises(scorers.ScorerError, match="bad pattern"):
         build(type="regex", pattern="(")
 

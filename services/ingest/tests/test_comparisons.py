@@ -200,7 +200,7 @@ def test_a_completed_pair_is_computed_once(api: Api, monkeypatch):
     monkeypatch.setattr(
         fake_experiments.FakeExperiments,
         "score_rows",
-        lambda self, eid: calls.append(eid) or original(self, eid),
+        lambda self, project, eid: calls.append(eid) or original(self, project, eid),
     )
     first = comparison(api, pr)
     second = comparison(api, pr)

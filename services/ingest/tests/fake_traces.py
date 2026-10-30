@@ -109,6 +109,6 @@ class FakeTraces:
     def live(self, project: UUID, trace_ids: list[str]) -> set[str]:
         return {t for t in trace_ids if (project, t) in self.summaries_by}
 
-    def payload(self, uri: str) -> str:
+    def payload(self, project: UUID, uri: str) -> str:
         self.reads.append(uri)
         return self.objects[uri]

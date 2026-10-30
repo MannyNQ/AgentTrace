@@ -21,7 +21,7 @@ from trayce_ingest.auth import (
     hash_token,
     login_backoff_s,
 )
-from trayce_ingest.datasets import Conflict, NotFound
+from trayce_ingest.errors import Conflict, NotFound
 
 
 @dataclass

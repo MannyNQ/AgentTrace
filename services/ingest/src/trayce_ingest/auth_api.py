@@ -9,14 +9,17 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from trayce_ingest import auth as au
-from trayce_ingest.dataset_api import Body
+from trayce_ingest.http import Body
+from trayce_ingest.validation import Text
 
 PREFIX = "/v1/auth"
 MEMBERS_PREFIX = "/v1/members"
 KEYS_PREFIX = "/v1/keys"
 
-Password = Annotated[str, Field(max_length=au.MAX_PASSWORD_CHARS)]
-Email = Annotated[str, Field(max_length=254)]
+# Text: no NUL characters, which Postgres can't store and would answer with a 500.
+Password = Annotated[Text, Field(max_length=au.MAX_PASSWORD_CHARS)]
+Email = Annotated[Text, Field(max_length=254)]
+KeyName = Annotated[Text, Field(max_length=100)]
 
 
 class SetupState(BaseModel):
@@ -70,7 +73,7 @@ class KeyList(BaseModel):
 
 
 class NewKeyBody(Body):
-    name: Annotated[str, Field(max_length=100)]
+    name: KeyName
     scope: au.Scope
 
 
@@ -93,20 +96,20 @@ def router(a: au.Auth, trusted_forwarders: list[au.IPNetwork]) -> APIRouter:
         return await a.hashing(a.login, body.email, body.password, client)
 
     @r.post("/logout", status_code=204)
-    def logout(session: Annotated[tuple[au.User, str], signed_in]) -> Response:
-        a.logout(session[1])
+    def logout(session: Annotated[au.Session, signed_in]) -> Response:
+        a.logout(session.token)
         return Response(status_code=204)
 
     @r.get("/me")
-    def me(session: Annotated[tuple[au.User, str], signed_in]) -> Me:
-        return Me(user=session[0])
+    def me(session: Annotated[au.Session, signed_in]) -> Me:
+        return Me(user=session.user)
 
     @r.post("/password", status_code=204)
     async def change_password(
-        session: Annotated[tuple[au.User, str], signed_in], body: PasswordChange
+        session: Annotated[au.Session, signed_in], body: PasswordChange
     ) -> Response:
         """Signs the user out everywhere else."""
-        await a.hashing(a.change_password, session[0], session[1], body.current, body.new)
+        await a.hashing(a.change_password, session.user, session.token, body.current, body.new)
         return Response(status_code=204)
 
     @r.get("/links/{token}")
@@ -130,26 +133,24 @@ def router(a: au.Auth, trusted_forwarders: list[au.IPNetwork]) -> APIRouter:
 
 def members_router(a: au.Auth) -> APIRouter:
     r = APIRouter(prefix=MEMBERS_PREFIX)
-    owner = Depends(au.SignedIn(a, owner=True))
+    owner = Depends(au.SignedInOwner(a))
 
     @r.get("")
-    def list_members(session: Annotated[tuple[au.User, str], owner]) -> MemberList:
-        return MemberList(members=a.members(session[0]))
+    def list_members(by: Annotated[au.Owner, owner]) -> MemberList:
+        return MemberList(members=a.members(by))
 
     @r.patch("/{user_id}")
-    def update_member(
-        session: Annotated[tuple[au.User, str], owner], user_id: UUID, body: MemberPatch
-    ) -> au.User:
+    def update_member(by: Annotated[au.Owner, owner], user_id: UUID, body: MemberPatch) -> au.User:
         """Deactivating signs the member out; keys they created keep working."""
-        return a.update_member(session[0], user_id, body.role, body.deactivated)
+        return a.update_member(by, user_id, body.role, body.deactivated)
 
     @r.post("/invites", status_code=201)
-    def invite(session: Annotated[tuple[au.User, str], owner], body: NewInvite) -> au.NewLink:
-        return a.invite(session[0], body.role)
+    def invite(by: Annotated[au.Owner, owner], body: NewInvite) -> au.NewLink:
+        return a.invite(by, body.role)
 
     @r.post("/{user_id}/reset", status_code=201)
-    def reset_link(session: Annotated[tuple[au.User, str], owner], user_id: UUID) -> au.NewLink:
-        return a.reset_link(session[0], user_id)
+    def reset_link(by: Annotated[au.Owner, owner], user_id: UUID) -> au.NewLink:
+        return a.reset_link(by, user_id)
 
     return r
 
@@ -159,16 +160,16 @@ def keys_router(a: au.Auth) -> APIRouter:
     owner = Depends(au.OwnerProject(a))
 
     @r.get("")
-    def list_keys(caller: Annotated[tuple[au.User, UUID], owner]) -> KeyList:
-        return KeyList(keys=a.keys(caller[1]))
+    def list_keys(by: Annotated[au.ProjectOwner, owner]) -> KeyList:
+        return KeyList(keys=a.keys(by))
 
     @r.post("", status_code=201)
-    def create_key(caller: Annotated[tuple[au.User, UUID], owner], body: NewKeyBody) -> au.NewKey:
+    def create_key(by: Annotated[au.ProjectOwner, owner], body: NewKeyBody) -> au.NewKey:
         """The key is in this response and nowhere else."""
-        return a.create_key(caller[0], caller[1], body.name, body.scope)
+        return a.create_key(by, body.name, body.scope)
 
     @r.post("/{key_id}/revoke")
-    def revoke_key(caller: Annotated[tuple[au.User, UUID], owner], key_id: UUID) -> au.KeyInfo:
-        return a.revoke_key(caller[1], key_id)
+    def revoke_key(by: Annotated[au.ProjectOwner, owner], key_id: UUID) -> au.KeyInfo:
+        return a.revoke_key(by, key_id)
 
     return r

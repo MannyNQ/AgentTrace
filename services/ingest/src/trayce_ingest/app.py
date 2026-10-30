@@ -15,6 +15,7 @@ from trayce_ingest import (
     dataset_api,
     experiment_api,
     experiments,
+    http,
     locate,
     otlp,
     project_api,
@@ -229,22 +230,7 @@ def create_app(
         now=lambda: datetime.now(UTC),
     )
     app.include_router(analytics_api.router(overview, a))
-    dataset_api.install_error_handlers(
-        app,
-        (
-            dataset_api.PREFIX,
-            experiment_api.PREFIX,
-            replay_api.PREFIX,
-            trace_api.PREFIX,
-            analytics_api.PREFIX,
-            auth_api.PREFIX,
-            auth_api.MEMBERS_PREFIX,
-            auth_api.KEYS_PREFIX,
-            project_api.PREFIX,
-            project_api.CURRENT,
-            project_api.LOCATE,
-        ),
-    )
+    http.install_error_handlers(app)
 
     @app.get("/health")
     async def health(response: Response) -> dict:

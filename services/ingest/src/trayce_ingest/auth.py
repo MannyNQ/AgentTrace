@@ -28,7 +28,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Request
 
-from trayce_ingest.datasets import Conflict, DatasetError, NotFound, Record, Refused
+from trayce_ingest.errors import ApiError, Conflict, NotFound, Refused
+from trayce_ingest.records import Record
 
 log = logging.getLogger(__name__)
 
@@ -85,15 +86,15 @@ LinkKind = Literal["invite", "reset"]
 # --- Errors ---------------------------------------------------------------------------------
 
 
-class Unauthorized(DatasetError):
+class Unauthorized(ApiError):
     status = 401
 
 
-class Forbidden(DatasetError):
+class Forbidden(ApiError):
     status = 403
 
 
-class TooManyAttempts(DatasetError):
+class TooManyAttempts(ApiError):
     status = 429
 
 
@@ -399,11 +400,38 @@ T = TypeVar("T")
 
 @dataclass(frozen=True)
 class Caller:
-    """A resolved request. `user` is set for sessions, `key` for API keys."""
+    """A resolved request. `user` is set for sessions; API keys leave it None."""
 
     project_id: UUID
     user: User | None = None
-    key: KeyInfo | None = None
+
+
+@dataclass(frozen=True)
+class Session:
+    """A signed-in user and their session token."""
+
+    user: User
+    token: str
+
+
+@dataclass(frozen=True)
+class Owner:
+    """A signed-in owner. Building one from anyone else raises Forbidden, and the owner-only
+    rules take an Owner, so a route that forgets its owner guard can't reach them (#31)."""
+
+    user: User
+
+    def __post_init__(self) -> None:
+        if self.user.role != "owner" or self.user.deactivated:
+            raise Forbidden("only an owner can do this")
+
+
+@dataclass(frozen=True)
+class ProjectOwner:
+    """An owner acting on one project: managing its keys or its settings."""
+
+    owner: Owner
+    project_id: UUID
 
 
 @dataclass
@@ -516,7 +544,7 @@ class Auth:
             raise Forbidden(f'this API key belongs to project "{row.project.slug}", not "{slug}"')
         if scope == "full" and row.info.scope != "full":
             raise Forbidden(f"this needs a full API key; this one's scope is {row.info.scope}")
-        return Caller(project_id=row.project.id, key=row.info)
+        return Caller(project_id=row.project.id)
 
     def signed_in(self, request: Request) -> tuple[User, str]:
         """A session's user and token. API keys act for a project, not a person, so they're
@@ -629,21 +657,22 @@ class Auth:
 
     # --- Members, invites, and resets ---
 
-    def members(self, owner: User) -> list[User]:
-        return self.store.users(owner.org_id)
+    def members(self, owner: Owner) -> list[User]:
+        return self.store.users(owner.user.org_id)
 
     def update_member(
-        self, owner: User, user_id: UUID, role: Role | None, deactivated: bool | None
+        self, owner: Owner, user_id: UUID, role: Role | None, deactivated: bool | None
     ) -> User:
-        if self.store.user(owner.org_id, user_id) is None:
+        org_id = owner.user.org_id
+        if self.store.user(org_id, user_id) is None:
             raise NotFound("member not found")
-        return self.store.update_member(owner.org_id, user_id, role, deactivated)
+        return self.store.update_member(org_id, user_id, role, deactivated)
 
-    def invite(self, owner: User, role: Role) -> NewLink:
+    def invite(self, owner: Owner, role: Role) -> NewLink:
         return self._new_link(owner, "invite", role=role)
 
-    def reset_link(self, owner: User, user_id: UUID) -> NewLink:
-        user = self.store.user(owner.org_id, user_id)
+    def reset_link(self, owner: Owner, user_id: UUID) -> NewLink:
+        user = self.store.user(owner.user.org_id, user_id)
         if user is None:
             raise NotFound("member not found")
         if user.deactivated:
@@ -651,13 +680,12 @@ class Auth:
         return self._new_link(owner, "reset", user_id=user_id)
 
     def _new_link(
-        self, owner: User, kind: LinkKind, role: Role | None = None, user_id: UUID | None = None
+        self, owner: Owner, kind: LinkKind, role: Role | None = None, user_id: UUID | None = None
     ) -> NewLink:
         token = new_token()
         expires_at = self.now() + LINK_LIFETIME
-        self.store.create_link(
-            hash_token(token), kind, owner.org_id, role, user_id, owner.id, expires_at
-        )
+        by = owner.user
+        self.store.create_link(hash_token(token), kind, by.org_id, role, user_id, by.id, expires_at)
         return NewLink(token=token, kind=kind, expires_at=expires_at)
 
     def link(self, token: str) -> Link:
@@ -714,18 +742,21 @@ class Auth:
         self._keys.pop(hash_token(DEV_KEY), None)
         return True
 
-    def keys(self, project_id: UUID) -> list[KeyInfo]:
-        return self.store.keys(project_id)
+    def keys(self, by: ProjectOwner) -> list[KeyInfo]:
+        return self.store.keys(by.project_id)
 
-    def create_key(self, owner: User, project_id: UUID, name: str, scope: Scope) -> NewKey:
+    def create_key(self, by: ProjectOwner, name: str, scope: Scope) -> NewKey:
         name = name.strip()
         if not name:
             raise Refused("a key needs a name")
         key = new_token("tr_")
-        info = self.store.create_key(project_id, hash_token(key), name, scope, key[-4:], owner.id)
+        info = self.store.create_key(
+            by.project_id, hash_token(key), name, scope, key[-4:], by.owner.user.id
+        )
         return NewKey(key=key, info=info)
 
-    def revoke_key(self, project_id: UUID, key_id: UUID) -> KeyInfo:
+    def revoke_key(self, by: ProjectOwner, key_id: UUID) -> KeyInfo:
+        project_id = by.project_id
         info = self.store.project_key(project_id, key_id)
         if info is None:
             raise NotFound("key not found")
@@ -758,28 +789,33 @@ class ProjectAccess:
 
 
 class OwnerProject:
-    """A project route only an owner's session may call; resolves the owner and project."""
+    """A project route only an owner's session may call."""
 
     def __init__(self, auth: Auth):
         self.auth = auth
 
-    def __call__(self, request: Request) -> tuple[User, UUID]:
+    def __call__(self, request: Request) -> ProjectOwner:
         caller = self.auth.caller(request, "full")
         if caller.user is None:
             raise Forbidden("this needs a signed-in owner; API keys can't do it")
-        if caller.user.role != "owner":
-            raise Forbidden("only an owner can do this")
-        return caller.user, caller.project_id
+        return ProjectOwner(Owner(caller.user), caller.project_id)
 
 
 class SignedIn:
-    """A route for a signed-in user, or only an owner; resolves the user and session token."""
+    """A route for any signed-in user."""
 
-    def __init__(self, auth: Auth, owner: bool = False):
-        self.auth, self.owner = auth, owner
+    def __init__(self, auth: Auth):
+        self.auth = auth
 
-    def __call__(self, request: Request) -> tuple[User, str]:
-        user, token = self.auth.signed_in(request)
-        if self.owner and user.role != "owner":
-            raise Forbidden("only an owner can do this")
-        return user, token
+    def __call__(self, request: Request) -> Session:
+        return Session(*self.auth.signed_in(request))
+
+
+class SignedInOwner:
+    """A route only an owner's session may call, outside any one project."""
+
+    def __init__(self, auth: Auth):
+        self.auth = auth
+
+    def __call__(self, request: Request) -> Owner:
+        return Owner(self.auth.signed_in(request)[0])

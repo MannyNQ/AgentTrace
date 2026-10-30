@@ -7,7 +7,8 @@ from fake_datasets import FakeDatasets, FakePins, FakeTraces
 from fastapi.testclient import TestClient
 
 from trayce_ingest.app import create_app
-from trayce_ingest.datasets import MAX_JSON_BYTES, Refused, pin_pending
+from trayce_ingest.datasets import MAX_JSON_BYTES, pin_pending
+from trayce_ingest.errors import Refused
 from trayce_ingest.settings import Settings
 from trayce_ingest.trace_inputs import decode_payload
 

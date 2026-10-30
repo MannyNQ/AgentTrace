@@ -19,9 +19,12 @@ from trayce.eval.results import (
     StepWarning,
     ToolMode,
 )
-from trayce_ingest.datasets import Conflict, Item, NotFound, Record, Refused
-from trayce_ingest.experiments import Prices, Status, StoredRun, check_text, stored
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound, Refused
+from trayce_ingest.experiments import Prices, Status, StoredRun, stored
+from trayce_ingest.records import Record
 from trayce_ingest.trace_inputs import TraceRoots
+from trayce_ingest.validation import check_text
 
 # --- Records: what the store returns and the API serves ---------------------------------------
 
@@ -112,7 +115,7 @@ class Store(Protocol):
         exclusively, as for experiments. Raises NotFound."""
         ...
 
-    def runs(self, replay_id: UUID) -> list[StoredReplayRun]:
+    def runs(self, project: UUID, replay_id: UUID) -> list[StoredReplayRun]:
         """In `run_index` order."""
         ...
 
@@ -224,4 +227,4 @@ def detail(store: Store, project: UUID, replay_id: UUID) -> ReplayDetail:
     item = None
     if r.item_id is not None and r.item_rev is not None:
         item = store.item(project, r.item_id, r.item_rev)
-    return ReplayDetail(**dict(r), item=item, replay_runs=store.runs(replay_id))
+    return ReplayDetail(**dict(r), item=item, replay_runs=store.runs(project, replay_id))

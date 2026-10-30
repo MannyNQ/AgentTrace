@@ -7,9 +7,10 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from trayce.eval.results import SpanRef
-from trayce_ingest.datasets import NotFound, Record, Refused
+from trayce_ingest.errors import NotFound, Refused
+from trayce_ingest.records import Record
 from trayce_ingest.settings import Settings
-from trayce_ingest.stores import clickhouse_client, read_payload, s3_client
+from trayce_ingest.stores import ProjectReads, read_payload, s3_client
 
 TRUNCATED_ATTRIBUTE = "trayce.truncated"  # sdk/python/src/trayce/exporter.py
 REPLAY_OF_ATTRIBUTE = "trayce.replay_of"  # sdk/python/src/trayce/eval/replay.py
@@ -74,12 +75,9 @@ def decode_payload(text: str) -> Any:
 class StoredTraceInputs:
     def __init__(self, s: Settings):
         self.s = s
+        self._reads = ProjectReads(s)
 
     # Lazy: both clients connect when built, and the app builds this object at import time.
-    @cached_property
-    def _clickhouse(self):
-        return clickhouse_client(self.s)
-
     @cached_property
     def _s3(self):
         return s3_client(self.s)
@@ -89,12 +87,13 @@ class StoredTraceInputs:
 
     def exists(self, project: UUID, trace_id: str) -> bool:
         return bool(
-            self._clickhouse.query(
+            self._reads.query(
+                project,
                 """SELECT 1 FROM traces
                    WHERE project_id = {project:UUID} AND trace_id = {trace:FixedString(32)}
                    LIMIT 1""",
-                parameters={"project": str(project), "trace": trace_id},
-            ).result_rows
+                {"trace": trace_id},
+            )
         )
 
     def origin(self, project: UUID, trace_id: str) -> SpanRef:
@@ -108,19 +107,20 @@ class StoredTraceInputs:
     def _root_row(self, project: UUID, trace_id: str) -> tuple | None:
         """(span_id, input_preview, input_uri, truncated, replay_of, replay_origin) of the root
         span; None when the trace or its root span isn't stored."""
-        ch = self._clickhouse
-        params = {"project": str(project), "trace": trace_id}
+        params = {"trace": trace_id}
         # The summary's time range bounds the scan on the spans sort key (ADR-0013).
-        summary = ch.query(
+        summary = self._reads.query(
+            project,
             """SELECT min(start_time), max(last_end_time), max(has_root) FROM traces
                WHERE project_id = {project:UUID} AND trace_id = {trace:FixedString(32)}
                GROUP BY trace_id""",
-            parameters=params,
-        ).result_rows
+            params,
+        )
         if not summary or not summary[0][2]:
             return None
         start, end, _ = summary[0]
-        rows = ch.query(
+        rows = self._reads.query(
+            project,
             """SELECT toString(span_id), input_preview, input_uri, attributes[{truncated:String}],
                       attributes[{replay_of:String}], attributes[{replay_origin:String}]
                FROM spans FINAL
@@ -128,7 +128,7 @@ class StoredTraceInputs:
                  AND parent_span_id = '' AND start_time BETWEEN {start:DateTime64(6)}
                  AND {end:DateTime64(6)}
                LIMIT 1""",
-            parameters={
+            {
                 **params,
                 "start": start,
                 "end": end,
@@ -136,7 +136,7 @@ class StoredTraceInputs:
                 "replay_of": REPLAY_OF_ATTRIBUTE,
                 "replay_origin": REPLAY_ORIGIN_ATTRIBUTE,
             },
-        ).result_rows
+        )
         return tuple(rows[0]) if rows else None
 
     def root(self, project: UUID, trace_id: str) -> RootInput:
@@ -148,7 +148,7 @@ class StoredTraceInputs:
         span_id, preview, uri, truncated, replay_of, replay_origin = row
         if "input" in truncated.split(","):
             raise Refused("the SDK cut this trace's input to fit a request, so it can't be copied")
-        text = read_payload(self.s, self._s3, uri) if uri else preview
+        text = read_payload(self.s, self._s3, project, uri) if uri else preview
         if text == "":
             raise Refused("the trace's root span has no input")
         return RootInput(

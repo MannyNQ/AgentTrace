@@ -233,7 +233,7 @@ def outage_api(error: Exception) -> TestClient:
     from trayce_ingest.trace_store import ClickHouseTraces
 
     store = ClickHouseTraces(Settings())
-    store.__dict__["_clickhouse"] = Failing(error)  # in place of the lazily built client
+    store._reads.__dict__["client"] = Failing(error)  # in place of the lazily built client
     app = create_app(
         Settings(),
         checks={},
@@ -277,7 +277,7 @@ def test_an_object_storage_outage_is_unavailable():
     store = ClickHouseTraces(Settings())
     store.__dict__["_s3"] = Failing(EndpointConnectionError(endpoint_url="http://seaweedfs:8333"))
     with pytest.raises(Unavailable, match="object storage can't be read"):
-        store.payload("s3://payloads/x/in")
+        store.payload(PROJECT, f"s3://payloads/{PROJECT}/x/in")
 
 
 def test_half_a_cursor_is_refused(api: Api):

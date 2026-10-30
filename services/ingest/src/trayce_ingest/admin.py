@@ -10,7 +10,7 @@ import sys
 
 from trayce_ingest.auth import Auth
 from trayce_ingest.auth_store import PostgresAuth, RedisLimiter
-from trayce_ingest.datasets import DatasetError
+from trayce_ingest.errors import ApiError
 from trayce_ingest.settings import Settings
 
 
@@ -21,7 +21,7 @@ def reset_password(a: Auth, email: str) -> int:
         return 1
     try:
         user = a.set_password(email, password)
-    except DatasetError as e:
+    except ApiError as e:
         print(e.error, file=sys.stderr)
         return 1
     print(f"password set for {user.email}; their sessions are signed out")

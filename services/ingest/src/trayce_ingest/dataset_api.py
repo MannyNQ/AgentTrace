@@ -1,24 +1,19 @@
 """/v1/datasets: the one way to read and write datasets (ADR-0019). Each route parses, calls one
 rule in `datasets`, and returns its record; the records are the response schemas."""
 
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, FastAPI, Request, Response
-from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel
 
 from trayce_ingest import datasets as ds
 from trayce_ingest.auth import Auth, ProjectAccess
-from trayce_ingest.datasets import Contents, Name, Text, TraceId
+from trayce_ingest.datasets import Contents, Name, TraceId
+from trayce_ingest.http import Body
+from trayce_ingest.validation import Text
 
 PREFIX = "/v1/datasets"
-
-
-class Body(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class NewDataset(Body):
@@ -124,36 +119,3 @@ def router(store: ds.Store, traces: ds.TraceInputs, pins: ds.Pins, a: Auth) -> A
         return ds.diff_version(store, project, dataset_id, n)
 
     return r
-
-
-def _fields(errors: list[dict[str, Any]]) -> dict[str, str]:
-    """Validation errors by top-level field. An item edit's fields sit under `contents`."""
-    fields: dict[str, str] = {}
-    for e in errors:
-        loc = list(e["loc"][1:])  # drop "body" / "query"
-        if loc[:1] == ["contents"]:
-            loc = loc[1:]
-        key = str(loc[0]) if loc else "request"
-        rest = ".".join(str(p) for p in loc[1:])
-        fields.setdefault(key, f"{rest}: {e['msg']}" if rest else e["msg"])
-    return fields
-
-
-def install_error_handlers(app: FastAPI, prefixes: tuple[str, ...]) -> None:
-    """Dataset errors, which the experiment rules raise too, answer `{"detail": {"error": ...,
-    ...}}`. Validation errors on routes under `prefixes` use the same shape with `fields`; a
-    malformed id in the path is a 404."""
-
-    @app.exception_handler(ds.DatasetError)
-    async def dataset_error(_: Request, e: ds.DatasetError) -> JSONResponse:
-        return JSONResponse({"detail": e.detail()}, status_code=e.status)
-
-    @app.exception_handler(RequestValidationError)
-    async def invalid(request: Request, e: RequestValidationError) -> JSONResponse:
-        if not request.url.path.startswith(prefixes):
-            return await request_validation_exception_handler(request, e)
-        errors = list(e.errors())
-        if any(err["loc"][0] == "path" for err in errors):
-            return JSONResponse({"detail": {"error": "not found"}}, status_code=404)
-        detail = {"error": "some fields are invalid", "fields": _fields(errors)}
-        return JSONResponse({"detail": detail}, status_code=422)

@@ -1,9 +1,0 @@
-{
-  "identities": [
-    {
-      "name": "trayce",
-      "credentials": [{ "accessKey": "trayce", "secretKey": "trayce-secret" }],
-      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
-    }
-  ]
-}

@@ -13,7 +13,8 @@ from psycopg.types.json import Jsonb
 from trayce.eval.results import NewExperiment
 from trayce.pricing import PRICES_SQL, PriceTable
 from trayce_ingest.dataset_store import ITEM_COLUMNS, item_from_row
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import (
     Experiment,
     ExperimentInfo,
@@ -285,31 +286,33 @@ class PostgresExperiments:
                 raise NotFound("no such experiment")
             yield PostgresTx(conn, project, Experiment(**_fields(row)))
 
-    def sample_rows(self, experiment_id: UUID) -> list[SampleRow]:
+    def sample_rows(self, project: UUID, experiment_id: UUID) -> list[SampleRow]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT item_id, sample_index, error IS NOT NULL, latency_ms, cost_usd
-                   FROM experiment_samples WHERE experiment_id = %s""",
-                (experiment_id,),
+                """SELECT s.item_id, s.sample_index, s.error IS NOT NULL, s.latency_ms, s.cost_usd
+                   FROM experiment_samples s JOIN experiments e ON e.id = s.experiment_id
+                   WHERE s.experiment_id = %s AND e.project_id = %s""",
+                (experiment_id, project),
             ).fetchall()
         return [
             SampleRow(item_id=i, sample_index=n, errored=err, latency_ms=ms, cost_usd=cost)
             for i, n, err, ms, cost in rows
         ]
 
-    def score_rows(self, experiment_id: UUID) -> list[ScoreRow]:
+    def score_rows(self, project: UUID, experiment_id: UUID) -> list[ScoreRow]:
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT item_id, sample_index, scorer, score, passed
-                   FROM experiment_scores WHERE experiment_id = %s""",
-                (experiment_id,),
+                """SELECT c.item_id, c.sample_index, c.scorer, c.score, c.passed
+                   FROM experiment_scores c JOIN experiments e ON e.id = c.experiment_id
+                   WHERE c.experiment_id = %s AND e.project_id = %s""",
+                (experiment_id, project),
             ).fetchall()
         return [
             ScoreRow(item_id=i, sample_index=n, scorer=sc, score=score, passed=passed)
             for i, n, sc, score, passed in rows
         ]
 
-    def samples(self, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
+    def samples(self, project: UUID, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT s.sample_index, s.trace_id, s.started_at, s.latency_ms, s.output,
@@ -320,24 +323,25 @@ class PostgresExperiments:
                               'reason', c.reason) ORDER BY c.scorer)
                             FILTER (WHERE c.scorer IS NOT NULL), '[]')
                    FROM experiment_samples s
+                   JOIN experiments e ON e.id = s.experiment_id AND e.project_id = %s
                    LEFT JOIN experiment_scores c USING (experiment_id, item_id, sample_index)
                    WHERE s.experiment_id = %s AND s.item_id = %s
                    GROUP BY s.experiment_id, s.item_id, s.sample_index
                    ORDER BY s.sample_index""",
-                (experiment_id, item_id),
+                (project, experiment_id, item_id),
             ).fetchall()
         return [_sample(item_id, r) for r in rows]
 
-    def item(self, item_id: UUID, rev: int) -> Item:
+    def item(self, project: UUID, item_id: UUID, rev: int) -> Item | None:
         with self._connect() as conn:
             row = conn.execute(
                 f"""SELECT {ITEM_COLUMNS} FROM dataset_items i
                     JOIN item_revisions r ON r.item_id = i.item_id
-                    WHERE i.item_id = %s AND r.rev = %s""",
-                (item_id, rev),
+                    JOIN datasets d ON d.id = i.dataset_id
+                    WHERE d.project_id = %s AND i.item_id = %s AND r.rev = %s""",
+                (project, item_id, rev),
             ).fetchone()
-        assert row is not None, "a version's revision is never deleted (ADR-0020)"
-        return item_from_row(row)
+        return item_from_row(row) if row else None
 
 
 class PostgresPrices:

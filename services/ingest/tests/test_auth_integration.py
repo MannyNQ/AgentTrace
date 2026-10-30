@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from trayce_ingest.app import create_app
 from trayce_ingest.auth import DEFAULT_PROJECT_ID, FREE_LOGIN_FAILURES, User, hash_token
 from trayce_ingest.auth_store import PostgresAuth, RedisLimiter
-from trayce_ingest.datasets import Conflict
+from trayce_ingest.errors import Conflict
 from trayce_ingest.settings import Settings
 
 pytestmark = pytest.mark.integration

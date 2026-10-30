@@ -22,15 +22,10 @@ from trayce.eval.results import (
     ToolCall,
 )
 from trayce.pricing import PriceTable
-from trayce_ingest.datasets import (
-    MAX_JSON_BYTES,
-    Conflict,
-    Item,
-    NotFound,
-    Record,
-    Refused,
-    storable,
-)
+from trayce_ingest.datasets import MAX_JSON_BYTES, Item
+from trayce_ingest.errors import Conflict, NotFound, Refused
+from trayce_ingest.records import Record
+from trayce_ingest.validation import check_text, storable
 
 Status = Literal["running", "completed", "failed"]
 
@@ -205,15 +200,17 @@ class Store(Protocol):
         exclusively, so a finish counts samples nobody is adding. Raises NotFound."""
         ...
 
-    def sample_rows(self, experiment_id: UUID) -> list[SampleRow]: ...
+    # Each read takes the project and filters on it, so a caller that skipped `get` still
+    # can't read another project's rows (#32).
+    def sample_rows(self, project: UUID, experiment_id: UUID) -> list[SampleRow]: ...
 
-    def score_rows(self, experiment_id: UUID) -> list[ScoreRow]: ...
+    def score_rows(self, project: UUID, experiment_id: UUID) -> list[ScoreRow]: ...
 
-    def samples(self, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
+    def samples(self, project: UUID, experiment_id: UUID, item_id: UUID) -> list[StoredSample]:
         """In `sample_index` order."""
         ...
 
-    def item(self, item_id: UUID, rev: int) -> Item: ...
+    def item(self, project: UUID, item_id: UUID, rev: int) -> Item | None: ...
 
 
 class Prices(Protocol):
@@ -267,11 +264,6 @@ def sample_cost(prices: PriceTable, usage: Iterable[ModelUsage], at: datetime) -
             return None
         total += cost
     return total
-
-
-def check_text(value: str | None, field: str) -> None:
-    if value is not None and "\x00" in value:
-        raise Refused(f"{field} has a NUL character (\\u0000), which Postgres can't store")
 
 
 def stored[T: StoredRun](
@@ -410,7 +402,10 @@ def detail(store: Store, project: UUID, experiment_id: UUID) -> ExperimentDetail
     e = get(store, project, experiment_id)
     items = store.version_items(project, e.dataset_id, e.dataset_version) or {}
     stats, summaries = summarize(
-        e, items, store.sample_rows(experiment_id), store.score_rows(experiment_id)
+        e,
+        items,
+        store.sample_rows(project, experiment_id),
+        store.score_rows(project, experiment_id),
     )
     return ExperimentDetail(**dict(e), scorer_stats=stats, items=summaries)
 
@@ -421,6 +416,7 @@ def item_detail(store: Store, project: UUID, experiment_id: UUID, item_id: UUID)
     items = store.version_items(project, e.dataset_id, e.dataset_version) or {}
     if item_id not in items:
         raise NotFound("no such item in the experiment's dataset version")
-    return ItemDetail(
-        item=store.item(item_id, items[item_id]), samples=store.samples(experiment_id, item_id)
-    )
+    item = store.item(project, item_id, items[item_id])
+    if item is None:
+        raise NotFound("no such item in the experiment's dataset version")
+    return ItemDetail(item=item, samples=store.samples(project, experiment_id, item_id))

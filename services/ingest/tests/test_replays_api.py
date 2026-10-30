@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from trayce.eval.results import SpanRef
 from trayce.pricing import Price, PriceTable
 from trayce_ingest.app import create_app
-from trayce_ingest.datasets import Refused
+from trayce_ingest.errors import Refused
 from trayce_ingest.settings import Settings
 
 PROJECT = UUID("00000000-0000-0000-0000-0000000000aa")

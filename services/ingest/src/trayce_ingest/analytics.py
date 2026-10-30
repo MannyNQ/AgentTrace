@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import field_validator, model_validator
 
-from trayce_ingest.datasets import Record
+from trayce_ingest.records import Record
 from trayce_ingest.trace_filter import TraceFilter
 
 Range = Literal["24h", "7d", "30d"]

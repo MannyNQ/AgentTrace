@@ -12,7 +12,8 @@ from psycopg import sql
 
 from trayce_ingest.auth import Store as AuthStore
 from trayce_ingest.auth import User
-from trayce_ingest.datasets import NotFound, Record
+from trayce_ingest.errors import NotFound
+from trayce_ingest.records import Record
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client
 from trayce_ingest.trace_store import clickhouse_reads
@@ -56,6 +57,8 @@ class StoredLocations:
     def __init__(self, s: Settings):
         self.s = s
 
+    # Not ProjectReads: this searches every project the caller's org holds at once, and
+    # `find` is only ever given that org's projects (`locate` filters by org first).
     @cached_property
     def _clickhouse(self):
         return clickhouse_client(self.s)

@@ -8,7 +8,8 @@ from uuid import UUID
 from fake_datasets import FakeDatasets
 
 from trayce.eval.results import NewReplay
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import Status
 from trayce_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
 
@@ -99,5 +100,8 @@ class FakeReplays:
             raise NotFound("no such replay")
         yield FakeTx(self, r)
 
-    def runs(self, replay_id: UUID) -> list[StoredReplayRun]:
-        return sorted(self.replays[replay_id].runs.values(), key=lambda r: r.run_index)
+    def runs(self, project: UUID, replay_id: UUID) -> list[StoredReplayRun]:
+        r = self.replays.get(replay_id)
+        if r is None or r.project != project:
+            return []
+        return sorted(r.runs.values(), key=lambda run: run.run_index)

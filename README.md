@@ -55,6 +55,8 @@ TRAYCE_API_KEY=tr-local-dev-key uv run trayce replay <trace_id> -c examples/demo
 
 It calls the agent 3 times with the trace's input and your current code. If the trace was added to the `support` draft and its item has an expectation, each run is scored against it and `--require-pass` exits 3 unless all pass. The trace page lists its replays, and each replay's page shows the runs beside the original with where they first differ.
 
+A replay runs your agent, with its real tools, on what the trace recorded: its input, and for a fork (`--from <span_id>`), the model turns and tool results before the fork point. Treat that as untrusted input. Anyone with an `ingest` key can write a trace, so when the agent's tools can do damage, add `--stub-tools` or replay in a sandbox (ADR-0040).
+
 ## OpenTelemetry
 
 Agents already instrumented with OpenTelemetry don't need the SDK to send traces. Point any OTLP/HTTP exporter at ingest with an API key:
