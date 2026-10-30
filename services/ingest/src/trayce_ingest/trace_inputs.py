@@ -7,7 +7,8 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from trayce.eval.results import SpanRef
-from trayce_ingest.datasets import NotFound, Record, Refused
+from trayce_ingest.errors import NotFound, Refused
+from trayce_ingest.records import Record
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client, read_payload, s3_client
 

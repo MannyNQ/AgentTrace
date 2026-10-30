@@ -26,7 +26,7 @@ from trayce_ingest.auth import (
     Scope,
     User,
 )
-from trayce_ingest.datasets import Conflict, NotFound
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.settings import Settings
 from trayce_ingest.traces import Unavailable
 

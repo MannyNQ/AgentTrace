@@ -28,7 +28,8 @@ from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from fastapi import Request
 
-from trayce_ingest.datasets import Conflict, DatasetError, NotFound, Record, Refused
+from trayce_ingest.errors import ApiError, Conflict, NotFound, Refused
+from trayce_ingest.records import Record
 
 log = logging.getLogger(__name__)
 
@@ -85,15 +86,15 @@ LinkKind = Literal["invite", "reset"]
 # --- Errors ---------------------------------------------------------------------------------
 
 
-class Unauthorized(DatasetError):
+class Unauthorized(ApiError):
     status = 401
 
 
-class Forbidden(DatasetError):
+class Forbidden(ApiError):
     status = 403
 
 
-class TooManyAttempts(DatasetError):
+class TooManyAttempts(ApiError):
     status = 429
 
 

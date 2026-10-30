@@ -11,7 +11,8 @@ from stack import emit_root, register_key
 from trayce_ingest.app import create_app
 from trayce_ingest.auth import DEFAULT_PROJECT_ID
 from trayce_ingest.dataset_store import PostgresDatasets
-from trayce_ingest.datasets import Contents, Refused, add_item, publish
+from trayce_ingest.datasets import Contents, add_item, publish
+from trayce_ingest.errors import Refused
 from trayce_ingest.migrate import migrate, pending
 from trayce_ingest.settings import Settings
 

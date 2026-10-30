@@ -22,15 +22,10 @@ from trayce.eval.results import (
     ToolCall,
 )
 from trayce.pricing import PriceTable
-from trayce_ingest.datasets import (
-    MAX_JSON_BYTES,
-    Conflict,
-    Item,
-    NotFound,
-    Record,
-    Refused,
-    storable,
-)
+from trayce_ingest.datasets import MAX_JSON_BYTES, Item
+from trayce_ingest.errors import Conflict, NotFound, Refused
+from trayce_ingest.records import Record
+from trayce_ingest.validation import check_text, storable
 
 Status = Literal["running", "completed", "failed"]
 
@@ -267,11 +262,6 @@ def sample_cost(prices: PriceTable, usage: Iterable[ModelUsage], at: datetime) -
             return None
         total += cost
     return total
-
-
-def check_text(value: str | None, field: str) -> None:
-    if value is not None and "\x00" in value:
-        raise Refused(f"{field} has a NUL character (\\u0000), which Postgres can't store")
 
 
 def stored[T: StoredRun](

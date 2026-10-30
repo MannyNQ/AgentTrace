@@ -12,7 +12,8 @@ from psycopg import sql
 
 from trayce_ingest.auth import Store as AuthStore
 from trayce_ingest.auth import User
-from trayce_ingest.datasets import NotFound, Record
+from trayce_ingest.errors import NotFound
+from trayce_ingest.records import Record
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client
 from trayce_ingest.trace_store import clickhouse_reads

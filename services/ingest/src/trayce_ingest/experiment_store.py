@@ -13,7 +13,8 @@ from psycopg.types.json import Jsonb
 from trayce.eval.results import NewExperiment
 from trayce.pricing import PRICES_SQL, PriceTable
 from trayce_ingest.dataset_store import ITEM_COLUMNS, item_from_row
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import (
     Experiment,
     ExperimentInfo,

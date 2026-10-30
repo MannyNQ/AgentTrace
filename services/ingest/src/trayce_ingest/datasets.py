@@ -4,17 +4,15 @@ Storage sits behind `Store`/`Tx`, which only read and write rows; every decision
 version numbers, the delete policy, the archived rule, publish checks) is made here. The HTTP
 layer is in `dataset_api`, the Postgres store in `dataset_store`."""
 
-import json
 import logging
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
-from typing import Annotated, Any, ClassVar, Literal, Protocol
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -23,6 +21,9 @@ from pydantic import (
 )
 
 from trayce.eval.results import ToolCall
+from trayce_ingest.errors import Conflict, NotFound, Refused
+from trayce_ingest.records import Record
+from trayce_ingest.validation import storable
 
 log = logging.getLogger(__name__)
 
@@ -74,44 +75,7 @@ class Contents(BaseModel):
         return self.expected_output is not None or self.expected_trajectory is not None
 
 
-def _has_nul(v: Any) -> bool:
-    if isinstance(v, str):
-        return "\x00" in v
-    if isinstance(v, dict):
-        return any(_has_nul(k) or _has_nul(x) for k, x in v.items())
-    if isinstance(v, list):
-        return any(_has_nul(x) for x in v)
-    return False
-
-
-def storable(v: Any, field: str, max_bytes: int | None = None) -> Any:
-    """Postgres `jsonb` holds standard JSON only: no NaN or Infinity, and no NUL characters."""
-    try:
-        text = json.dumps(v, ensure_ascii=False, allow_nan=False)
-    except ValueError as e:
-        raise ValueError(f"{field} has NaN or Infinity, which JSON can't hold") from e
-    if _has_nul(v):
-        raise ValueError(f"{field} has a NUL character (\\u0000), which Postgres can't store")
-    if max_bytes is not None and len(text.encode()) > max_bytes:
-        size = len(text.encode())
-        raise ValueError(f"{field} is {size} bytes of JSON; the limit is {max_bytes}")
-    return v
-
-
-def _no_nul(v: str) -> str:
-    if "\x00" in v:
-        raise ValueError("has a NUL character (\\u0000), which Postgres can't store")
-    return v
-
-
-Text = Annotated[str, AfterValidator(_no_nul)]  # free text stored in a Postgres TEXT column
-
-
 # --- Records: what the store returns and the API serves ---------------------------------------
-
-
-class Record(BaseModel):
-    model_config = ConfigDict(frozen=True)
 
 
 class DatasetRow(Record):
@@ -162,54 +126,6 @@ class VersionEntry(Item):
 class VersionDiff(VersionInfo):
     items: list[VersionEntry]
     removed: list[Item]  # as of the previous version
-
-
-# --- Errors ---------------------------------------------------------------------------------
-
-
-class DatasetError(Exception):
-    """A refusal the API returns as `{"detail": {"error": ..., ...}}` with `status`."""
-
-    status: ClassVar[int] = 422
-
-    def __init__(
-        self,
-        error: str,
-        *,
-        items: list[UUID] | None = None,
-        item_id: UUID | None = None,
-        dataset_id: UUID | None = None,
-        rev: int | None = None,
-    ):
-        super().__init__(error)
-        self.error, self.items, self.rev = error, items or [], rev
-        self.item_id, self.dataset_id = item_id, dataset_id
-
-    def detail(self) -> dict[str, Any]:
-        detail: dict[str, Any] = {"error": self.error}
-        if self.items:
-            detail["items"] = [str(i) for i in self.items]
-        if self.item_id is not None:
-            detail["item_id"] = str(self.item_id)
-        if self.dataset_id is not None:
-            detail["dataset_id"] = str(self.dataset_id)
-        if self.rev is not None:
-            detail["rev"] = self.rev
-        return detail
-
-
-class NotFound(DatasetError):
-    status = 404
-
-
-class Conflict(DatasetError):
-    status = 409
-
-
-class Refused(DatasetError):
-    """Well-formed, but breaks a rule."""
-
-    status = 422
 
 
 # --- Storage interface ----------------------------------------------------------------------

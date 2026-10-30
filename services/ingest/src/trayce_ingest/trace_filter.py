@@ -22,7 +22,7 @@ def _aware(value: datetime | None) -> datetime | None:
 
 
 Time = Annotated[datetime | None, AfterValidator(_aware)]
-Text = Annotated[str | None, Field(min_length=1, max_length=MAX_TEXT)]
+FilterText = Annotated[str | None, Field(min_length=1, max_length=MAX_TEXT)]
 
 
 class TraceFilter(BaseModel):
@@ -35,14 +35,14 @@ class TraceFilter(BaseModel):
     until: Time = None  # and before this
     status: TraceStatus | None = None
     tag: Annotated[list[str], Field(max_length=MAX_TAGS)] = []  # carries every one of these
-    user_id: Text = None
-    service_name: Text = None
+    user_id: FilterText = None
+    service_name: FilterText = None
     show_evals: bool = False
     show_replays: bool = False
     # The trace has a span of this kind, name, and model, errored when `span_error`.
     span_kind: SpanKind | None = None
-    span_name: Text = None
-    span_model: Text = None
+    span_name: FilterText = None
+    span_model: FilterText = None
     span_error: bool = False
 
     @model_validator(mode="after")

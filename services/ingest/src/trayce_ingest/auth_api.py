@@ -9,14 +9,17 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from trayce_ingest import auth as au
-from trayce_ingest.dataset_api import Body
+from trayce_ingest.http import Body
+from trayce_ingest.validation import Text
 
 PREFIX = "/v1/auth"
 MEMBERS_PREFIX = "/v1/members"
 KEYS_PREFIX = "/v1/keys"
 
-Password = Annotated[str, Field(max_length=au.MAX_PASSWORD_CHARS)]
-Email = Annotated[str, Field(max_length=254)]
+# Text: no NUL characters, which Postgres can't store and would answer with a 500.
+Password = Annotated[Text, Field(max_length=au.MAX_PASSWORD_CHARS)]
+Email = Annotated[Text, Field(max_length=254)]
+KeyName = Annotated[Text, Field(max_length=100)]
 
 
 class SetupState(BaseModel):
@@ -70,7 +73,7 @@ class KeyList(BaseModel):
 
 
 class NewKeyBody(Body):
-    name: Annotated[str, Field(max_length=100)]
+    name: KeyName
     scope: au.Scope
 
 

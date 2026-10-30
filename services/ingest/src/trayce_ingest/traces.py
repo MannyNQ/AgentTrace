@@ -15,7 +15,8 @@ from trayce.tracing import (
     INTERCEPTOR_ATTRIBUTE,
     OUTPUT_RECORDED_ATTRIBUTE,
 )
-from trayce_ingest.datasets import DatasetError, NotFound, Record, Refused
+from trayce_ingest.errors import ApiError, NotFound, Refused
+from trayce_ingest.records import Record
 from trayce_ingest.trace_inputs import decode_payload
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ MAX_STEPS = 1000  # every step's payloads are read, some from object storage
 MAX_STEP_BYTES = 64 * 1024 * 1024  # and held in memory to answer, so they're bounded too
 
 
-class Unavailable(DatasetError):
+class Unavailable(ApiError):
     """ClickHouse or object storage can't be read; `error` says which and why."""
 
     status = 503

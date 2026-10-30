@@ -19,7 +19,7 @@ from trayce_ingest.analytics import (
     ModelCostRow,
     TraceRow,
 )
-from trayce_ingest.datasets import Refused
+from trayce_ingest.errors import Refused
 from trayce_ingest.settings import Settings
 from trayce_ingest.stores import clickhouse_client
 from trayce_ingest.trace_filter import TraceFilter

@@ -12,13 +12,14 @@ from pydantic import BaseModel, Field
 from trayce_ingest import auth as au
 from trayce_ingest import locate as lc
 from trayce_ingest import projects as pr
-from trayce_ingest.dataset_api import Body
+from trayce_ingest.http import Body
+from trayce_ingest.validation import Text
 
 PREFIX = "/v1/projects"
 CURRENT = "/v1/project"
 LOCATE = "/v1/locate"
 
-Name = Annotated[str, Field(max_length=100)]
+ProjectName = Annotated[Text, Field(max_length=100)]
 
 
 class ProjectList(BaseModel):
@@ -26,11 +27,11 @@ class ProjectList(BaseModel):
 
 
 class NewProject(Body):
-    name: Name
+    name: ProjectName
 
 
 class ProjectPatch(Body):
-    name: Name | None = None
+    name: ProjectName | None = None
     retention_days: int | None = None
 
 

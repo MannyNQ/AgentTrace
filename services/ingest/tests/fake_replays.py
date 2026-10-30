@@ -8,7 +8,8 @@ from uuid import UUID
 from fake_datasets import FakeDatasets
 
 from trayce.eval.results import NewReplay
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import Status
 from trayce_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
 

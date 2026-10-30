@@ -7,7 +7,7 @@ import unicodedata
 from uuid import UUID
 
 from trayce_ingest.auth import Project, Store, User
-from trayce_ingest.datasets import NotFound, Refused
+from trayce_ingest.errors import NotFound, Refused
 
 MAX_SLUG_CHARS = 40
 MIN_RETENTION_DAYS, MAX_RETENTION_DAYS = 1, 3650

@@ -11,7 +11,8 @@ from psycopg.types.json import Jsonb
 
 from trayce.eval.results import NewReplay, SpanRef
 from trayce_ingest.dataset_store import ITEM_COLUMNS, item_from_row
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import Status
 from trayce_ingest.replays import PassCount, Replay, ReplayInfo, StoredReplayRun
 from trayce_ingest.settings import Settings

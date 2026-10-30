@@ -19,9 +19,12 @@ from trayce.eval.results import (
     StepWarning,
     ToolMode,
 )
-from trayce_ingest.datasets import Conflict, Item, NotFound, Record, Refused
-from trayce_ingest.experiments import Prices, Status, StoredRun, check_text, stored
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound, Refused
+from trayce_ingest.experiments import Prices, Status, StoredRun, stored
+from trayce_ingest.records import Record
 from trayce_ingest.trace_inputs import TraceRoots
+from trayce_ingest.validation import check_text
 
 # --- Records: what the store returns and the API serves ---------------------------------------
 

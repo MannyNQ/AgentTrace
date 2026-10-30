@@ -9,7 +9,8 @@ from fake_datasets import FakeDatasets
 
 from trayce.eval.results import NewExperiment
 from trayce.pricing import PriceTable
-from trayce_ingest.datasets import Conflict, Item, NotFound
+from trayce_ingest.datasets import Item
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import (
     Experiment,
     ExperimentInfo,

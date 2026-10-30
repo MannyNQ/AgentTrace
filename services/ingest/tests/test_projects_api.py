@@ -103,3 +103,9 @@ def test_renaming_to_a_taken_name_is_409(api: Api):
     new_project(api, owner, "Support Bot")
     body = {"name": "Support Bot"}
     api.call("PATCH", "/v1/project", body, session=owner, project="p-aa", status=409)
+
+
+def test_a_project_name_with_a_nul_character_is_422(api: Api):
+    owner = api.claim()
+    r = new_project(api, owner, "bad\x00name", status=422)
+    assert "NUL" in r["detail"]["fields"]["name"]

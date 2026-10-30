@@ -844,3 +844,20 @@ def test_an_ipv4_mapped_peer_is_trusted_like_its_ipv4_address():
         api.login(OWNER[0], "not-the-password", status=401, client="203.0.113.9")
     api.login(*OWNER, status=200, client="::ffff:198.51.100.4")
     assert (OWNER[0], "198.51.100.4") not in api.limiter.counts  # named as its IPv4 address
+
+
+def test_a_nul_character_is_refused_before_it_reaches_postgres(api: Api):
+    """Postgres TEXT can't hold \\u0000; psycopg would raise and the route answer 500."""
+    owner = api.claim()
+    r = api.login("owner\x00@example.com", OWNER[1], status=422)
+    assert "NUL" in api.error(r) or "NUL" in str(r.json()["detail"]["fields"])
+    body = {"name": "prod\x00agent", "scope": "ingest"}
+    r = api.call("POST", "/v1/keys", body, session=owner, project="p-aa", status=422)
+    assert "NUL" in r.json()["detail"]["fields"]["name"]
+    assert OWNER[1] not in r.text  # the error never echoes the request
+
+
+def test_a_validation_error_never_echoes_the_request(api: Api):
+    r = api.call("POST", "/v1/auth/login", {"email": "x@example.com", "password": 5}, status=422)
+    assert r.json()["detail"]["error"] == "some fields are invalid"
+    assert "input" not in r.text

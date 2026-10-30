@@ -12,8 +12,9 @@ from pydantic import Field, StringConstraints
 
 from trayce_ingest import traces as tr
 from trayce_ingest.auth import Auth, ProjectAccess
-from trayce_ingest.dataset_api import Body
-from trayce_ingest.datasets import Refused, TraceId
+from trayce_ingest.datasets import TraceId
+from trayce_ingest.errors import Refused
+from trayce_ingest.http import Body
 from trayce_ingest.trace_filter import TraceFilter
 from trayce_ingest.trace_inputs import RootInput, TraceRoots
 

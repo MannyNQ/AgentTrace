@@ -8,16 +8,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from trayce.eval.results import SpanRef
-from trayce_ingest.datasets import (
-    Conflict,
-    Contents,
-    Dataset,
-    DatasetRow,
-    Item,
-    NotFound,
-    Refused,
-    VersionInfo,
-)
+from trayce_ingest.datasets import Contents, Dataset, DatasetRow, Item, VersionInfo
+from trayce_ingest.errors import Conflict, NotFound, Refused
 from trayce_ingest.trace_inputs import RootInput, origin_of
 
 

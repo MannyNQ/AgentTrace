@@ -13,8 +13,9 @@ from collections import OrderedDict, defaultdict
 from typing import Literal
 from uuid import UUID
 
-from trayce_ingest.datasets import Conflict, NotFound, Record
+from trayce_ingest.errors import Conflict, NotFound
 from trayce_ingest.experiments import ExperimentInfo, SampleRow, ScoreRow, Store, get
+from trayce_ingest.records import Record
 
 ROUNDS = 10_000
 SEED = 20261025  # fixed, so a pair of experiments always compares the same way
