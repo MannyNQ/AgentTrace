@@ -24,6 +24,6 @@ We couldn't take the PyPI name, and a search for the product would land on any o
 ## Consequences
 
 - Two nearby names remain. The Trayce API client at trayce.dev (evanrolfe/trayce_gui) is an HTTP and network traffic tool for Docker: same spelling, different product, and it owns trayce.dev. Traycer is an AI coding tool. Copy must never link to trayce.dev or write "Traycer" (docs/brand/toolkit.md, section 8).
-- The domain is still undecided. trayce.dev is taken; trayce.com is parked and listed as possibly for sale.
+- At launch the landing page (`site/`) is served from GitHub Pages at https://mannynq.github.io/Trayce/, deployed by `.github/workflows/pages.yml`. A custom domain is deferred; gettrayce.com is the candidate. trayce.dev is taken, and trayce.com is parked and listed as possibly for sale.
 - Existing installs need their `AGENTTRACE_*` variables renamed to `TRAYCE_*`, and a dev stack started under the old Compose project name keeps its volumes under that name until it's taken down.
 - Until `trayce` is published to PyPI, the install path is still cloning the repo, and no copy prints a `pip install trayce` line.
