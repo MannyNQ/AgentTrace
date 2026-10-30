@@ -1,11 +1,12 @@
 name: Release
 
 # Push a tag vX.Y.Z matching sdk/python/pyproject.toml's version. The images go up first, tagged
-# X.Y.Z, so the `trayce` package on PyPI never names images that don't exist (ADR-0043).
+# X.Y.Z, so the `trayce` package on PyPI never names images that don't exist (ADR-0043). Then
+# the v1 tag moves to the release and a GitHub Release is made from CHANGELOG.md.
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]  # not v1, which this workflow moves
 
 jobs:
   version:
@@ -19,6 +20,11 @@ jobs:
           version=$(python3 -c "import tomllib; print(tomllib.load(open('sdk/python/pyproject.toml','rb'))['project']['version'])")
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "tag $GITHUB_REF_NAME doesn't match sdk/python/pyproject.toml's version $version" >&2
+            exit 1
+          fi
+          # Checked here, before anything is published, rather than in github-release.
+          if ! grep -qx "## $version" CHANGELOG.md; then
+            echo "CHANGELOG.md has no \"## $version\" section" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -70,3 +76,34 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
       - run: uv build --package trayce --out-dir dist
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  # Moved only after PyPI succeeds, so `uses: MannyNQ/Trayce@v1` always names a release whose
+  # package and images exist. action.yml installs the SDK from its own checkout, so the action at
+  # v1 runs that release's SDK.
+  v1:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: |
+          git tag -f v1 "$GITHUB_SHA"
+          git push -f origin refs/tags/v1
+
+  github-release:
+    needs: [version, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # The body is the "## X.Y.Z" section of CHANGELOG.md, up to the next "## ".
+          awk -v h="## $VERSION" '$0 == h { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md \
+            > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Trayce $VERSION" \
+            --notes-file notes.md
