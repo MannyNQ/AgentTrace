@@ -46,12 +46,11 @@ Key constraints from the ADRs:
 
 | Path | What |
 |---|---|
-| `sdk/python/` | `trayce` package. Phase 0: the span contract (`Span`, `SpanKind`, ID helpers) |
+| `sdk/python/` | `trayce` package. Phase 0: the span contract (`Span`, `SpanKind`, ID helpers). `stack/` is what `trayce up` runs (ADR-0043) |
 | `services/ingest/` | FastAPI ingest API. Phase 0: `/health` across all four stores |
 | `services/worker/` | Redis Streams consumer. Phase 0: joins the `workers` group and acks |
 | `web/` | Next.js UI. Phase 0: a service health page |
 | `examples/demo-agent/` | Customer-support agent with 5 mock tools; the test fixture for every later phase |
-| `infra/` | ClickHouse and Postgres init SQL, SeaweedFS S3 config |
 
 ## Decisions settled in Phase 1
 

@@ -14,4 +14,11 @@ def run(question: str) -> str: ...
 
 The SDK reads `TRAYCE_API_KEY` and `TRAYCE_ENDPOINT`. Extras: `trayce[eval]` for `trayce eval`, `trayce[otel]` for the OpenTelemetry bridge.
 
-See the [repository README](https://github.com/MannyNQ/Trayce#readme) for running the server.
+To run a Trayce server on this machine (needs Docker):
+
+```bash
+trayce up     # prints the web UI address, a setup token, and the settings for your agent
+trayce down   # stops it; --delete-data also deletes its data
+```
+
+See the [repository README](https://github.com/MannyNQ/Trayce#readme) for more.

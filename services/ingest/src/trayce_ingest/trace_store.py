@@ -1,4 +1,4 @@
-"""ClickHouse and S3 storage for trace reads (schema: infra/clickhouse, migrations/clickhouse).
+"""ClickHouse and S3 storage for trace reads (schema: migrations/clickhouse).
 Rows only; completion, status, and what a trace did are decided in `traces`."""
 
 from collections.abc import Iterator, Sequence

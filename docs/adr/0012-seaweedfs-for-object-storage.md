@@ -13,5 +13,5 @@ The compose stack uses SeaweedFS (`chrislusf/seaweedfs`, Apache 2.0) with its S3
 ## Consequences
 
 - Swapping in real S3, R2, or any S3-compatible store is a change of endpoint and credentials, nothing else.
-- The S3 credentials are `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env`; `infra/seaweedfs/start.sh` writes SeaweedFS's identity from them on every start, so changing them is one edit and no tracked file holds the secret.
+- The S3 credentials are `S3_ACCESS_KEY` / `S3_SECRET_KEY` in `.env`; `sdk/python/src/trayce/stack/seaweedfs-start.sh` writes SeaweedFS's identity from them on every start, so changing them is one edit and no tracked file holds the secret.
 - The ingest service creates the payload bucket on startup if it's missing, so there's no separate init container.

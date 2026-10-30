@@ -33,7 +33,7 @@ from trayce_ingest.records import Record
 
 log = logging.getLogger(__name__)
 
-DEFAULT_ORG_ID = UUID("00000000-0000-0000-0000-000000000001")  # infra/postgres/001_tenancy.sql
+DEFAULT_ORG_ID = UUID("00000000-0000-0000-0000-000000000001")  # migrations/0000_base.sql
 DEFAULT_PROJECT_ID = UUID("00000000-0000-0000-0000-000000000001")
 PROJECT_HEADER = "Trayce-Project"
 

@@ -10,7 +10,18 @@ Open-source observability and evals for LLM agents. Sentry plus pytest for AI ag
 >
 > From Phase 2 on, ingest applies database migrations on startup, so an existing dev stack upgrades in place with `docker compose up -d --build`. A stack from before Phase 1 still needs `docker compose down -v` (this deletes its data).
 
-## Quickstart
+## Run it
+
+Needs Docker (or OrbStack) and Python 3.12+.
+
+```bash
+pip install trayce
+trayce up
+```
+
+`trayce up` pulls the images, starts the stack, and prints the web UI's address, the setup token for creating the owner account, and the settings to point an agent or OpenTelemetry exporter at it. Its secrets and compose file live in `~/.trayce`. `trayce down` stops it, and `trayce down --delete-data` also deletes its data. This works from the first published release on (ADR-0043); until then, run it from source as below.
+
+## Develop from source
 
 Needs Docker (or OrbStack), [uv](https://docs.astral.sh/uv/), and pnpm.
 
@@ -37,7 +48,7 @@ uv run demo-agent "Where is order 1042?"
 
 Each run is traced into the local stack's default project; open http://localhost:3000/p/default/traces to see it. The SDK reads `TRAYCE_API_KEY` and `TRAYCE_ENDPOINT` (see `.env.example`). Click "Add to dataset" on a trace to turn it into a test case at http://localhost:3000/p/default/datasets.
 
-To trace your own agent, install the SDK from this repo: `pip install './sdk/python[eval]'`. Its PyPI name will be `trayce`, but it isn't published there yet.
+To trace your own agent, install the SDK: `pip install 'trayce[eval]'`, or `pip install './sdk/python[eval]'` from this repo before the first release.
 
 Evals: add the demo agent's traces to a dataset named `support`, write each item's expected output or expected tool calls, publish it, then:
 

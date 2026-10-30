@@ -2,12 +2,12 @@
 
 Each `migrations/NNNN_name.sql` runs once, in its own transaction, and is recorded in
 `schema_migrations`. An advisory lock keeps two ingest processes from applying the same file.
-The Phase 0 and 1 tables come from `infra/postgres` init SQL, which runs before ingest starts.
+`0000_base.sql` holds the Phase 0 and 1 tables, so the images need no init SQL (ADR-0043).
 
 ClickHouse has its own series, `migrations/clickhouse/NNNN_name.sql`, recorded in a ClickHouse
 `schema_migrations` table, under a second Postgres advisory lock. ClickHouse has no transactions,
 so each statement must be safe to run again (`IF NOT EXISTS`, `MODIFY QUERY`): a file that stops
-halfway is rerun whole on the next start. Its tables come from `infra/clickhouse` init SQL.
+halfway is rerun whole on the next start. Its tables come from `clickhouse/0000_base.sql`.
 """
 
 import re

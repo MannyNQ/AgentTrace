@@ -1,6 +1,7 @@
 """`trayce eval`: run the agent over a dataset version and upload the scores (ADR-0006).
 `trayce replay`: run it again on a recorded trace's input (ADR-0028), or fork it from a step
 or stub its tools (ADR-0040); see `run_replay`.
+`trayce up` / `trayce down`: run a server on this machine with Docker (`server`, ADR-0043).
 
 After a completed run it prints the comparison with the baseline (ADR-0024). Exit codes: 0 when
 the experiment completed, 1 when it failed (or, with `--fail-on-regression`, when it couldn't be
@@ -16,6 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from trayce import server
 from trayce.exporter import Config, flush
 
 
@@ -346,8 +348,15 @@ def main(argv: list[str] | None = None) -> None:
         default=os.environ.get("TRAYCE_WEB_URL"),
         help="the web UI's address, for the replay page link (default: $TRAYCE_WEB_URL)",
     )
+    server.add_parsers(sub)
     args = parser.parse_args(argv)
-    sys.exit(run_replay(args) if args.command == "replay" else run_eval(args))
+    commands = {
+        "eval": run_eval,
+        "replay": run_replay,
+        "up": server.run_up,
+        "down": server.run_down,
+    }
+    sys.exit(commands[args.command](args))
 
 
 if __name__ == "__main__":

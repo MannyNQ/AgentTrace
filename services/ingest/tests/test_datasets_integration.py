@@ -20,7 +20,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_migrations_are_listed_in_order_and_apply_once():
-    assert [name for _, name, _ in pending(set())][:1] == ["0001_datasets.sql"]
+    assert [name for _, name, _ in pending(set())][:2] == ["0000_base.sql", "0001_datasets.sql"]
     s = Settings()
     migrate(s.postgres_dsn)
     assert migrate(s.postgres_dsn) == []
