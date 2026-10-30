@@ -1,53 +1,53 @@
-running demo_agent.evals:eval_entry over support v2: 15 items x 3 samples
-[1/45] item 0e745a57 #2  answer:pass steps:pass few-steps:pass
-[2/45] item 0e745a57 #1  answer:pass steps:pass few-steps:pass
-[3/45] item 0e745a57 #0  answer:pass steps:pass few-steps:pass
-[4/45] item f5fbea25 #0  steps:pass few-steps:pass
-[5/45] item f5fbea25 #1  steps:pass few-steps:pass
-[6/45] item f5fbea25 #2  steps:pass few-steps:pass
-[7/45] item 56518cd4 #0  answer:pass steps:pass few-steps:pass
-[8/45] item 56518cd4 #1  answer:pass steps:pass few-steps:pass
-[9/45] item d0ffe63f #0  steps:FAIL few-steps:pass
-[10/45] item 56518cd4 #2  answer:pass steps:pass few-steps:pass
-[11/45] item d0ffe63f #1  steps:FAIL few-steps:pass
-[12/45] item d0ffe63f #2  steps:FAIL few-steps:pass
-[13/45] item b84997bb #0  steps:pass few-steps:pass
-[14/45] item b84997bb #1  steps:pass few-steps:pass
-[15/45] item b84997bb #2  steps:pass few-steps:pass
-[16/45] item bd404c1d #0  steps:pass few-steps:pass
-[17/45] item bd404c1d #2  steps:pass few-steps:pass
-[18/45] item bd404c1d #1  steps:pass few-steps:pass
-[19/45] item ab7bbbbe #0  steps:pass few-steps:pass
-[20/45] item ab7bbbbe #1  steps:pass few-steps:pass
-[21/45] item ab7bbbbe #2  steps:pass few-steps:pass
-[22/45] item 8cfb8b8a #1  steps:pass few-steps:pass
-[23/45] item 8cfb8b8a #0  steps:pass few-steps:pass
-[24/45] item 8cfb8b8a #2  steps:pass few-steps:pass
-[25/45] item 0874e921 #2  steps:pass few-steps:pass
-[26/45] item 0874e921 #1  steps:pass few-steps:pass
-[27/45] item 0874e921 #0  steps:pass few-steps:pass
-[28/45] item 8a978d2c #0  steps:pass few-steps:pass
-[29/45] item 8a978d2c #2  steps:pass few-steps:pass
-[30/45] item 8a978d2c #1  steps:pass few-steps:pass
-[31/45] item 9c1cb2af #0  steps:pass few-steps:pass
-[32/45] item 9c1cb2af #1  steps:pass few-steps:pass
-[33/45] item 9c1cb2af #2  steps:pass few-steps:pass
-[34/45] item 8371a3f6 #0  steps:pass few-steps:pass
-[35/45] item 8371a3f6 #1  steps:pass few-steps:pass
-[36/45] item 8371a3f6 #2  steps:pass few-steps:pass
-[37/45] item 58196a66 #2  steps:pass few-steps:pass
-[38/45] item 58196a66 #1  steps:pass few-steps:pass
-[39/45] item 58196a66 #0  steps:pass few-steps:pass
-[40/45] item b30e41f3 #0  answer:pass steps:pass few-steps:pass
-[41/45] item b30e41f3 #1  answer:pass steps:pass few-steps:pass
-[42/45] item b30e41f3 #2  answer:pass steps:pass few-steps:pass
-[43/45] item 80a4c47f #0  steps:pass few-steps:pass
-[44/45] item 80a4c47f #1  steps:pass few-steps:pass
-[45/45] item 80a4c47f #2  steps:pass few-steps:pass
-experiment 353eef3f-22b2-4c3a-a74d-38d3b3225e1c  completed  45 samples over 15 items  cost $0.6265
+running demo_agent.evals:eval_entry over support v1: 15 items x 3 samples
+[1/45] item cc4eced9 #0  answer:pass steps:pass few-steps:pass
+[2/45] item cc4eced9 #1  answer:pass steps:pass few-steps:pass
+[3/45] item 996c1db3 #0  steps:pass few-steps:pass
+[4/45] item cc4eced9 #2  answer:pass steps:pass few-steps:pass
+[5/45] item a3bce05f #1  answer:pass steps:pass few-steps:pass
+[6/45] item 996c1db3 #1  steps:pass few-steps:pass
+[7/45] item 996c1db3 #2  steps:pass few-steps:pass
+[8/45] item a3bce05f #0  answer:pass steps:pass few-steps:pass
+[9/45] item 2b04c3b3 #1  steps:FAIL few-steps:pass
+[10/45] item 2b04c3b3 #0  steps:FAIL few-steps:pass
+[11/45] item a3bce05f #2  answer:pass steps:pass few-steps:pass
+[12/45] item 2b04c3b3 #2  steps:FAIL few-steps:pass
+[13/45] item 32674ccf #1  steps:pass few-steps:pass
+[14/45] item 32674ccf #0  steps:pass few-steps:pass
+[15/45] item 9d6a9909 #0  steps:pass few-steps:pass
+[16/45] item 32674ccf #2  steps:pass few-steps:pass
+[17/45] item 9d6a9909 #2  steps:pass few-steps:pass
+[18/45] item 9d6a9909 #1  steps:pass few-steps:pass
+[19/45] item 701bdede #0  steps:pass few-steps:pass
+[20/45] item 91320bdb #1  steps:pass few-steps:pass
+[21/45] item 91320bdb #0  steps:pass few-steps:pass
+[22/45] item 91320bdb #2  steps:pass few-steps:pass
+[23/45] item 701bdede #1  steps:pass few-steps:pass
+[24/45] item 807ca8da #0  steps:pass few-steps:pass
+[25/45] item 701bdede #2  steps:pass few-steps:pass
+[26/45] item 807ca8da #1  steps:pass few-steps:pass
+[27/45] item 807ca8da #2  steps:pass few-steps:pass
+[28/45] item 3b8057f0 #0  steps:pass few-steps:pass
+[29/45] item c7b0e632 #0  steps:pass few-steps:pass
+[30/45] item 3b8057f0 #1  steps:pass few-steps:pass
+[31/45] item 3b8057f0 #2  steps:pass few-steps:pass
+[32/45] item c7b0e632 #1  steps:pass few-steps:pass
+[33/45] item 7b5b4128 #0  steps:pass few-steps:pass
+[34/45] item 7b5b4128 #1  steps:pass few-steps:pass
+[35/45] item 7b5b4128 #2  steps:pass few-steps:pass
+[36/45] item 58649f59 #0  steps:pass few-steps:pass
+[37/45] item c7b0e632 #2  steps:pass few-steps:pass
+[38/45] item 58649f59 #1  steps:pass few-steps:pass
+[39/45] item 58649f59 #2  steps:pass few-steps:pass
+[40/45] item b50a49ac #0  answer:pass steps:pass few-steps:pass
+[41/45] item b50a49ac #1  answer:pass steps:pass few-steps:pass
+[42/45] item b50a49ac #2  answer:pass steps:pass few-steps:pass
+[43/45] item 6ad20ff9 #0  steps:pass few-steps:pass
+[44/45] item 6ad20ff9 #1  steps:pass few-steps:pass
+[45/45] item 6ad20ff9 #2  steps:pass few-steps:pass
+experiment 862c4fd1-6701-4b5d-9ad0-c4f25459ead4  completed  45 samples over 15 items  cost $0.7009
   answer         9/9 (100%)  100% 100% 100%
   steps         42/45 (93%)  93% 93% 93%
   few-steps    45/45 (100%)  100% 100% 100%
 items failing most samples:
-  d0ffe63f  steps 0/3
+  2b04c3b3  steps 0/3
 baseline: none yet (no completed run with this eval.yaml at the merge-base or on the base branch)

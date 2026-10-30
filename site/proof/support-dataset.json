@@ -1,7 +1,7 @@
 {
   "dataset": "support",
-  "version": 2,
-  "note": "The demo agent's eval dataset for the landing-page proof. Items 1-4 are the original v1 items; 5-15 were added on 2026-10-27 so the gate has the power to judge a drop. Refund and return questions expect lookup_order first; status questions are controls the prompt edit shouldn't touch.",
+  "version": 1,
+  "note": "The demo agent's eval dataset for the landing-page proof, published as v1 of `support` on a fresh Trayce 0.1.1 stack on 2026-10-30. Items 1-4 are the original items; 5-15 were added on 2026-10-27 so the gate has the power to judge a drop. Refund and return questions expect lookup_order first; status questions are controls the prompt edit shouldn't touch.",
   "items": [
     {"input": {"question": "Where is order 1042?", "client": null}, "expected_output": "UPS", "expected_trajectory": [{"tool": "lookup_order", "args": {"order_id": "1042"}}]},
     {"input": {"question": "I'd like to return order 1043, I changed my mind.", "client": null}, "expected_trajectory": [{"tool": "lookup_order", "args": {"order_id": "1043"}}, {"tool": "issue_refund", "args": {"order_id": "1043"}}]},

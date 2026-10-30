@@ -1,28 +1,28 @@
-// Draws the interlocking diagram from two real traces of the demo agent (site/proof/trace-6a1896b9….jsonl
-// for main, trace-fa77e079….jsonl for the PR), sets routes from the NX buttons, reads any berth into
+// Draws the interlocking diagram from two real traces of the demo agent (site/proof/trace-d5d3dd53….jsonl
+// for main, trace-6696a708….jsonl for the PR), sets routes from the NX buttons, reads any berth into
 // the describer, and makes the copy buttons work. Without this file the page still reads: the
 // describer shows the points and a text list carries both runs.
 
 // What each berth (one span) shows and reads out. Positions live in the layouts below.
 const BERTHS = [
   { id: "Q", text: "“1044?”", routes: ["main", "pr"], head: "Berth Q · the question",
-    read: "support_agent, both runs · input “Can I get a refund on order 1044?” · main 4.47 s, $0.0148 · PR 5.22 s, $0.0132" },
-  { id: "P12", text: "llm 1.78|2.85", routes: ["main", "pr"], head: "Berth P12 · points",
-    read: 'The first LLM call picks the tools. main: lookup_order(order_id="1044"), then search_kb · PR: search_kb(query="refund policy") only · 1.78 s · 2.85 s' },
+    read: "support_agent, both runs · input “Can I get a refund on order 1044?” · main 5.11 s, $0.0145 · PR 4.69 s, $0.0139" },
+  { id: "P12", text: "llm 2.14|1.66", routes: ["main", "pr"], head: "Berth P12 · points",
+    read: 'The first LLM call picks the tools. main: lookup_order(order_id="1044"), then search_kb · PR: search_kb(query="refund policy") only · 2.14 s · 1.66 s' },
   { id: "M1", text: "lookup_order", routes: ["main"], head: "Berth M1 · main · tool span",
     read: 'lookup_order(order_id="1044") · ok · status "delivered", delivered_on "2026-08-01". The step the PR skipped.' },
   { id: "M4", text: "search_kb", routes: ["main"], head: "Berth M4 · main · tool span",
     read: 'search_kb(query="refund policy") · ok. main reads the policy too, but only after it has checked the order.' },
-  { id: "M2", text: "llm 2.69 s", routes: ["main"], head: "Berth M2 · main · llm span",
-    read: "anthropic.messages.create · claude-opus-5-5 · 2.69 s · 1,309 → 184 tokens · $0.0089" },
+  { id: "M2", text: "llm 2.96 s", routes: ["main"], head: "Berth M2 · main · llm span",
+    read: "anthropic.messages.create · claude-opus-5-5 · 2.96 s · 1,309 → 169 tokens · $0.0086" },
   { id: "M3", text: "can’t refund", routes: ["main"], head: "Berth M3 · main · answer",
-    read: "“I’m sorry, but I can’t refund order 1044. It was delivered on August 1, 2026, which is about 87 days ago…” · answer pass · steps pass" },
+    read: "“I’m sorry, but I can’t refund order 1044. It was delivered on August 1, 2026, about 90 days ago…” · answer pass · steps pass" },
   { id: "R1", text: "search_kb", routes: ["pr"], head: "Berth R1 · PR · tool span",
     read: 'search_kb(query="refund policy") · ok · [{"id": "refund-policy", …}]. A real tool, the wrong step: the policy can’t say when 1044 was delivered.' },
-  { id: "R2", text: "llm 2.37 s", routes: ["pr"], head: "Berth R2 · PR · llm span",
-    read: "anthropic.messages.create · claude-opus-5-5 · 2.37 s · 1,160 → 149 tokens · $0.0076" },
+  { id: "R2", text: "llm 3.03 s", routes: ["pr"], head: "Berth R2 · PR · llm span",
+    read: "anthropic.messages.create · claude-opus-5-5 · 3.03 s · 1,139 → 208 tokens · $0.0087" },
   { id: "R3", text: "“it qualifies”", routes: ["pr"], head: "Berth R3 · PR · answer",
-    read: "“I can’t say for sure without checking order 1044. … If 1044 was delivered within the last 30 days, it qualifies.” · answer pass · steps FAIL" },
+    read: "“Under our refund policy, delivered orders can be refunded within 30 days of delivery, so order 1044 qualifies if it arrived on or after October 1, 2026. …” · answer pass · steps FAIL" },
 ];
 
 // Track circuits light for the routes listed; the 6px breaks between them are the insulated joints.
@@ -47,7 +47,7 @@ const WIDE = (() => {
     },
     tick: (b, [x, y]) => (y < M ? [x, y + 34, x, M - 8] : [x, L + 8, x, y]),
     signals: [{ x: 1252, y: M, up: true, ok: true, label: "S1" }, { x: 1252, y: L, up: false, ok: false, label: "S2" }],
-    plates: [[40, M + 26, "Up main · main @ 27a9da5", 196], [304, M + 26, "P12 points · reversed by the PR", 232], [712, L + 84, "PR loop · landing-page @ 8803625", 236]],
+    plates: [[40, M + 26, "Up main · main @ bd0e24a", 196], [304, M + 26, "P12 points · reversed by the PR", 232], [712, L + 84, "PR loop · prompt-change @ f15af57", 244]],
     labels: [[40, L + 36, "Support_agent Jn. · Diagram 1044"], [40, L + 56, "Track circuits T101–T110"]],
   };
 })();
