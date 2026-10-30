@@ -6,7 +6,7 @@ import re
 import unicodedata
 from uuid import UUID
 
-from trayce_ingest.auth import Project, Store, User
+from trayce_ingest.auth import Owner, Project, ProjectOwner, Store, User
 from trayce_ingest.errors import NotFound, Refused
 
 MAX_SLUG_CHARS = 40
@@ -46,23 +46,23 @@ def get(store: Store, project_id: UUID) -> Project:
     return project
 
 
-def create(store: Store, owner: User, name: str) -> Project:
+def create(store: Store, owner: Owner, name: str) -> Project:
     """The slug comes from the name, with `-2`, `-3`, ... added until it's free in the org."""
     name, base = _name(name), slugify(name)
     for n in range(1, MAX_SLUG_TRIES + 1):
         suffix = "" if n == 1 else f"-{n}"
         slug = base[: MAX_SLUG_CHARS - len(suffix)].rstrip("-") + suffix
-        project = store.create_project(owner.org_id, name, slug)
+        project = store.create_project(owner.user.org_id, name, slug)
         if project is not None:
             return project
     raise Refused(f'too many projects have slugs like "{base}"; pick a more distinct name')
 
 
-def update(store: Store, project_id: UUID, name: str | None, retention_days: int | None) -> Project:
+def update(store: Store, by: ProjectOwner, name: str | None, retention_days: int | None) -> Project:
     """A new `retention_days` applies to spans ingested from then on; stored spans keep the
     retention stamped on them (ADR-0016)."""
     return store.update_project(
-        project_id,
+        by.project_id,
         None if name is None else _name(name),
         None if retention_days is None else _retention(retention_days),
     )
